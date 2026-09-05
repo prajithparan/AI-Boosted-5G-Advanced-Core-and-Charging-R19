@@ -74,6 +74,10 @@ public:
     // `serviceSpecificUnits`, never both for one rating group, and adding octets to service units
     // would produce a ratio that means nothing. A session that somehow mixed them proportions each
     // dimension against its own grant.
+    // ADR-0304: the third dimension. Duration grants (GrantedUnit.time) are what make CAP's
+    // ApplyChargingReport -- which reports elapsed TIME -- proportionable at all.
+    void add_granted_time(const std::string& ref, double seconds);
+    double get_granted_time(const std::string& ref);
     void add_granted_volume(const std::string& ref, double octets);
     void add_granted_service_units(const std::string& ref, double units);
     double get_granted_volume(const std::string& ref);

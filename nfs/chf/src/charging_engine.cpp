@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <nf_config/nf_config.hpp>
@@ -192,10 +193,38 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
         sbi_gen::GrantedUnit grant{};
         const auto amount = *price.unitOfMeasure->amount;
         const auto units = price.unitOfMeasure->units.value_or("");
-        if (units == "GB") {
+        // ADR-0304 (C2 of ADR-0300): DURATION units produce a real `GrantedUnit.time`.
+        //
+        // Until now every non-GB/MB unit fell into `serviceSpecificUnits`, so a per-minute voice
+        // price silently became a service-unit grant and `GrantedUnit.time` was NEVER populated
+        // anywhere in this project. Three separately-disclosed gaps all traced back to that one
+        // fact: CAP's `maxCallPeriodDuration` is derived from `grant->time` and was therefore
+        // always 0 (ADR-0298), CAP's finalization could not be proportional because its report is
+        // in time while its grant was in volume (ADR-0297), and time-based bundles were listed as
+        // Partial in README's product table. This closes all three at the source.
+        //
+        // Units are matched case-insensitively against the real TM Forum `unitOfMeasure.units`
+        // string an operator configures. `GrantedUnit.time` is Uint32 SECONDS per TS 32.291, so
+        // every duration unit converts to seconds here rather than being carried in its own scale.
+        std::string unit_upper;
+        unit_upper.reserve(units.size());
+        for (const char c : units) {
+            unit_upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+        }
+        if (unit_upper == "GB") {
             grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000'000.0);
-        } else if (units == "MB") {
+        } else if (unit_upper == "MB") {
             grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000.0);
+        } else if (unit_upper == "SEC" || unit_upper == "SECOND" || unit_upper == "SECONDS" ||
+                   unit_upper == "S") {
+            grant.time = static_cast<std::uint32_t>(amount);
+        } else if (unit_upper == "MIN" || unit_upper == "MINUTE" || unit_upper == "MINUTES") {
+            grant.time = static_cast<std::uint32_t>(amount * 60.0);
+        } else if (unit_upper == "HOUR" || unit_upper == "HOURS" || unit_upper == "HR" ||
+                   unit_upper == "H") {
+            grant.time = static_cast<std::uint32_t>(amount * 3600.0);
+        } else if (unit_upper == "DAY" || unit_upper == "DAYS") {
+            grant.time = static_cast<std::uint32_t>(amount * 86400.0);
         } else {
             grant.serviceSpecificUnits = static_cast<std::uint64_t>(amount);
         }
@@ -570,6 +599,12 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                 if (result.rating.grant->serviceSpecificUnits.has_value()) {
                     charging_data_store.add_granted_service_units(
                         ref, static_cast<double>(*result.rating.grant->serviceSpecificUnits));
+                }
+                // ADR-0304: the time dimension, so a duration grant can be finalized
+                // proportionally the same way volume already is (ADR-0297).
+                if (result.rating.grant->time.has_value()) {
+                    charging_data_store.add_granted_time(
+                        ref, static_cast<double>(*result.rating.grant->time));
                 }
             }
         } else if (reserve_rejected_counter != nullptr) {

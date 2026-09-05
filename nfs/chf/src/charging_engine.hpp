@@ -210,7 +210,12 @@ double proportional_debit(double total_reserved,
                           double granted_volume,
                           double used_volume,
                           double granted_service_units,
-                          double used_service_units);
+                          double used_service_units,
+                          // ADR-0304: the time dimension. Defaulted to zero so every existing
+                          // caller keeps its exact behaviour; a session with no duration grant
+                          // proportions on the dimensions it does have, as before.
+                          double granted_time = 0.0,
+                          double used_time = 0.0);
 
 // P4.4/ADR-0058: writes one real CDR row (chf::CdrRecord, see cdr.hpp) per MultipleUnitUsage
 // entry -- every field here is either a real TS 32.291 value already flowing through the caller,

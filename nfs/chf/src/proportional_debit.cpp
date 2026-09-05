@@ -16,7 +16,9 @@ double proportional_debit(double total_reserved,
                           double granted_volume,
                           double used_volume,
                           double granted_service_units,
-                          double used_service_units) {
+                          double used_service_units,
+                          double granted_time,
+                          double used_time) {
     if (total_reserved <= 0.0) {
         return 0.0;
     }
@@ -24,7 +26,8 @@ double proportional_debit(double total_reserved,
     // rather than nothing: an unmeasurable session is not a free session.
     const bool has_volume_grant = granted_volume > 0.0;
     const bool has_unit_grant = granted_service_units > 0.0;
-    if (!has_volume_grant && !has_unit_grant) {
+    const bool has_time_grant = granted_time > 0.0;
+    if (!has_volume_grant && !has_unit_grant && !has_time_grant) {
         return total_reserved;
     }
 
@@ -37,6 +40,12 @@ double proportional_debit(double total_reserved,
     if (has_unit_grant) {
         granted_weight += granted_service_units;
         consumed_weight += std::min(used_service_units, granted_service_units);
+    }
+    // ADR-0304: seconds, proportioned against their own grant like the other two dimensions and
+    // never summed with them -- octets, service units and seconds are not commensurable.
+    if (has_time_grant) {
+        granted_weight += granted_time;
+        consumed_weight += std::min(used_time, granted_time);
     }
     if (granted_weight <= 0.0) {
         return total_reserved;

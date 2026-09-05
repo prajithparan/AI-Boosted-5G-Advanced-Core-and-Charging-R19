@@ -83,6 +83,16 @@ double ChargingDataStore::get_reserved_total(const std::string& ref) {
     return std::stod(*value);
 }
 
+// ADR-0304. Same field/key/atomicity discipline as the others.
+void ChargingDataStore::add_granted_time(const std::string& ref, double seconds) {
+    redis_->hincrbyfloat(charging_data_content_key(ref), "granted_time", seconds);
+}
+
+double ChargingDataStore::get_granted_time(const std::string& ref) {
+    const auto value = redis_->hget(charging_data_content_key(ref), "granted_time");
+    return value ? std::stod(*value) : 0.0;
+}
+
 // ADR-0297. Same field/key/atomicity discipline as reserved_total above.
 void ChargingDataStore::add_granted_volume(const std::string& ref, double octets) {
     redis_->hincrbyfloat(charging_data_content_key(ref), "granted_volume", octets);

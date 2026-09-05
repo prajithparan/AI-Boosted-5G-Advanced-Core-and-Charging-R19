@@ -60,3 +60,42 @@ TEST(ProportionalDebit, ZeroOrNegativeReservationChargesNothing) {
     EXPECT_DOUBLE_EQ(chf::proportional_debit(0.0, 1'000.0, 500.0, 0.0, 0.0), 0.0);
     EXPECT_DOUBLE_EQ(chf::proportional_debit(-1.0, 1'000.0, 500.0, 0.0, 0.0), 0.0);
 }
+
+// --- the time dimension (ADR-0304, C2) ---
+//
+// Duration grants are what make CAP's ApplyChargingReport proportionable at all: it reports
+// elapsed seconds, and before C2 the rating engine never produced a `GrantedUnit.time` for those
+// seconds to be measured against.
+
+TEST(ProportionalDebit, ATimeGrantIsProportionedByElapsedSeconds) {
+    // A 60-second grant, 15 seconds used -> a quarter of the money. The per-minute voice case.
+    const double debit = chf::proportional_debit(kReserved,
+                                                 /*granted_volume=*/0.0,
+                                                 /*used_volume=*/0.0,
+                                                 /*granted_service_units=*/0.0,
+                                                 /*used_service_units=*/0.0,
+                                                 /*granted_time=*/60.0,
+                                                 /*used_time=*/15.0);
+    EXPECT_DOUBLE_EQ(debit, 2.5);
+}
+
+TEST(ProportionalDebit, ACallLongerThanItsGrantNeverChargesMoreThanWasReserved) {
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(kReserved, 0.0, 0.0, 0.0, 0.0, 60.0, 600.0),
+                     kReserved);
+}
+
+TEST(ProportionalDebit, AZeroLengthCallChargesNothing) {
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(kReserved, 0.0, 0.0, 0.0, 0.0, 60.0, 0.0), 0.0);
+}
+
+TEST(ProportionalDebit, TimeAndVolumeAreProportionedIndependentlyNotSummed) {
+    // Seconds and octets are not commensurable; each is measured against its own grant. Half of
+    // each here -> half the money.
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(kReserved, 1'000.0, 500.0, 0.0, 0.0, 60.0, 30.0), 5.0);
+}
+
+TEST(ProportionalDebit, ExistingCallersWithNoTimeGrantAreUnaffected) {
+    // The backward-compatibility guarantee: the two-dimension call still behaves exactly as it did
+    // before the time dimension existed.
+    EXPECT_DOUBLE_EQ(chf::proportional_debit(kReserved, 5'000.0, 1'000.0, 0.0, 0.0), 2.0);
+}

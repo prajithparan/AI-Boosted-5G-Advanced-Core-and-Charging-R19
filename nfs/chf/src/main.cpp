@@ -972,6 +972,7 @@ int main() {
             // ADR-0297: what was granted across this session, to proportion the debit against.
             const auto granted_volume = charging_data_store.get_granted_volume(ref);
             const auto granted_service_units = charging_data_store.get_granted_service_units(ref);
+            const auto granted_time = charging_data_store.get_granted_time(ref); // ADR-0304
             if (!charging_data_store.release(ref)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No active charging data resource " + ref);
@@ -981,6 +982,7 @@ int main() {
             // that was previously decoded, written to the CDR, and then ignored when charging.
             double used_volume = 0.0;
             double used_service_units = 0.0;
+            double used_time = 0.0; // ADR-0304: usedUnitContainer's own `time`, in seconds
             if (body->multipleUnitUsage.has_value()) {
                 for (const auto& usage : *body->multipleUnitUsage) {
                     if (!usage.usedUnitContainer.has_value()) {
@@ -990,6 +992,7 @@ int main() {
                         used_volume += static_cast<double>(container.totalVolume.value_or(0));
                         used_service_units +=
                             static_cast<double>(container.serviceSpecificUnits.value_or(0));
+                        used_time += static_cast<double>(container.time.value_or(0));
                     }
                 }
             }
@@ -997,7 +1000,9 @@ int main() {
                                                                  granted_volume,
                                                                  used_volume,
                                                                  granted_service_units,
-                                                                 used_service_units);
+                                                                 used_service_units,
+                                                                 granted_time,
+                                                                 used_time);
             if (supi.has_value() && !supi->empty()) {
                 spdlog::info("chf: Release finalize for {} -- reserved {}, debiting {} "
                              "(used {} of {} octets, {} of {} service units)",

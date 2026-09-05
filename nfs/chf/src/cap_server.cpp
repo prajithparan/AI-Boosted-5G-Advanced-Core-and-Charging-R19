@@ -363,24 +363,50 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                         continue;
                     }
 
-                    // ADR-0297 made the HTTP Release and Diameter Gy paths charge proportionally.
-                    // CAP deliberately does NOT, and the reason is a real dimension mismatch
-                    // rather than unfinished work: this project's rating engine grants
-                    // `totalVolume` (octets) or `serviceSpecificUnits`, never `time`, while
-                    // ApplyChargingReport reports elapsed TIME. Proportioning a volume grant by an
-                    // elapsed duration would require a seconds-to-octets conversion that no
-                    // configuration, price or specification in this project defines -- inventing
-                    // one would silently produce wrong money. So CAP finalizes the full reservation
-                    // and this stays a real, named gap: a CAP-charged call is billed its whole
-                    // grant regardless of how briefly it ran. Closing it needs a time-priced
-                    // offering in the catalog, which is product configuration, not codec work.
+                    // ADR-0304 closes what ADR-0297 had to disclose here. That entry said CAP
+                    // could not charge proportionally because the rating engine granted volume or
+                    // service units while ApplyChargingReport reports elapsed TIME, and no
+                    // seconds-to-octets conversion exists to bridge them. The fix was never a
+                    // conversion -- it was making duration a real grant dimension, which C2 did.
+                    //
+                    // So: when this session holds a TIME grant, the elapsed seconds the gsmSSF
+                    // actually reported proportion the debit, exactly as octets do on the HTTP
+                    // path. When it does not (a volume-priced offering charged over CAP, which is
+                    // an operator configuration choice this code does not prevent), the dimension mismatch is
+                    // real and unchanged, and the full reservation is still finalized -- so the
+                    // honest behaviour is preserved for exactly the case that used to be the only
+                    // case.
                     const auto reserved_total =
                         charging_data_store_.get_reserved_total(*current_ref);
+                    const auto granted_time = charging_data_store_.get_granted_time(*current_ref);
+                    const auto granted_volume =
+                        charging_data_store_.get_granted_volume(*current_ref);
+                    const auto granted_units =
+                        charging_data_store_.get_granted_service_units(*current_ref);
+                    const auto amount_to_debit =
+                        granted_time > 0.0
+                            ? chf::proportional_debit(reserved_total,
+                                                      /*granted_volume=*/0.0,
+                                                      /*used_volume=*/0.0,
+                                                      /*granted_service_units=*/0.0,
+                                                      /*used_service_units=*/0.0,
+                                                      granted_time,
+                                                      static_cast<double>(elapsed_seconds))
+                            : reserved_total;
+                    (void)granted_volume;
+                    (void)granted_units;
                     charging_data_store_.release(*current_ref);
+                    spdlog::info("chf: CAP finalize for {} -- reserved {}, debiting {} (used {}s "
+                                 "of {}s granted)",
+                                 *current_ref,
+                                 reserved_total,
+                                 amount_to_debit,
+                                 elapsed_seconds,
+                                 granted_time);
                     chf::finalize_subscriber_balance(balance_client,
                                                      *current_supi,
                                                      reserved_total,
-                                                     reserved_total,
+                                                     amount_to_debit,
                                                      "CAP-gsmSSF ApplyChargingReport " +
                                                          *current_ref);
 
