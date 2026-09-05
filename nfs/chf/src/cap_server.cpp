@@ -372,10 +372,10 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                     // So: when this session holds a TIME grant, the elapsed seconds the gsmSSF
                     // actually reported proportion the debit, exactly as octets do on the HTTP
                     // path. When it does not (a volume-priced offering charged over CAP, which is
-                    // an operator configuration choice this code does not prevent), the dimension mismatch is
-                    // real and unchanged, and the full reservation is still finalized -- so the
-                    // honest behaviour is preserved for exactly the case that used to be the only
-                    // case.
+                    // an operator configuration choice this code does not prevent), the dimension
+                    // mismatch is real and unchanged, and the full reservation is still finalized
+                    // -- so the honest behaviour is preserved for exactly the case that used to be
+                    // the only case.
                     const auto reserved_total =
                         charging_data_store_.get_reserved_total(*current_ref);
                     const auto granted_time = charging_data_store_.get_granted_time(*current_ref);
