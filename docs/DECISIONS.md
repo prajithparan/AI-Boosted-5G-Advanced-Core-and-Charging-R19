@@ -24972,27 +24972,77 @@ disclosure.
 | C6 | **Postpaid billing / invoicing** | Partial | CDRs land in Doris; there is no bill run. Needs TMF678 `CustomerBill` generation from rated usage, and TMF666 account balance roll-up |
 | C7 | **Slice-based products** | **Does not exist as a concept** | New. S-NSSAI is carried through the charging path but is not a rating dimension: an operator cannot price a slice differently, sell a slice-scoped allowance, or rate per-slice. Needs S-NSSAI as a first-class rating input alongside `ratingGroup`, and slice-scoped offerings in the catalog |
 
-### Two dependencies that are NOT mine to invent, flagged rather than silently absorbed
+### Both dependencies I flagged are RESOLVED -- and the first flag was factually wrong
 
-1. **Roaming settlement (part of C5) stays blocked on spec material.** TAP3/RAP/NRTRDE are GSMA
-   documents, not 3GPP, and no copy is in this repository. The *rating* half of C5 — charging
-   roaming traffic at a roaming price — needs no GSMA text and is in scope. The *settlement* half
-   (producing files a real clearing house would accept) is not startable without the specification,
-   and this project's standing rule is that a fabricated file format is worse than an absent one.
-   This needs the documents or an explicit decision to descope settlement.
+**Correction, same day.** I wrote that roaming settlement was "not startable without the
+specification" and that "no copy is in this repository". That was wrong, and checking before
+writing it would have shown so. `libs/tap3-core` cites **GSMA TD.57, "TAP 3.12 Format
+Specification" V36.4, 15 May 2019** in its own header and contains **112 encode/decode functions**
+covering the full envelope (`DataInterchange` -> `TransferBatch`/`Notification` ->
+`BatchControlInfo`/`AccountingInfo`/`NetworkInfo`/`AuditControlInfo`) and **all nine
+`CallEventDetail` variants** -- MobileOriginatedCall, MobileTerminatedCall, GprsCall,
+ContentTransaction, MessagingEvent, MobileSession, LocationService, SupplServiceEvent,
+ServiceCentreUsage -- plus ChargeInformation/ChargeDetail/TaxInformation/DiscountInformation and
+AggregatedUsageRecord. Both directions. The ASN.1 detail the user pointed me back to is already
+extracted and in the codebase.
 
-2. **C7's commercial model needs an operator decision, not just code.** "Slice-based product" can
-   mean at least three different things: a slice-scoped allowance (10 GB usable only on the eMBB
-   slice), slice-differentiated pricing (the same GB costs more on a URLLC slice), or a
-   slice-as-subscription (a flat fee for slice access, usage unmetered). They imply different
-   catalog shapes and different rating logic. Building one and calling it "slice-based products"
-   would be picking for the operator. This is the question to settle before C7 starts.
+So the real gap was never spec material. It is **processing**, and that is a different and much
+more tractable piece of work:
 
-### Order
+| | What exists | What is missing |
+|---|---|---|
+| **TAP OUT** | `encode_data_interchange`, `make_tap3_roaming_cdr_file` (bss/roaming-interconnect) | Nothing collects this project's own roaming CDRs into a batch, applies sequence numbering/audit totals, or emits a file on a schedule |
+| **TAP IN** | `decode_data_interchange`, `decode_tap3_roaming_cdr_file` | Nothing ingests a partner's file, validates it, rates the inbound records, or posts them to the BSS |
+| **RAP** (returned accounts) | nothing | Genuinely absent -- a separate GSMA document (TD.32), and no `ReturnBatch`/`RapBatch` type exists in `tap3-core` |
+| **NRTRDE** (near-real-time fraud exchange) | nothing | Genuinely absent -- separate GSMA document (TD.35) |
 
-C2 first: it is one change (a duration `unitOfMeasure`) that closes three already-disclosed gaps
-across two protocols, so it has the best ratio of work to debt removed. Then C1 (group buckets),
-C5-rating, C7 once its model is chosen, C3, C4, C6.
+**User direction: TAP IN and TAP OUT processing are both required.** They are in scope now and
+need no further documents. RAP and NRTRDE remain honestly unstarted and would need TD.32/TD.35 --
+that narrower statement is the one that is actually true, unlike the sentence it replaces.
+
+### C7 answered: attribute-based charging, not a fixed slice model
+
+**User direction, verbatim in intent:** *"10GB is usable on Slice ID 1 OR 5GB on Slice ID 10 OR
+UPF ID 5. Such model MUST be supported. Ideally any attribute coming to CHF on N40/N28 shall be
+used for Charging and model product."*
+
+That is broader than the three options I offered, and it supersedes them. The requirement is not
+"S-NSSAI as a rating dimension" -- it is **a general attribute-based rating model**: any attribute
+arriving at CHF over N40 (`Nchf_ConvergedCharging`, from SMF) or N28
+(`Nchf_SpendingLimitControl`, from PCF) must be usable both as a rating input and as a product
+definition dimension.
+
+Concretely that means an allowance is scoped by a *predicate over request attributes*, not by a
+rating group alone:
+
+- 10 GB usable where `sNssai == {sst:1, sd:...}`
+- 5 GB usable where `sNssai == {sst:10, ...}`
+- an allowance usable where `uPFID == <id>`
+- and, by construction, the same mechanism for `dnn`, `ratType`, `servingNetworkId` (which is what
+  makes C5's roaming *rating* fall out of the same change), `chargingCharacteristics`, and anything
+  else the real TS 32.291 request already carries.
+
+Design consequence, stated now because it determines the shape: the rating engine currently keys
+on `ratingGroup` alone (`build_rating_grant(catalog_client, rating_group, ...)`). This needs the
+whole `MultipleUnitUsage` plus its parent `ChargingDataRequest` context available to matching, and
+TMF620 offerings need an attribute-predicate characteristic so the scope is **catalog data, not
+code** -- principle P7, which would otherwise be broken by hardcoding slice ids.
+
+This makes C7 the largest item in this ADR and arguably the one the others depend on: C5's roaming
+rating, C1's group scoping and C2's time grants all become configurations of the same mechanism
+rather than three separate features.
+
+### Order (revised after the clarifications above)
+
+**C7 first, not last.** It was ordered last when it looked like one more product type awaiting a
+business decision. With attribute-based rating as the requirement, it is the *mechanism* the others
+are expressed in: C5's roaming rating is a predicate on `servingNetworkId`, C1's group scoping and
+C2's time grants both plug into the same matching. Building C2 or C5 first would mean building them
+twice.
+
+So: **C7** (attribute-predicate rating + catalog shape), then **C2** (duration `unitOfMeasure` --
+still one change closing three disclosed gaps across two protocols), **C5-rating**, **C1** (group
+buckets), **TAP IN / TAP OUT processing**, **C3**, **C4**, **C6**.
 
 Nothing here is claimed as started. `README.md`'s table stays exactly as honest as it is until each
 row actually changes.

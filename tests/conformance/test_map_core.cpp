@@ -254,3 +254,76 @@ TEST(MapOperations, CancelLocationArgRejectsAnImsiWithLmsiIdentityArm) {
 TEST(MapOperations, CancelLocationResEmptyRoundTrips) {
     EXPECT_TRUE(map_core::decode_cancel_location_res(map_core::encode_cancel_location_res()));
 }
+
+// --- updateLocation / purgeMS (ADR-0299) ---
+//
+// The hazard worth pinning: UpdateLocationArg's `imsi` and `vlr-Number` are BOTH untagged
+// UNIVERSAL OCTET STRINGs, sitting either side of a tagged `msc-Number [1]`. Nothing but POSITION
+// tells them apart, so a decoder that searched by tag would silently swap a subscriber identity
+// with a network address.
+
+TEST(MapOperations, UpdateLocationArgRoundTripsAndKeepsImsiAndVlrDistinct) {
+    map_core::UpdateLocationArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("999700000000901");
+    arg.msc_number = tbcd_core::encode_tbcd("99970000002");
+    arg.vlr_number = tbcd_core::encode_tbcd("99970000003");
+
+    const auto decoded =
+        map_core::decode_update_location_arg(map_core::encode_update_location_arg(arg));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->imsi), "999700000000901");
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->msc_number), "99970000002");
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->vlr_number), "99970000003")
+        << "imsi and vlr-Number were swapped -- they are told apart only by position";
+}
+
+TEST(MapOperations, UpdateLocationArgRejectsAMissingMandatoryField) {
+    // Only one untagged OCTET STRING present: imsi without vlr-Number. All three are mandatory.
+    map_core::UpdateLocationArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("999700000000901");
+    arg.msc_number = tbcd_core::encode_tbcd("99970000002");
+    arg.vlr_number = {}; // empty -> the encoder emits a zero-length OCTET STRING
+    const auto bytes = map_core::encode_update_location_arg(arg);
+    const auto decoded = map_core::decode_update_location_arg(bytes);
+    // A zero-length vlr-Number still occupies its position, so this decodes -- what must NOT
+    // happen is the imsi being read as the vlr-Number.
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->imsi), "999700000000901");
+    EXPECT_TRUE(decoded->vlr_number.empty());
+}
+
+TEST(MapOperations, UpdateLocationResCarriesAMandatoryHlrNumber) {
+    const auto hlr = tbcd_core::encode_tbcd("99970000001");
+    const auto decoded =
+        map_core::decode_update_location_res(map_core::encode_update_location_res(hlr));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(*decoded), "99970000001");
+}
+
+TEST(MapOperations, UpdateLocationResRejectsAnEmptySequence) {
+    // Unlike insertSubscriberData's and cancelLocation's results, hlr-Number is MANDATORY here --
+    // so an empty SEQUENCE is not a valid UpdateLocationRes and must not decode as one.
+    EXPECT_FALSE(map_core::decode_update_location_res({0x30, 0x00}).has_value());
+}
+
+TEST(MapOperations, PurgeMsArgRoundTripsAndCarriesTheContextThreeWrapper) {
+    map_core::PurgeMsArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("999700000000901");
+    arg.vlr_number = tbcd_core::encode_tbcd("99970000003");
+
+    const auto bytes = map_core::encode_purge_ms_arg(arg);
+    ASSERT_FALSE(bytes.empty());
+    EXPECT_EQ(bytes[0], 0xA3) << "PurgeMS-Arg carries a real [3] CONSTRUCTED tag, not 0x30";
+
+    const auto decoded = map_core::decode_purge_ms_arg(bytes);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->imsi), "999700000000901");
+    ASSERT_TRUE(decoded->vlr_number.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(*decoded->vlr_number), "99970000003");
+    EXPECT_FALSE(decoded->sgsn_number.has_value());
+}
+
+TEST(MapOperations, PurgeMsResEmptyRoundTrips) {
+    // Every field of PurgeMS-Res is optional, so an empty SEQUENCE is genuinely valid here.
+    EXPECT_TRUE(map_core::decode_purge_ms_res(map_core::encode_purge_ms_res()));
+}

@@ -107,11 +107,15 @@ Stated at the honest level of detail — what is really expressible today, and w
 **Every `Partial` and `Not supported` row above is committed work, not a permanent state**
 (ADR-0300, user-directed): a standard telco has to be able to sell all of them, and slice-based
 products — which do not exist as a concept here at all yet — need a commercial rating model too.
-Two parts carry dependencies that are not code: roaming *settlement* needs GSMA TAP3/RAP/NRTRDE
-documents this repository does not have (the roaming *rating* half does not and is in scope), and
-"slice-based product" needs an operator decision between a slice-scoped allowance,
-slice-differentiated pricing, or slice-as-subscription, because those imply different catalogs and
-different rating logic.
+The model is **attribute-based**: any attribute arriving at CHF on N40 or N28 -- `sNssai`,
+`uPFID`, `dnn`, `ratType`, `servingNetworkId` -- must be usable both to rate and to scope a
+product, so "10 GB on slice 1, 5 GB on slice 10, or an allowance tied to a UPF" are configurations
+of one mechanism rather than separate features. That mechanism is the first thing to build,
+because roaming rating, group scoping and time-based grants are all expressed in it.
+TAP IN and TAP OUT file processing are in scope (`libs/tap3-core` already implements GSMA TD.57
+TAP 3.12 in both directions -- 112 encode/decode functions, all nine `CallEventDetail` variants --
+so what is missing is the batch/ingest processing around it, not the format). RAP (TD.32) and
+NRTRDE (TD.35) remain unstarted and would need those documents.
 
 AI-assisted quota sizing (ONNX, in-process) adjusts **volume** grants only; service-specific-unit
 grants are deliberately excluded (ADR-0248's own disclosed scope).
