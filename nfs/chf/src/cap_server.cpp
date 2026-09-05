@@ -284,15 +284,23 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                  *current_supi,
                                  elapsed_seconds);
 
-                    // Same real "finalize the full reserved total" simplification already
-                    // disclosed in charging_engine.hpp for the Diameter Gy CCR-Termination path
-                    // (ADR-0057) -- not a proportional-usage refund based on the real elapsed
-                    // time reported here, a real, carried-forward, disclosed gap, not a new one.
+                    // ADR-0297 made the HTTP Release and Diameter Gy paths charge proportionally.
+                    // CAP deliberately does NOT, and the reason is a real dimension mismatch
+                    // rather than unfinished work: this project's rating engine grants
+                    // `totalVolume` (octets) or `serviceSpecificUnits`, never `time`, while
+                    // ApplyChargingReport reports elapsed TIME. Proportioning a volume grant by an
+                    // elapsed duration would require a seconds-to-octets conversion that no
+                    // configuration, price or specification in this project defines -- inventing
+                    // one would silently produce wrong money. So CAP finalizes the full reservation
+                    // and this stays a real, named gap: a CAP-charged call is billed its whole
+                    // grant regardless of how briefly it ran. Closing it needs a time-priced
+                    // offering in the catalog, which is product configuration, not codec work.
                     const auto reserved_total =
                         charging_data_store_.get_reserved_total(*current_ref);
                     charging_data_store_.release(*current_ref);
                     chf::finalize_subscriber_balance(balance_client,
                                                      *current_supi,
+                                                     reserved_total,
                                                      reserved_total,
                                                      "CAP-gsmSSF ApplyChargingReport " +
                                                          *current_ref);

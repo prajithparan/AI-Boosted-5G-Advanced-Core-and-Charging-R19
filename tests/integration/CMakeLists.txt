@@ -49,11 +49,13 @@ add_executable(integration_tests
     test_n28_sy_end_to_end.cpp
     test_udm_map_insert_subscriber_data.cpp
     test_chf_protocol_ceilings.cpp
+    test_proportional_debit.cpp
     test_cdr_retention.cpp
     # ADR-0283: the retention test drives CHF's REAL CdrWriter against a real Doris, so its
     # translation units are compiled in rather than the behaviour being re-implemented in a
     # fake. CHF is an executable, so there is no library target to link instead.
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/proportional_debit.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     ngap_test_gnb.cpp
     ue_nas_driver.cpp

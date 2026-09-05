@@ -141,16 +141,39 @@ bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
                                 const bss_sid::Money& cost,
                                 const std::string& description);
 
-// P4.3 (ADR-0057): Release-time finalization -- converts everything reserved for this session
-// (ChargingDataStore::get_reserved_total) into a real, permanent debit. Disclosed simplification:
-// this finalizes the FULL reserved total, not a proportional amount based on SMF's actually-
-// reported usage (usedUnitContainer) -- a real per-usage proportional refund is deferred, not
-// fabricated as more sophisticated than it is. See charging_engine.cpp's own comment for the real
-// order-dependent unreserve-then-debit bug this function's implementation was fixed for.
+// P4.3 (ADR-0057): Release-time finalization -- unreserves everything this session held and turns
+// `amount_to_debit` of it into a real, permanent debit. See charging_engine.cpp's own comment for
+// the real order-dependent unreserve-then-debit bug this function's implementation was fixed for.
+//
+// ADR-0297: `amount_to_debit` is a SEPARATE parameter from `total_reserved` -- that separation is
+// the whole fix. Before it, the two were necessarily equal and a subscriber who used 1 GB of a
+// 5 GB reservation was charged for 5 GB. The reservation must still be released in full (it is
+// what the subscriber's balance is actually holding), but only what was consumed may be debited.
+// A caller that genuinely cannot measure consumption passes the full reserved total and says why.
 void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
                                  const std::string& supi,
                                  double total_reserved,
+                                 double amount_to_debit,
                                  const std::string& description);
+
+// ADR-0297: what fraction of a session's grant was actually consumed, and therefore what part of
+// its reservation may be debited.
+//
+// Volume and service-specific units are proportioned INDEPENDENTLY against their own grants and
+// the results combined by weighting each dimension by nothing more than its own share of the
+// grant -- because this project's rating engine grants exactly one dimension per rating group, a
+// real session normally exercises exactly one branch here, and the mixed case is handled rather
+// than assumed away.
+//
+// Clamped to [0, total_reserved]: usage exceeding the grant cannot debit more than was reserved
+// (the subscriber's balance never held more than that), and a missing or zero grant means no
+// proportion can be computed, in which case the FULL reserved amount is returned rather than zero
+// -- failing toward charging what was reserved, not toward giving usage away.
+double proportional_debit(double total_reserved,
+                          double granted_volume,
+                          double used_volume,
+                          double granted_service_units,
+                          double used_service_units);
 
 // P4.4/ADR-0058: writes one real CDR row (chf::CdrRecord, see cdr.hpp) per MultipleUnitUsage
 // entry -- every field here is either a real TS 32.291 value already flowing through the caller,

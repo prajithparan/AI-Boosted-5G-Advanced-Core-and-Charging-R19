@@ -963,13 +963,50 @@ int main() {
             // real order-of-operations obviously correct rather than relying on that.
             const auto supi = charging_data_store.get_supi(ref);
             const auto reserved_total = charging_data_store.get_reserved_total(ref);
+            // ADR-0297: what was granted across this session, to proportion the debit against.
+            const auto granted_volume = charging_data_store.get_granted_volume(ref);
+            const auto granted_service_units = charging_data_store.get_granted_service_units(ref);
             if (!charging_data_store.release(ref)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No active charging data resource " + ref);
             }
+            // ADR-0297: what the consumer actually reported used, summed across every
+            // usedUnitContainer of every rating group in this Release -- the real TS 32.291 figure
+            // that was previously decoded, written to the CDR, and then ignored when charging.
+            double used_volume = 0.0;
+            double used_service_units = 0.0;
+            if (body->multipleUnitUsage.has_value()) {
+                for (const auto& usage : *body->multipleUnitUsage) {
+                    if (!usage.usedUnitContainer.has_value()) {
+                        continue;
+                    }
+                    for (const auto& container : *usage.usedUnitContainer) {
+                        used_volume += static_cast<double>(container.totalVolume.value_or(0));
+                        used_service_units +=
+                            static_cast<double>(container.serviceSpecificUnits.value_or(0));
+                    }
+                }
+            }
+            const auto amount_to_debit = chf::proportional_debit(reserved_total,
+                                                                 granted_volume,
+                                                                 used_volume,
+                                                                 granted_service_units,
+                                                                 used_service_units);
             if (supi.has_value() && !supi->empty()) {
-                chf::finalize_subscriber_balance(
-                    balance_client, *supi, reserved_total, "Nchf_ConvergedCharging_Release " + ref);
+                spdlog::info("chf: Release finalize for {} -- reserved {}, debiting {} "
+                             "(used {} of {} octets, {} of {} service units)",
+                             ref,
+                             reserved_total,
+                             amount_to_debit,
+                             used_volume,
+                             granted_volume,
+                             used_service_units,
+                             granted_service_units);
+                chf::finalize_subscriber_balance(balance_client,
+                                                 *supi,
+                                                 reserved_total,
+                                                 amount_to_debit,
+                                                 "Nchf_ConvergedCharging_Release " + ref);
             }
 
             // P4.4/ADR-0058: a real, final CDR row for this session -- reserved_cost here is the

@@ -65,6 +65,20 @@ public:
     double add_reserved(const std::string& ref, double amount);
     double get_reserved_total(const std::string& ref);
 
+    // ADR-0297: the units GRANTED alongside the money reserved for them, accumulated by the same
+    // real atomic HINCRBYFLOAT. Release needs both to charge proportionally: money alone cannot
+    // say what fraction of a grant was consumed.
+    //
+    // Two dimensions, tracked separately and never summed, because they are not commensurable --
+    // this project's rating engine grants EITHER `totalVolume` (octets, from a GB/MB price) OR
+    // `serviceSpecificUnits`, never both for one rating group, and adding octets to service units
+    // would produce a ratio that means nothing. A session that somehow mixed them proportions each
+    // dimension against its own grant.
+    void add_granted_volume(const std::string& ref, double octets);
+    void add_granted_service_units(const std::string& ref, double units);
+    double get_granted_volume(const std::string& ref);
+    double get_granted_service_units(const std::string& ref);
+
 private:
     std::shared_ptr<sw::redis::Redis> redis_;
 };

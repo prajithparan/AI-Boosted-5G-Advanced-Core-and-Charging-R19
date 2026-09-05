@@ -1297,10 +1297,34 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
             // usage but does not request new units, so there is no new grant to rate).
             const auto supi = charging_data_store_.get_supi(ref);
             const auto reserved_total = charging_data_store_.get_reserved_total(ref);
+            const auto granted_volume = charging_data_store_.get_granted_volume(ref);
+            const auto granted_service_units = charging_data_store_.get_granted_service_units(ref);
             charging_data_store_.release(ref);
+            // ADR-0297: RFC 4006's CCR-Termination reports final usage in Used-Service-Unit's
+            // CC-Total-Octets, which this handler has always decoded (DecodedMscc) and, until now,
+            // used only for the CDR. It is the Gy equivalent of TS 32.291's usedUnitContainer
+            // totalVolume, so it proportions the debit the same way.
+            double used_volume = 0.0;
+            for (const auto& mscc : ccr->mscc) {
+                used_volume += static_cast<double>(mscc.used_total_octets.value_or(0));
+            }
+            // Gy reports octets only -- no service-unit counterpart is decoded on this path, so
+            // that dimension is passed as zero-used rather than invented.
+            const auto amount_to_debit = chf::proportional_debit(
+                reserved_total, granted_volume, used_volume, granted_service_units, 0.0);
             if (supi.has_value() && !supi->empty()) {
-                chf::finalize_subscriber_balance(
-                    balance_client, *supi, reserved_total, "Diameter-Gy CCR-Termination " + ref);
+                spdlog::info("chf: Gy CCR-T finalize for {} -- reserved {}, debiting {} (used {} "
+                             "of {} octets)",
+                             ref,
+                             reserved_total,
+                             amount_to_debit,
+                             used_volume,
+                             granted_volume);
+                chf::finalize_subscriber_balance(balance_client,
+                                                 *supi,
+                                                 reserved_total,
+                                                 amount_to_debit,
+                                                 "Diameter-Gy CCR-Termination " + ref);
             }
             // ADR-0192: CdrWriter::write() catches every real Doris error surface internally and
             // logs a warning -- it never throws, so no try/catch is needed here (unlike the

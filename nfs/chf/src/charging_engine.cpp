@@ -320,10 +320,12 @@ bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
 void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
                                  const std::string& supi,
                                  double total_reserved,
+                                 double amount_to_debit,
                                  const std::string& description) {
     if (total_reserved <= 0.0) {
         return;
     }
+    amount_to_debit = std::clamp(amount_to_debit, 0.0, total_reserved);
 
     bss_sid::BucketRef bucket{};
     bucket.id = supi;
@@ -348,9 +350,16 @@ void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
         return;
     }
 
+    // ADR-0297: the reservation was released in FULL above; only the consumed part is debited.
+    if (amount_to_debit <= 0.0) {
+        spdlog::info(
+            "chf: finalize released {} with nothing consumed (SUPI={})", total_reserved, supi);
+        return;
+    }
+
     bss_sid::AdjustBalance adjust_req{};
     bss_sid::Quantity debit{};
-    debit.amount = -total_reserved;
+    debit.amount = -amount_to_debit;
     adjust_req.amount = debit;
     adjust_req.bucket = bucket;
     adjust_req.adjustType = "oneTime";
@@ -490,6 +499,21 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                                        "Nchf_ConvergedCharging_" + operation + " " + ref);
         if (result.reserved) {
             charging_data_store.add_reserved(ref, *result.rating.cost->value);
+            // ADR-0297: record what those units WERE, in the same place and at the same moment as
+            // the money. Release cannot compute a consumed fraction from a monetary total alone,
+            // and reconstructing the grant later would mean re-rating against a catalog that may
+            // have changed since -- so it is captured here, at the one point where grant and cost
+            // are known together.
+            if (result.rating.grant.has_value()) {
+                if (result.rating.grant->totalVolume.has_value()) {
+                    charging_data_store.add_granted_volume(
+                        ref, static_cast<double>(*result.rating.grant->totalVolume));
+                }
+                if (result.rating.grant->serviceSpecificUnits.has_value()) {
+                    charging_data_store.add_granted_service_units(
+                        ref, static_cast<double>(*result.rating.grant->serviceSpecificUnits));
+                }
+            }
         } else if (reserve_rejected_counter != nullptr) {
             reserve_rejected_counter->Add(1);
         }

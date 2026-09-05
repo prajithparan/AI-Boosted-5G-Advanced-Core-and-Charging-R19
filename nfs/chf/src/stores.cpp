@@ -83,6 +83,25 @@ double ChargingDataStore::get_reserved_total(const std::string& ref) {
     return std::stod(*value);
 }
 
+// ADR-0297. Same field/key/atomicity discipline as reserved_total above.
+void ChargingDataStore::add_granted_volume(const std::string& ref, double octets) {
+    redis_->hincrbyfloat(charging_data_content_key(ref), "granted_volume", octets);
+}
+
+void ChargingDataStore::add_granted_service_units(const std::string& ref, double units) {
+    redis_->hincrbyfloat(charging_data_content_key(ref), "granted_service_units", units);
+}
+
+double ChargingDataStore::get_granted_volume(const std::string& ref) {
+    const auto value = redis_->hget(charging_data_content_key(ref), "granted_volume");
+    return value ? std::stod(*value) : 0.0;
+}
+
+double ChargingDataStore::get_granted_service_units(const std::string& ref) {
+    const auto value = redis_->hget(charging_data_content_key(ref), "granted_service_units");
+    return value ? std::stod(*value) : 0.0;
+}
+
 std::string OfflineChargingDataStore::create() {
     const auto id = redis_->incr(kOfflineNextIdKey);
     auto ref = "offchg-" + std::to_string(id);
