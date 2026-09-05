@@ -339,4 +339,74 @@ bool decode_insert_subscriber_data_res(const std::vector<std::uint8_t>& paramete
     return unwrap_top_level(parameter).has_value();
 }
 
+// --- cancelLocation (ADR-0296) -----------------------------------------------------------------
+// See map_operations.hpp for the real ASN.1 and the two ways this differs from
+// insertSubscriberData: a CONTEXT [3] CONSTRUCTED wrapper rather than a UNIVERSAL SEQUENCE, and an
+// untagged CHOICE decoded positionally.
+
+std::vector<std::uint8_t> encode_cancel_location_arg(const CancelLocationArg& arg) {
+    std::vector<std::uint8_t> body;
+    // identity CHOICE, imsi arm: an untagged IMSI keeps its own UNIVERSAL OCTET STRING tag, and
+    // must come first -- that position is what identifies it.
+    encode_tlv(body, make_primitive(TagClass::kUniversal, UniversalTag::kOctetString, arg.imsi));
+    if (arg.cancellation_type.has_value()) {
+        encode_tlv(body,
+                   make_primitive(TagClass::kUniversal,
+                                  UniversalTag::kEnumerated,
+                                  encode_integer(*arg.cancellation_type)));
+    }
+    std::vector<std::uint8_t> out;
+    encode_tlv(out, make_context_constructed(3, std::move(body)));
+    return out;
+}
+
+std::optional<CancelLocationArg>
+decode_cancel_location_arg(const std::vector<std::uint8_t>& parameter) {
+    std::size_t offset = 0;
+    const auto outer = decode_tlv(parameter, offset);
+    if (!outer.has_value() || outer->tag_class != TagClass::kContext || !outer->constructed ||
+        outer->tag_number != 3) {
+        return std::nullopt;
+    }
+    const auto parts = decode_tlvs(outer->value);
+    if (!parts.has_value() || parts->empty()) {
+        return std::nullopt;
+    }
+
+    // identity, positionally first. Only the imsi arm is modeled; an imsi-WithLMSI (a constructed
+    // UNIVERSAL SEQUENCE in the same slot) is a real shape this codec does not handle, and is
+    // reported as a decode failure rather than silently mistaken for an IMSI.
+    const auto& identity = parts->front();
+    if (identity.tag_class != TagClass::kUniversal ||
+        identity.tag_number != UniversalTag::kOctetString || identity.constructed) {
+        return std::nullopt;
+    }
+    CancelLocationArg arg;
+    arg.imsi = identity.value;
+
+    // cancellationType is OPTIONAL and, being untagged, carries its own UNIVERSAL ENUMERATED tag.
+    // Every other field is a real part of the structure this codec does not model; they are
+    // skipped rather than treated as an error, because a real peer may legitimately send them.
+    for (std::size_t i = 1; i < parts->size(); ++i) {
+        const auto& part = (*parts)[i];
+        if (part.tag_class == TagClass::kUniversal &&
+            part.tag_number == UniversalTag::kEnumerated) {
+            const auto value = tcap_core::decode_integer(part.value);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            arg.cancellation_type = *value;
+        }
+    }
+    return arg;
+}
+
+std::vector<std::uint8_t> encode_cancel_location_res() {
+    return wrap_top_level({});
+}
+
+bool decode_cancel_location_res(const std::vector<std::uint8_t>& parameter) {
+    return unwrap_top_level(parameter).has_value();
+}
+
 } // namespace map_core

@@ -103,4 +103,63 @@ decode_insert_subscriber_data_arg(const std::vector<std::uint8_t>& parameter);
 std::vector<std::uint8_t> encode_insert_subscriber_data_res();
 bool decode_insert_subscriber_data_res(const std::vector<std::uint8_t>& parameter);
 
+// --- cancelLocation (ADR-0296) -----------------------------------------------------------------
+//
+// The counterpart to insertSubscriberData: an HLR tells a VLR to drop a subscriber it is no longer
+// serving. Real structure, TS 29.002, cross-checked field-for-field against jss7's own
+// CancelLocationRequest/CancelLocationRequestImpl (arms-length reference, never linked --
+// ADR-0059):
+//
+//   CancelLocationArg ::= [3] SEQUENCE {
+//     identity            Identity,
+//     cancellationType    CancellationType OPTIONAL,
+//     extensionContainer  ExtensionContainer OPTIONAL,
+//     ...,
+//     typeOfUpdate                   [0] TypeOfUpdate OPTIONAL,
+//     mtrf-SupportedAndAuthorized    [1] NULL OPTIONAL,
+//     mtrf-SupportedAndNotAuthorized [2] NULL OPTIONAL,
+//     newMSC-Number                  [3] ISDN-AddressString OPTIONAL,
+//     newVLR-Number                  [4] ISDN-AddressString OPTIONAL,
+//     new-lmsi                       [5] LMSI OPTIONAL }
+//
+//   Identity ::= CHOICE { imsi IMSI, imsi-WithLMSI IMSI-WithLMSI }
+//
+// TWO real encoding facts this differs from insertSubscriberData on, both load-bearing:
+//
+//  1. The whole argument is wrapped in a CONTEXT-SPECIFIC [3] CONSTRUCTED tag, not a UNIVERSAL
+//     SEQUENCE (jss7 `TAG_cancelLocationRequest = 3`, `getTagClass()` CLASS_CONTEXT_SPECIFIC,
+//     `getIsPrimitive()` false for v3). Encoding this as a plain SEQUENCE would be wrong on the
+//     wire, and this codec's other operation gives exactly that misleading precedent.
+//  2. `identity` is an UNTAGGED CHOICE whose two arms are told apart by their own universal tags
+//     (IMSI is a primitive OCTET STRING, IMSI-WithLMSI is a constructed SEQUENCE) and it is the
+//     FIRST element -- jss7 decodes it positionally (`num == 0`) for that reason. This codec does
+//     the same rather than searching by tag, which could not disambiguate it.
+//
+// Real, disclosed scope: `identity` is modeled as the `imsi` arm only, plus optional
+// `cancellationType`. `imsi-WithLMSI`, `extensionContainer`, and all six extension fields
+// ([0]-[5]) are NOT modeled -- a decode that encounters them ignores them rather than failing, and
+// an encode never produces them. `CancelLocationRes ::= SEQUENCE { extensionContainer OPTIONAL,
+// ... }` is modeled as a real, valid EMPTY SEQUENCE, on the same reasoning insertSubscriberData's
+// own result already uses: every field it has is optional, so empty is genuinely valid.
+
+// Real CancellationType ENUMERATED values -- jss7 `CancellationType`:
+// updateProcedure(0), subscriptionWithdraw(1), ..., initialAttachProcedure(2).
+namespace CancellationType {
+constexpr std::int32_t kUpdateProcedure = 0;
+constexpr std::int32_t kSubscriptionWithdraw = 1;
+constexpr std::int32_t kInitialAttachProcedure = 2;
+} // namespace CancellationType
+
+struct CancelLocationArg {
+    std::vector<std::uint8_t> imsi;                // Identity CHOICE, imsi arm (TBCD)
+    std::optional<std::int32_t> cancellation_type; // ENUMERATED, OPTIONAL
+};
+
+std::vector<std::uint8_t> encode_cancel_location_arg(const CancelLocationArg& arg);
+std::optional<CancelLocationArg>
+decode_cancel_location_arg(const std::vector<std::uint8_t>& parameter);
+
+std::vector<std::uint8_t> encode_cancel_location_res();
+bool decode_cancel_location_res(const std::vector<std::uint8_t>& parameter);
+
 } // namespace map_core

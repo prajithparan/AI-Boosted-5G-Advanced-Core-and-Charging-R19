@@ -1,5 +1,6 @@
 #include "map_core/map_dictionary.hpp"
 #include "map_core/map_operations.hpp"
+#include "tbcd_core/tbcd.hpp"
 #include "tcap_core/component.hpp"
 
 #include <gtest/gtest.h>
@@ -193,3 +194,63 @@ TEST(MapTcapComposition, InsertSubscriberDataResTravelsInsideTcapReturnResultLas
 }
 
 } // namespace
+
+// --- cancelLocation (ADR-0296) ---
+//
+// The two things this operation does differently from insertSubscriberData are exactly what these
+// tests pin, because both are silent-on-the-wire mistakes: a CONTEXT [3] CONSTRUCTED wrapper
+// instead of a UNIVERSAL SEQUENCE, and an untagged CHOICE identified by position.
+
+TEST(MapOperations, CancelLocationArgRoundTrips) {
+    map_core::CancelLocationArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("999700000000901");
+    arg.cancellation_type = map_core::CancellationType::kSubscriptionWithdraw;
+
+    const auto bytes = map_core::encode_cancel_location_arg(arg);
+    const auto decoded = map_core::decode_cancel_location_arg(bytes);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->imsi), "999700000000901");
+    ASSERT_TRUE(decoded->cancellation_type.has_value());
+    EXPECT_EQ(*decoded->cancellation_type, map_core::CancellationType::kSubscriptionWithdraw);
+}
+
+TEST(MapOperations, CancelLocationArgWithoutCancellationTypeRoundTrips) {
+    // The field is genuinely OPTIONAL, and UDM omits it for every deregReason but one -- so the
+    // omitted case is the common path, not an edge case.
+    map_core::CancelLocationArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("001010000000001");
+
+    const auto decoded =
+        map_core::decode_cancel_location_arg(map_core::encode_cancel_location_arg(arg));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(tbcd_core::decode_tbcd(decoded->imsi), "001010000000001");
+    EXPECT_FALSE(decoded->cancellation_type.has_value());
+}
+
+TEST(MapOperations, CancelLocationArgIsWrappedInContextTagThreeNotAUniversalSequence) {
+    map_core::CancelLocationArg arg;
+    arg.imsi = tbcd_core::encode_tbcd("999700000000901");
+    const auto bytes = map_core::encode_cancel_location_arg(arg);
+
+    ASSERT_FALSE(bytes.empty());
+    // Context class (0b10) + constructed (0b1) + tag 3 == 0xA3. A plain SEQUENCE would be 0x30,
+    // which is what the other operation in this codec encodes and what a copy-paste would produce.
+    EXPECT_EQ(bytes[0], 0xA3) << "CancelLocationArg must carry its real [3] CONSTRUCTED tag";
+}
+
+TEST(MapOperations, CancelLocationArgRejectsAUniversalSequenceWrapper) {
+    // Guards the decoder against accepting the shape the encoder must not produce.
+    std::vector<std::uint8_t> mis_wrapped = {0x30, 0x02, 0x04, 0x00};
+    EXPECT_FALSE(map_core::decode_cancel_location_arg(mis_wrapped).has_value());
+}
+
+TEST(MapOperations, CancelLocationArgRejectsAnImsiWithLmsiIdentityArm) {
+    // Identity's other real arm is a constructed SEQUENCE in the same first position. This codec
+    // does not model it, and must say so rather than read its bytes as an IMSI.
+    std::vector<std::uint8_t> with_lmsi = {0xA3, 0x04, 0x30, 0x02, 0x04, 0x00};
+    EXPECT_FALSE(map_core::decode_cancel_location_arg(with_lmsi).has_value());
+}
+
+TEST(MapOperations, CancelLocationResEmptyRoundTrips) {
+    EXPECT_TRUE(map_core::decode_cancel_location_res(map_core::encode_cancel_location_res()));
+}

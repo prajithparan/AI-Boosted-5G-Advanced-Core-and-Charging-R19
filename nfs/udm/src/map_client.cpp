@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <functional>
+
 #include "map_core/map_dictionary.hpp"
 #include "ss7_core/m3ua_asp.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
@@ -84,11 +86,18 @@ bool do_asp_handshake(ss7_core::SctpSocket& sock) {
     return true;
 }
 
-} // namespace
-
-bool send_insert_subscriber_data(const std::string& peer_address,
-                                 std::uint16_t peer_port,
-                                 const map_core::InsertSubscriberDataArg& arg) {
+// ADR-0296: the one real MAP dialogue this client speaks, parameterised by operation. Everything
+// below the opcode/parameter/application-context was already identical between operations -- the
+// SCTP association, the M3UA handshake, the SCCP addressing, the TC-Begin framing, the AARE check
+// and the component interpretation -- so cancelLocation reuses it rather than cloning it. The
+// result decoders differ only in which empty-SEQUENCE check they run, so the caller passes one.
+bool send_map_operation(
+    const std::string& peer_address,
+    std::uint16_t peer_port,
+    std::int32_t opcode,
+    const std::vector<std::uint32_t>& application_context,
+    const std::vector<std::uint8_t>& parameter,
+    const std::function<bool(const std::vector<std::uint8_t>&)>& decode_result) {
     ss7_core::SctpSocket sock;
     sock.connect(peer_address, peer_port);
 
@@ -98,11 +107,11 @@ bool send_insert_subscriber_data(const std::string& peer_address,
 
     tcap_core::Invoke invoke;
     invoke.invoke_id = 1;
-    invoke.operation_code.local = map_core::Opcode::kInsertSubscriberData;
-    invoke.parameter = map_core::encode_insert_subscriber_data_arg(arg);
+    invoke.operation_code.local = opcode;
+    invoke.parameter = parameter;
 
     tcap_core::DialogueRequest aarq;
-    aarq.application_context_name = map_core::kSubscriberDataMngtContextV3Oid;
+    aarq.application_context_name = application_context;
 
     tcap_core::TcBegin begin;
     begin.originating_transaction_id = {0x00, 0x00, 0x00, 0x01};
@@ -214,14 +223,39 @@ bool send_insert_subscriber_data(const std::string& peer_address,
 
     if (component->return_result_last.has_value() &&
         component->return_result_last->result.has_value()) {
-        return map_core::decode_insert_subscriber_data_res(
-            component->return_result_last->result->parameter);
+        return decode_result(component->return_result_last->result->parameter);
     }
     if (component->return_result.has_value() && component->return_result->result.has_value()) {
-        return map_core::decode_insert_subscriber_data_res(
-            component->return_result->result->parameter);
+        return decode_result(component->return_result->result->parameter);
     }
     return false; // ReturnError or Reject -> a real, disclosed failure outcome, not an error
+}
+
+} // namespace
+
+bool send_insert_subscriber_data(const std::string& peer_address,
+                                 std::uint16_t peer_port,
+                                 const map_core::InsertSubscriberDataArg& arg) {
+    return send_map_operation(peer_address,
+                              peer_port,
+                              map_core::Opcode::kInsertSubscriberData,
+                              map_core::kSubscriberDataMngtContextV3Oid,
+                              map_core::encode_insert_subscriber_data_arg(arg),
+                              map_core::decode_insert_subscriber_data_res);
+}
+
+bool send_cancel_location(const std::string& peer_address,
+                          std::uint16_t peer_port,
+                          const map_core::CancelLocationArg& arg) {
+    // Real application context: cancelLocation belongs to locationCancellationContext-v3, NOT the
+    // subscriberDataMngtContext insertSubscriberData uses. Sending the wrong one is the kind of
+    // error a real peer rejects with an AARE, so it is named explicitly rather than inherited.
+    return send_map_operation(peer_address,
+                              peer_port,
+                              map_core::Opcode::kCancelLocation,
+                              map_core::kLocationCancellationContextV3Oid,
+                              map_core::encode_cancel_location_arg(arg),
+                              map_core::decode_cancel_location_res);
 }
 
 } // namespace udm

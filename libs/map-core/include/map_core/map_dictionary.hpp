@@ -40,6 +40,15 @@ namespace map_core {
 // comment above for the full real derivation).
 inline const std::vector<std::uint32_t> kSubscriberDataMngtContextV3Oid = {0, 4, 0, 0, 1, 0, 16, 3};
 
+// Real Application Context Name OID for cancelLocation's own dialogue (ADR-0296).
+// jss7's `MAPApplicationContextName` gives the ac-Id arc directly --
+// `locationCancellationContext(2)` -- and `MAPApplicationContext` builds every AC OID from the
+// template `{0, 4, 0, 0, 1, 0, <ac-Id>, <version>}`. That template independently reproduces the
+// constant above from `subscriberDataMngtContext(16)`, which is what makes it trustworthy here
+// rather than a pattern guessed from a single example.
+inline const std::vector<std::uint32_t> kLocationCancellationContextV3Oid = {
+    0, 4, 0, 0, 1, 0, 2, 3};
+
 // Real operation local codes -- TS 29.002 clause 17.6.1 (MAP-MobileServiceOperations), each cited
 // with its exact CODE local:N as printed on the page. Only insertSubscriberData has an argument
 // codec in map_operations.hpp; the rest are recorded as real, cited facts for future stages.

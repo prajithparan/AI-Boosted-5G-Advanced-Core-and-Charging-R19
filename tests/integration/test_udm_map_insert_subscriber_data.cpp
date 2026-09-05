@@ -83,7 +83,7 @@ std::string fetch_token(sbi_core::http2::Client& client) {
 
 } // namespace
 
-TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3ua) {
+TEST(UdmMapInsertSubscriberData, RegistrationAndDeregistrationBothReachAVlrOverRealM3ua) {
     // The stand-in VLR, started before UDM so the association can be accepted immediately.
     ss7_core::SctpSocket listener;
     listener.bind_and_listen("127.0.0.1", kVlrPort);
@@ -91,10 +91,14 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
     std::atomic<bool> received_imsi_matches{false};
     std::atomic<bool> got_invoke{false};
     std::atomic<bool> answered{false};
+    // ADR-0296: the deregistration half. The VLR serves BOTH dialogues on the same association, so
+    // the test also proves the client can run a second operation rather than only ever the first.
+    std::atomic<bool> got_cancel_location{false};
+    std::atomic<bool> cancel_imsi_matches{false};
     std::thread vlr([&] {
-        // Mirrors nfs/chf/src/cap_server.cpp's own receive_m3ua/send_m3ua/handshake helpers,
-        // using the same ss7_core entry points -- so if the M3UA layer changes, this breaks rather
-        // than silently agreeing with a stale copy.
+        // Mirrors nfs/chf/src/cap_server.cpp's own receive_m3ua/send_m3ua/handshake helpers, using
+        // the same ss7_core entry points -- so if the M3UA layer changes, this breaks rather than
+        // silently agreeing with a stale copy.
         struct Received {
             ss7_core::M3uaHeader header;
             std::vector<std::uint8_t> payload;
@@ -124,9 +128,10 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
             sock.send(msg);
         };
 
-        try {
-            auto conn = listener.accept();
-
+        // One full dialogue on one association: M3UA activation, an Invoke in, a TC-END out. The
+        // client opens a fresh SCTP association per operation, so this runs once per operation
+        // rather than looping on a single connection.
+        auto serve_one_dialogue = [&](ss7_core::SctpSocket& conn) {
             const auto up = receive(conn);
             if (!up.has_value() ||
                 up->header.message_class != ss7_core::dictionary::MessageClass::kAspsm ||
@@ -184,28 +189,50 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
             if (!comp.has_value() || !comp->invoke.has_value()) {
                 return;
             }
-            got_invoke = true;
-            const auto arg = map_core::decode_insert_subscriber_data_arg(comp->invoke->parameter);
-            if (arg.has_value() && arg->imsi.has_value()) {
-                received_imsi_matches =
-                    tbcd_core::decode_tbcd(*arg->imsi) == std::string(kTestSupi).substr(5);
+
+            const auto expected_imsi = std::string(kTestSupi).substr(5);
+            std::vector<std::uint32_t> answer_context;
+            std::vector<std::uint8_t> result_parameter;
+            if (comp->invoke->operation_code.local == map_core::Opcode::kInsertSubscriberData) {
+                got_invoke = true;
+                answer_context = map_core::kSubscriberDataMngtContextV3Oid;
+                result_parameter = map_core::encode_insert_subscriber_data_res();
+                const auto arg =
+                    map_core::decode_insert_subscriber_data_arg(comp->invoke->parameter);
+                if (arg.has_value() && arg->imsi.has_value()) {
+                    received_imsi_matches = tbcd_core::decode_tbcd(*arg->imsi) == expected_imsi;
+                }
+            } else if (comp->invoke->operation_code.local == map_core::Opcode::kCancelLocation) {
+                got_cancel_location = true;
+                answer_context = map_core::kLocationCancellationContextV3Oid;
+                result_parameter = map_core::encode_cancel_location_res();
+                const auto arg = map_core::decode_cancel_location_arg(comp->invoke->parameter);
+                if (arg.has_value()) {
+                    // The cancellationType is asserted too: sending updateProcedure here would
+                    // tell a real VLR the subscriber moved elsewhere, which a deregistration does
+                    // not establish. Getting that wrong is silent on the wire and wrong in effect.
+                    cancel_imsi_matches = tbcd_core::decode_tbcd(arg->imsi) == expected_imsi &&
+                                          arg->cancellation_type.has_value() &&
+                                          *arg->cancellation_type ==
+                                              map_core::CancellationType::kSubscriptionWithdraw;
+                }
+            } else {
+                return; // an operation this VLR was not expecting -- leave the flags as they are
             }
 
-            // Answer the dialogue for real. Without this the client's whole response path --
-            // AARE handling, TC-END decode, ReturnResultLast interpretation -- would never
-            // execute, and that is exactly where a decode bug would hide. Mirrors
-            // nfs/chf/src/cap_server.cpp's own reply construction (addresses swapped, same
-            // application context the AARQ named rather than a different one).
+            // Answer the dialogue for real. Without this the client's whole response path -- AARE
+            // handling, TC-END decode, ReturnResultLast interpretation -- would never execute, and
+            // that is exactly where a decode bug would hide.
             tcap_core::ReturnResultLast rrl;
             rrl.invoke_id = comp->invoke->invoke_id;
-            rrl.result = tcap_core::ReturnResult::Result{
-                comp->invoke->operation_code, map_core::encode_insert_subscriber_data_res()};
+            rrl.result =
+                tcap_core::ReturnResult::Result{comp->invoke->operation_code, result_parameter};
 
             tcap_core::TcEnd end;
             end.destination_transaction_id = begin->originating_transaction_id;
             if (begin->dialogue_portion.has_value()) {
                 tcap_core::DialogueResponse aare;
-                aare.application_context_name = map_core::kSubscriberDataMngtContextV3Oid;
+                aare.application_context_name = answer_context;
                 aare.result = tcap_core::ResultType::kAccepted;
                 aare.diagnostic.is_user_type = true;
                 aare.diagnostic.value = tcap_core::DialogServiceUserType::kNoReasonGiven;
@@ -239,6 +266,15 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
                  ss7_core::dictionary::TransferMessageType::kData,
                  reply_bytes);
             answered = true;
+        };
+
+        try {
+            // Two associations: one for the registration's insertSubscriberData, one for the
+            // deregistration's cancelLocation.
+            for (int dialogue = 0; dialogue < 2; ++dialogue) {
+                auto conn = listener.accept();
+                serve_one_dialogue(conn);
+            }
         } catch (const std::exception&) {
             // Flags stay false; the assertions report it.
         }
@@ -280,6 +316,21 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
     ASSERT_TRUE(resp.has_value());
     EXPECT_TRUE(resp->status == 201 || resp->status == 200 || resp->status == 204) << resp->body;
 
+    // ADR-0296: the deregistration -- the trigger for cancelLocation. `dereg-amf` is the real
+    // Nudm_UECM operation an AMF calls when it stops serving the UE, which is exactly the
+    // condition TS 29.002's cancelLocation exists to tell a VLR about.
+    sbi_core::http2::ClientRequest dereg;
+    dereg.method = "POST";
+    dereg.url = base + "/amf-3gpp-access/dereg-amf";
+    dereg.headers.emplace("content-type", "application/json");
+    dereg.headers.emplace("authorization", "Bearer " + token);
+    // SUBSCRIPTION_WITHDRAWN specifically: it is the one deregReason UDM maps onto a MAP
+    // cancellationType, so this exercises that arm rather than the omit-the-optional-field path.
+    dereg.body = json{{"deregReason", "SUBSCRIPTION_WITHDRAWN"}}.dump();
+    auto dereg_resp = client.send(dereg);
+    ASSERT_TRUE(dereg_resp.has_value());
+    EXPECT_EQ(dereg_resp->status, 204) << dereg_resp->body;
+
     if (vlr.joinable()) {
         vlr.join();
     }
@@ -290,4 +341,11 @@ TEST(UdmMapInsertSubscriberData, RegistrationPushesTheSubscriberToAVlrOverRealM3
     EXPECT_TRUE(answered.load()) << "the VLR never got far enough to answer the dialogue";
     EXPECT_TRUE(received_imsi_matches.load())
         << "the insertSubscriberData carried a different IMSI than the UE that registered";
+
+    ASSERT_TRUE(got_cancel_location.load())
+        << "no MAP cancelLocation reached the VLR -- deregistration leaves a real VLR holding a "
+           "subscriber it no longer serves, which is the gap ADR-0296 exists to close";
+    EXPECT_TRUE(cancel_imsi_matches.load())
+        << "the cancelLocation carried a different IMSI, or a cancellationType other than "
+           "subscriptionWithdraw";
 }

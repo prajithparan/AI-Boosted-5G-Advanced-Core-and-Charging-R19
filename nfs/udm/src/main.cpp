@@ -365,6 +365,50 @@ void run_nrf_lifecycle(const std::string& udm_instance_id, const std::string& nr
 // Runs on a detached thread on purpose: send_insert_subscriber_data opens an SCTP association and
 // waits for a MAP response. Blocking the UECM 201 on a legacy peer's round trip would make 5G
 // registration latency hostage to an SS7 node.
+// ADR-0296: the deregistration counterpart. Same detached-thread, log-don't-propagate discipline
+// as the push below, and for the same reason: a legacy VLR being slow or down must not make a 5G
+// deregistration fail or hang.
+void cancel_location_at_vlr(const std::string& vlr_address,
+                            std::uint16_t vlr_port,
+                            const std::string& ue_id,
+                            const std::string& dereg_reason) {
+    if (vlr_address.empty()) {
+        return;
+    }
+    constexpr std::string_view kImsiPrefix = "imsi-";
+    if (ue_id.rfind(kImsiPrefix, 0) != 0) {
+        return;
+    }
+    const std::string digits = ue_id.substr(kImsiPrefix.size());
+
+    std::thread([vlr_address, vlr_port, digits, dereg_reason] {
+        map_core::CancelLocationArg arg{};
+        arg.imsi = tbcd_core::encode_tbcd(digits);
+        // cancellationType is OPTIONAL in the real ASN.1, and it is sent ONLY for the one
+        // deregReason whose correspondence is a name identity rather than a judgement call:
+        // TS 29.503's `SUBSCRIPTION_WITHDRAWN` and TS 29.002's `subscriptionWithdraw`. No
+        // 3GPP specification maps the other six deregReason values onto a cancellationType --
+        // that mapping would be interworking policy, and inventing one here would put a wrong
+        // fact on the wire silently (telling a VLR "the subscriber moved" when it did not, or
+        // the reverse). Omitting the optional field claims nothing and is genuinely valid.
+        if (dereg_reason == "SUBSCRIPTION_WITHDRAWN") {
+            arg.cancellation_type = map_core::CancellationType::kSubscriptionWithdraw;
+        }
+        if (udm::send_cancel_location(vlr_address, vlr_port, arg)) {
+            spdlog::info("udm: MAP cancelLocation accepted by VLR {}:{} for imsi-{}",
+                         vlr_address,
+                         vlr_port,
+                         digits);
+        } else {
+            spdlog::warn("udm: MAP cancelLocation to VLR {}:{} failed for imsi-{} -- the 5G "
+                         "deregistration itself is unaffected",
+                         vlr_address,
+                         vlr_port,
+                         digits);
+        }
+    }).detach();
+}
+
 void push_subscriber_data_to_vlr(const std::string& vlr_address,
                                  std::uint16_t vlr_port,
                                  const std::string& ue_id) {
@@ -720,7 +764,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access/dereg-amf",
-        [&verifier, &amf_registrations, &amf_dereg_counter](const sbi_core::http2::Request& req) {
+        [&verifier, &amf_registrations, &amf_dereg_counter, &vlr_peer_address, &vlr_peer_port](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -735,6 +780,7 @@ int main() {
                     404, "Not Found", "No AMF 3GPP-access registration for ueId " + ue_id);
             }
             amf_registrations.remove(ue_id);
+            cancel_location_at_vlr(vlr_peer_address, vlr_peer_port, ue_id, body->deregReason.value);
             amf_dereg_counter->Add(1);
             sbi_core::http2::Response resp;
             resp.status = 204;

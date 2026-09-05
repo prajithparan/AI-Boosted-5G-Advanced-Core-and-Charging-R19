@@ -45,4 +45,12 @@ bool send_insert_subscriber_data(const std::string& peer_address,
                                  std::uint16_t peer_port,
                                  const map_core::InsertSubscriberDataArg& arg);
 
+// ADR-0296: the counterpart operation -- tells a VLR to drop a subscriber it no longer serves.
+// Same real dialogue shape as above, with cancelLocation's own real application context
+// (locationCancellationContext-v3, not subscriberDataMngtContext). Same return contract: true only
+// on a real, successfully decoded CancelLocationRes.
+bool send_cancel_location(const std::string& peer_address,
+                          std::uint16_t peer_port,
+                          const map_core::CancelLocationArg& arg);
+
 } // namespace udm
