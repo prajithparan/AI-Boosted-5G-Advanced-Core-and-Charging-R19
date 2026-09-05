@@ -90,3 +90,54 @@ TEST(ChargingScope, RoamingIsExpressibleAsAScopeOverTheTwoPlmnIds) {
     EXPECT_FALSE(chf::charging_scope_matches(visited, request_attributes()))
         << "a roaming-priced offering must not apply to home traffic";
 }
+
+// --- roaming as a first-class scope (ADR-0305, C5) ---
+//
+// C5 asked that rating distinguish roaming from home traffic. With ADR-0303's mechanism that is a
+// scope over a derived `roaming` flag rather than a separate feature -- and deriving it, instead
+// of asking operators to scope on `servingCNPlmnId`, is what makes a roaming tariff ONE offering
+// instead of one per partner network.
+
+TEST(ChargingScope, ARoamingTariffAppliesOnlyWhenRoaming) {
+    json home = request_attributes();
+    home["roaming"] = false;
+    json visited = request_attributes();
+    visited["roaming"] = true;
+    visited["servingCNPlmnId"] = json{{"mcc", "262"}, {"mnc", "01"}};
+
+    const json roaming_tariff = {{"roaming", true}};
+    EXPECT_FALSE(chf::charging_scope_matches(roaming_tariff, home))
+        << "a roaming tariff must not be applied to home traffic";
+    EXPECT_TRUE(chf::charging_scope_matches(roaming_tariff, visited));
+
+    const json home_tariff = {{"roaming", false}};
+    EXPECT_TRUE(chf::charging_scope_matches(home_tariff, home));
+    EXPECT_FALSE(chf::charging_scope_matches(home_tariff, visited))
+        << "a home tariff must not silently cover roaming traffic, which is the expensive mistake";
+}
+
+TEST(ChargingScope, ARoamingScopeDoesNotMatchARequestThatCannotAnswerTheQuestion) {
+    // `roaming` is omitted when the request carries no hPlmnId/servingCNPlmnId pair. Failing
+    // closed here matters: defaulting to false would rate genuinely-roaming traffic at the home
+    // price whenever a consumer omitted a PLMN field.
+    json unknown = request_attributes();
+    unknown.erase("roaming");
+    EXPECT_FALSE(chf::charging_scope_matches(json{{"roaming", true}}, unknown));
+    EXPECT_FALSE(chf::charging_scope_matches(json{{"roaming", false}}, unknown));
+}
+
+TEST(ChargingScope, ARoamingDataBundleCombinesRoamingWithASlice) {
+    // The composability point: roaming is just another key, so "roaming traffic on slice 1" is one
+    // scope rather than a special case in the engine.
+    json visited = request_attributes();
+    visited["roaming"] = true;
+    const json roaming_on_slice_1 = {
+        {"roaming", true},
+        {"sNSSAI", json{{"sst", 1}, {"sd", "000001"}}},
+    };
+    EXPECT_TRUE(chf::charging_scope_matches(roaming_on_slice_1, visited));
+
+    json visited_other_slice = visited;
+    visited_other_slice["sNSSAI"] = json{{"sst", 10}, {"sd", "00000a"}};
+    EXPECT_FALSE(chf::charging_scope_matches(roaming_on_slice_1, visited_other_slice));
+}

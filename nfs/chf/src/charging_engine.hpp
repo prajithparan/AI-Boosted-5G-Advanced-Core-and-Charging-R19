@@ -137,6 +137,9 @@ struct RatingResult {
 //                                        sNSSAI, dnnId, ratType, chargingCharacteristics,
 //                                        hPlmnId, servingCNPlmnId, pduSessionID
 //   from the request itself:             subscriberIdentifier, tenantIdentifier
+//   DERIVED (ADR-0305):                  roaming -- servingCNPlmnId != hPlmnId, omitted when
+//                                        either operand is absent, so a roaming-scoped offering
+//                                        never matches a request that cannot answer the question
 //
 // Absent fields are simply absent from the object -- an offering that constrains an attribute the
 // request does not carry does not match, which is the correct outcome rather than a silent pass.

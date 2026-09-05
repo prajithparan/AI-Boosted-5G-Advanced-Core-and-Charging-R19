@@ -109,6 +109,24 @@ collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCha
         if (pdu.servingCNPlmnId.has_value()) {
             attributes["servingCNPlmnId"] = nlohmann::json(*pdu.servingCNPlmnId);
         }
+        // ADR-0305 (C5 of ADR-0300): `roaming`, the one DERIVED attribute here -- every other key
+        // is a field copied straight off the request.
+        //
+        // Why derive it rather than leave operators to scope on `servingCNPlmnId`: a roaming
+        // tariff applies to EVERY visited network, so expressing it by exact PLMN would mean one
+        // offering per partner and a catalog edit for every new roaming agreement. `roaming` makes
+        // "charge roaming traffic differently" a single offering.
+        //
+        // It is derived, not invented: `servingCNPlmnId != hPlmnId` is the definition of roaming,
+        // and both operands are real fields of the request this code already reads. When either is
+        // absent the attribute is OMITTED rather than defaulted to false -- a request that does
+        // not say where it is served cannot be asserted to be non-roaming, and a scope
+        // constraining `roaming` then correctly fails to match rather than silently rating home
+        // traffic as roaming or the reverse.
+        if (pdu.hPlmnId.has_value() && pdu.servingCNPlmnId.has_value()) {
+            attributes["roaming"] =
+                nlohmann::json(*pdu.servingCNPlmnId) != nlohmann::json(*pdu.hPlmnId);
+        }
     }
     return attributes;
 }
