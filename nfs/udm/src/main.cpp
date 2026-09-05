@@ -112,6 +112,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "aka_crypto/suci.hpp"
+#include "map_client.hpp"
 #include "stores.hpp"
 #include "tbcd_core/tbcd.hpp"
 
@@ -348,10 +349,68 @@ void run_nrf_lifecycle(const std::string& udm_instance_id, const std::string& nr
     }
 }
 
+// ADR-0293 (P4.5 stage 5b completion): UDM's MAP client had existed since ADR-0061 and NOTHING
+// EVER CALLED IT -- `grep map_client nfs/udm/src/main.cpp` returned nothing. The HLR-side
+// capability was real and unreachable, which by this project's own standard ("a server with no
+// consumer is not done") meant MAP was not done.
+//
+// The trigger, stated precisely because it is a LOCAL choice and not a spec mandate: TS 29.002's
+// own sequence has the HLR send insertSubscriberData to a VLR in response to that VLR's MAP
+// updateLocation. This project has no MAP LISTENER, so no updateLocation can arrive -- building one
+// is a separate increment (it needs the server side of the same stack CHF's CAP listener already
+// proves is possible). What this project does have is the 5G analogue of the same event: an AMF
+// registering a UE with UDM over Nudm_UECM. So that is the trigger, and a real deployment doing
+// 2G/3G interworking would replace it with the updateLocation path rather than add to it.
+//
+// Runs on a detached thread on purpose: send_insert_subscriber_data opens an SCTP association and
+// waits for a MAP response. Blocking the UECM 201 on a legacy peer's round trip would make 5G
+// registration latency hostage to an SS7 node.
+void push_subscriber_data_to_vlr(const std::string& vlr_address,
+                                 std::uint16_t vlr_port,
+                                 const std::string& ue_id) {
+    if (vlr_address.empty()) {
+        return;
+    }
+    // ueId arrives as "imsi-<digits>"; MAP carries the IMSI as TBCD (TS 23.003 §2.2).
+    constexpr std::string_view kImsiPrefix = "imsi-";
+    if (ue_id.rfind(kImsiPrefix, 0) != 0) {
+        return; // an SUPI that is not an IMSI has no MAP identity to send
+    }
+    const std::string digits = ue_id.substr(kImsiPrefix.size());
+
+    std::thread([vlr_address, vlr_port, digits] {
+        map_core::InsertSubscriberDataArg arg{};
+        arg.imsi = tbcd_core::encode_tbcd(digits);
+        if (udm::send_insert_subscriber_data(vlr_address, vlr_port, arg)) {
+            spdlog::info("udm: MAP insertSubscriberData accepted by VLR {}:{} for imsi-{}",
+                         vlr_address,
+                         vlr_port,
+                         digits);
+        } else {
+            spdlog::warn("udm: MAP insertSubscriberData to VLR {}:{} failed for imsi-{} -- the 5G "
+                         "registration itself is unaffected",
+                         vlr_address,
+                         vlr_port,
+                         digits);
+        }
+    }).detach();
+}
+
 } // namespace
 
 int main() {
     const auto config = nf_config::load("udm", CONFIG_DIR);
+    // ADR-0293: the legacy VLR/MSC peer UDM pushes subscriber data to over MAP. Absent = disabled,
+    // which is the default: a 5G-only deployment has no VLR.
+    const auto vlr_peer_address =
+        nf_config::require<std::string>(config, "vlr_peer_address", "UDM_VLR_PEER_ADDRESS");
+    const auto vlr_peer_port =
+        nf_config::require<std::uint16_t>(config, "vlr_peer_port", "UDM_VLR_PEER_PORT");
+    if (!vlr_peer_address.empty()) {
+        spdlog::info("udm: MAP insertSubscriberData enabled towards VLR {}:{}",
+                     vlr_peer_address,
+                     vlr_peer_port);
+    }
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
@@ -584,7 +643,8 @@ int main() {
     server.add_route(
         "PUT",
         std::string(kUecmApiRoot) + "/{ueId}/registrations/amf-3gpp-access",
-        [&verifier, &amf_registrations, &amf_reg_counter](const sbi_core::http2::Request& req) {
+        [&verifier, &amf_registrations, &amf_reg_counter, &vlr_peer_address, &vlr_peer_port](
+            const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -598,6 +658,9 @@ int main() {
             const bool is_new = !amf_registrations.get(ue_id).has_value();
             json j = *body;
             amf_registrations.put(ue_id, j);
+            // ADR-0293: the UE now has a serving node on record -- push its subscriber data to the
+            // legacy VLR peer, if one is configured. Fire-and-forget; see the helper's own note.
+            push_subscriber_data_to_vlr(vlr_peer_address, vlr_peer_port, ue_id);
             amf_reg_counter->Add(1);
 
             sbi_core::http2::Response resp;
