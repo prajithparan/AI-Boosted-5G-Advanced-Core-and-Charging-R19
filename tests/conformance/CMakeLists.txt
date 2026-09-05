@@ -17,6 +17,7 @@ add_executable(conformance_tests test_round_trip.cpp test_multipart.cpp test_mil
     ${CMAKE_SOURCE_DIR}/nfs/smf/src/nas_5gsm_codec.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/ai_inference.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp)
+target_include_directories(conformance_tests PRIVATE ${CMAKE_SOURCE_DIR}/bss/roaming-interconnect/src)
 target_link_libraries(conformance_tests PRIVATE GTest::gtest GTest::gtest_main sbi_generated sbi_core aka_crypto pfcp_core bss_sid diameter_core ss7_core tcap_core cap_core map_core tbcd_core tap3_core roaming_interconnect_store onnxruntime::onnxruntime "$<LINK_LIBRARY:WHOLE_ARCHIVE,ONNX::onnx>" unofficial::libmariadb)
 target_include_directories(conformance_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/amf/src ${CMAKE_SOURCE_DIR}/nfs/smf/src ${CMAKE_SOURCE_DIR}/nfs/chf/src)
 target_compile_definitions(conformance_tests PRIVATE QUOTA_MODEL_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_quota_model.onnx")
