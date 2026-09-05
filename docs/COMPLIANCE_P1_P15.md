@@ -18,7 +18,7 @@ to this document more than to any other.
 | # | Principle | Status | Evidence / what is actually missing |
 |---|---|---|---|
 | **P1** | OSI-approved open source only | **Done** | Every dependency is OSI-approved. Two license decisions were made *against* convenience and recorded: Osmocom (GPL-2+) and jss7 (AGPL-3.0) were rejected for SS7 rather than linked (ADR-0059); Valkey (BSD-3-Clause) is mandated over Redis, which relicensed to SSPL/RSALv2 (ADR-0044) |
-| **P2** | 3GPP-standards-based | **Substantially done** | Every DTO is generated from the R19 OpenAPI YAML (86 files in the codegen pilot list; 2,928 types). Stage-3 gaps are named where they exist rather than invented around. Open: NRM/IOC coverage in `DATA_MODEL.md` |
+| **P2** | 3GPP-standards-based | **Substantially done** | Every DTO is generated from the R19 OpenAPI YAML (86 files in the codegen pilot list; 2,928 types). Stage-3 gaps are named where they exist rather than invented around. Open: NRM/IOC coverage in `DATA_MODEL.md`, and **58 of the 60 `TS29122_*`/`TS29522_*` AF-facing YAML files present on disk are unwired** -- NEF's whole northbound surface (ADR-0294) |
 | **P3** | 100% container / K8s, multi-cluster | **Partial** | Docker + Compose for all 22 NF/BSS components. **Helm for 7 of 18 NFs.** Multi-cluster: nothing |
 | **P4** | AI-based real-time product/customer algorithms | **Partial** | ONNX in-process inference for quota sizing (P4.8 capability 1). Capabilities 2–6 deferred |
 | **P5** | 100% TM Forum Open API / SID compliance | **Substantially done** | `DATA_MODEL.md` maps every SID entity to a real TMF API; 4 BSS components built |
@@ -112,6 +112,14 @@ Ordered by how hard each would bite:
 9. **N28/Sy is incomplete against the user's own directive**: PCF↔CHF works, but SMF has no
    `policyCounterId` code and no GUI exists for the data model that directive requires.
 10. **NWDAF does not exist** (Phase 5), which also blocks P4.9 and P13.
+11. **NEF exposes nothing to an AF** (ADR-0294). All 14 `Nnef_*` SBI files are built, but the
+    AF-facing TS 29.122 / TS 29.522 APIs -- the "exposure" the NF is named for -- are unbuilt (58
+    of 60 spec files on disk, unwired), and NEF's only outbound HTTP is NRF registration, so
+    traffic-influence data it accepts is written to an in-process map instead of UDR and reaches
+    no SMF or PCF. free5GC has both halves.
+12. **NSSF's slice selection ignores the availability data it stores** (ADR-0294), never returns
+    `nsiInformationList` (so an AMF is never told which NRF serves the selected slice instance),
+    and ignores the TAI, so a slice restricted in one tracking area is allowed everywhere.
 
 ## What is genuinely solid
 

@@ -182,7 +182,10 @@ already-shipping code, a new consequence class, disclosed in full in the ADR); `
 real, project-wide common-data-group-rename consequence, both disclosed in full in the ADR); and
 `Nnef_TrafficInfluenceData`/`Nnef_Inference`/`Nnef_Training`/`Nnef_VFLInference`/`Nnef_VFLTraining`
 (ADR-0210, task #164 now complete — no NEF Tier-A gaps remain). **Every NF's real Tier-A gaps are
-now closed project-wide.** Tier-B closure has begun: **NRF** `OptionsNFInstances`+
+now closed project-wide** — with the scope correction ADR-0294 made to that claim: the audit
+matched `N<nf>_*` filenames only, so NEF's AF-facing `TS29122_*`/`TS29522_*` surface (58 of 60
+spec files present on disk, unwired) was never inside it. That is a real, open gap, and free5GC
+implements two of those APIs. Tier-B closure has begun: **NRF** `OptionsNFInstances`+
 `RetrieveStoredSearch`/`RetrieveCompleteSearch`+`RetrieveKeyRequest` (ADR-0211, the smallest
 remaining Tier-B item), and **UDR**'s Individual Authentication Status (Document) +
 `QueryProvisionedData` (ADR-0212 — also corrected a stale claim in the audit doc itself: a
