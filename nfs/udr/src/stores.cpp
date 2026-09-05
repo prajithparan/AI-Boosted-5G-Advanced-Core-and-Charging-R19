@@ -2993,6 +2993,20 @@ std::vector<nlohmann::json> TrafficInfluenceDataStore::list() {
     return out;
 }
 
+std::vector<std::pair<std::string, nlohmann::json>> TrafficInfluenceDataStore::list_with_ids() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    const auto result = txn.exec("SELECT influence_id, data FROM udr_traffic_influence_data ORDER "
+                                 "BY influence_id");
+    std::vector<std::pair<std::string, nlohmann::json>> out;
+    out.reserve(result.size());
+    for (const auto& row : result) {
+        out.emplace_back(row["influence_id"].as<std::string>(),
+                         nlohmann::json::parse(row["data"].as<std::string>()));
+    }
+    return out;
+}
+
 std::optional<nlohmann::json> TrafficInfluenceDataStore::get(const std::string& influence_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);

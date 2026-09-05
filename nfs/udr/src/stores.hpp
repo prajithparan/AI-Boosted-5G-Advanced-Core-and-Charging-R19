@@ -353,6 +353,12 @@ public:
     explicit TrafficInfluenceDataStore(const std::string& conninfo);
 
     std::vector<nlohmann::json> list();
+    // ADR-0302: the same rows paired with their own influenceId, which the stored documents do NOT
+    // carry -- `influenceId` is the resource key from the URL path, not a field of the real
+    // TrafficInfluData schema. The collection GET's `influence-Ids` filter needs the key, and
+    // matching it against a document field it can never contain is why that filter silently
+    // returned nothing for every request (found by ADR-0302's NEF broker test).
+    std::vector<std::pair<std::string, nlohmann::json>> list_with_ids();
     std::optional<nlohmann::json> get(const std::string& influence_id);
     // Returns true when the row did not exist (real 201 vs 200 distinction the spec draws).
     bool put(const std::string& influence_id, const nlohmann::json& data);

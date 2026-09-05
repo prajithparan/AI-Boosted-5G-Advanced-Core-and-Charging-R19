@@ -197,6 +197,10 @@ constexpr const char* kEcsAddressApiRoot = "/nnef-ecs-addr-cfg-info/v1";
 constexpr const char* kEventExposureApiRoot = "/nnef-eventexposure/v1";
 // ADR-0210 (gap-closure task #164, fourth and final NEF slice).
 constexpr const char* kTrafficInfluenceDataApiRoot = "/nnef-traffic-influence-data/v1";
+// ADR-0302: the AF-FACING northbound API (TS 29.522), as distinct from the Nnef_* NF-facing
+// services above. This is the "exposure" NEF is named for, and ADR-0294 found the whole surface
+// missing.
+constexpr const char* kAfTrafficInfluenceApiRoot = "/3gpp-traffic-influence/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -237,6 +241,89 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
         return r;
     }
     return verifier.verify(value.substr(kPrefix.size()));
+}
+
+// ADR-0302: an AF's TrafficInfluSub becomes a real TS 29.519 TrafficInfluData in UDR.
+//
+// This is the whole point of the feature. ADR-0294's finding was that this NEF's only outbound
+// HTTP was NRF registration -- everything else landed in an in-process map. Traffic-influence data
+// that never reaches UDR influences nothing: SMF reads it from UDR, and an in-process copy is
+// invisible to it. free5GC's own NEF does the same thing (AppDataInfluenceDataPut).
+//
+// Real, disclosed field mapping -- only fields present in BOTH schemas are carried, nothing is
+// synthesised:
+//   afAppId, dnn, snssai, ethTrafficFilters, trafficFilters (-> TrafficInfluData's own
+//   `trafficFilters`), trafficRoutes, appReloInd, supi/gpsi/ipv4Addr/ipv6Addr, externalGroupId
+//   (-> interGroupId), trafficDataSets.
+// TrafficInfluSub fields with no TrafficInfluData counterpart (afServiceId, afTransId,
+// subscribedEvents, notificationDestination, the geo/temporal validity sets) stay in NEF's own
+// copy of the subscription and are NOT invented into the UDR record.
+sbi_gen::TrafficInfluData
+to_traffic_influ_data(const sbi_gen::TrafficInfluSub_TrafficInfluence& s) {
+    sbi_gen::TrafficInfluData d{};
+    d.afAppId = s.afAppId;
+    d.appReloInd = s.appReloInd;
+    d.dnn = s.dnn;
+    d.snssai = s.snssai;
+    d.ethTrafficFilters = s.ethTrafficFilters;
+    d.trafficFilters = s.trafficFilters;
+    d.trafficRoutes = s.trafficRoutes;
+    d.ipv4Addr = s.ipv4Addr;
+    d.ipv6Addr = s.ipv6Addr;
+    d.trafficDataSets = s.trafficDataSets;
+    d.sfcIdDl = s.sfcIdDl;
+    d.sfcIdUl = s.sfcIdUl;
+    d.metadata = s.metadata;
+    d.candDnaiInd = s.candDnaiInd;
+    d.tempValidities = s.tempValidities;
+    d.subscribedEvents = s.subscribedEvents;
+    // NOT mapped, each for a real reason rather than an oversight:
+    //   * `gpsi` and `macAddr` identify the target UE in TrafficInfluSub, but TrafficInfluData has
+    //     no counterpart for either -- it identifies by `supi`, which the AF-facing schema does
+    //     not carry (confirmed by direct read: `supi` is not among TrafficInfluSub's properties).
+    //     Translating GPSI to SUPI needs a UDM lookup this route does not perform, so nothing is
+    //     invented; an AF request identified only by GPSI or MAC still creates the NEF-side
+    //     subscription and produces a UDR record without a subscriber key.
+    //   * `externalGroupId` (an External-Group-Id) is NOT assigned to `interGroupId` (an
+    //     Internal-Group-Id) despite the tempting name symmetry -- they are different identifier
+    //     spaces and the external-to-internal mapping is UDM's job (Nudm_SDM GroupIdentifiers).
+    //     Assigning one to the other would put an external id in an internal id field and be
+    //     wrong in a way nothing downstream would detect.
+    return d;
+}
+
+// PUT the record to UDR, or DELETE it. Best-effort and logged, never fatal to the AF's request:
+// the AF-facing resource genuinely exists at NEF once created, and failing the AF's call because a
+// downstream write failed would misreport whose fault it is. The failure IS logged loudly, because
+// a subscription that never reached UDR is inert and silence about that is what ADR-0294 objected
+// to in the first place.
+bool push_influence_to_udr(sbi_core::http2::Client& udr_client,
+                           const std::string& udr_base_url,
+                           const std::string& influence_id,
+                           const std::optional<sbi_gen::TrafficInfluData>& data) {
+    sbi_core::http2::ClientRequest req;
+    req.url = udr_base_url + "/nudr-dr/v2/application-data/influenceData/" + influence_id;
+    if (data.has_value()) {
+        req.method = "PUT";
+        req.headers.emplace("content-type", "application/json");
+        req.body = nlohmann::json(*data).dump();
+    } else {
+        req.method = "DELETE";
+    }
+    auto resp = udr_client.send(req);
+    if (!resp.has_value() || resp->status >= 300) {
+        spdlog::warn("nef: traffic-influence {} to UDR failed for influenceId={} (status={}) -- "
+                     "the subscription exists at NEF but no SMF will act on it",
+                     data.has_value() ? "PUT" : "DELETE",
+                     influence_id,
+                     resp.has_value() ? resp->status : 0);
+        return false;
+    }
+    spdlog::info("nef: traffic-influence {} to UDR for influenceId={} (status={})",
+                 data.has_value() ? "PUT" : "DELETE",
+                 influence_id,
+                 resp->status);
+    return true;
 }
 
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
@@ -337,6 +424,10 @@ int main() {
         nf_config::require<std::string>(config, "metrics_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "NEF_NRF_BASE_URL");
+    // ADR-0302: NEF's first real downstream NF. Until now its only outbound HTTP was NRF
+    // registration -- see ADR-0294.
+    const auto udr_base_url =
+        nf_config::require<std::string>(config, "udr_base_url", "NEF_UDR_BASE_URL");
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -350,6 +441,18 @@ int main() {
     };
 
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
+
+    nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
+    // One client per thread is this project's standing contract for http2::Client (libcurl's own
+    // per-easy-handle single-thread requirement); the server runs its handlers on a single
+    // io_context thread, so one client shared by those handlers is correct here -- the same shape
+    // every other NF's route-handler client already uses.
+    sbi_core::http2::TlsConfig udr_client_tls{
+        .cert_path = CERTS_DIR "/nef/cert.pem",
+        .key_path = CERTS_DIR "/nef/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client udr_client(std::move(udr_client_tls));
 
     nef::PfdCatalogStore pfd_catalog;
     seed_pfd_catalog(pfd_catalog);
@@ -1216,6 +1319,189 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0302: TS 29.522 TrafficInfluence, the AF-facing (northbound) API ---
+    //
+    // Six real operations from TS29522_TrafficInfluence.yaml. Unlike every other route in this
+    // file, these are consumed by an external Application Function, not by another NF -- this is
+    // the surface ADR-0294 found entirely missing, and free5GC serves the same two AF-facing
+    // groups (`/3gpp-traffic-influence`, `/3gpp-pfd-management`).
+    //
+    // The generated DTO cannot enforce the spec's two `oneOf` mutual-exclusivity groups (ADR-0301
+    // explains why: every field is optional in the struct), so CreateNewSubscription validates
+    // them here, explicitly, against the spec's own lists. Without that, a request naming neither
+    // an application nor any traffic filter would be accepted and stored as an influence rule that
+    // can never match anything.
+
+    server.add_route(
+        "GET",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_traffic_influence_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& sub : af_traffic_influence_subs.list(req.path_params.at("afId"))) {
+                out.push_back(sub);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_TrafficInfluence>(
+                req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+
+            // Real TS29522_TrafficInfluence.yaml constraint 1: exactly one of afAppId /
+            // trafficFilters / ethTrafficFilters / trafficDataSets identifies the traffic.
+            const int traffic_selectors = (body->afAppId.has_value() ? 1 : 0) +
+                                          (body->trafficFilters.has_value() ? 1 : 0) +
+                                          (body->ethTrafficFilters.has_value() ? 1 : 0) +
+                                          (body->trafficDataSets.has_value() ? 1 : 0);
+            if (traffic_selectors != 1) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid request",
+                    "exactly one of afAppId, trafficFilters, ethTrafficFilters or trafficDataSets "
+                    "shall be present");
+            }
+            // Real constraint 2: exactly one of ipv4Addr / ipv6Addr / macAddr / gpsi /
+            // externalGroupId / anyUeInd identifies the target.
+            const int target_selectors =
+                (body->ipv4Addr.has_value() ? 1 : 0) + (body->ipv6Addr.has_value() ? 1 : 0) +
+                (body->macAddr.has_value() ? 1 : 0) + (body->gpsi.has_value() ? 1 : 0) +
+                (body->externalGroupId.has_value() ? 1 : 0) + (body->anyUeInd.has_value() ? 1 : 0);
+            if (target_selectors != 1) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Invalid request",
+                    "exactly one of ipv4Addr, ipv6Addr, macAddr, gpsi, externalGroupId or "
+                    "anyUeInd shall be present");
+            }
+
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto sub_id = af_traffic_influence_subs.create(af_id, j);
+            // The influenceId is derived from the AF and subscription ids so the UDR record can be
+            // found and deleted again from the AF-facing resource alone.
+            push_influence_to_udr(
+                udr_client, udr_base_url, af_id + "-" + sub_id, to_traffic_influ_data(*body));
+
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfTrafficInfluenceApiRoot) + "/" + af_id +
+                                     "/subscriptions/" + sub_id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_traffic_influence_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto sub = af_traffic_influence_subs.get(req.path_params.at("afId"),
+                                                     req.path_params.at("subscriptionId"));
+            if (!sub.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such traffic influence subscription");
+            }
+            return sbi_core::http2::Response::json(200, sub->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_TrafficInfluence>(
+                req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            json j = *body;
+            if (!af_traffic_influence_subs.put(af_id, sub_id, j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such traffic influence subscription");
+            }
+            push_influence_to_udr(
+                udr_client, udr_base_url, af_id + "-" + sub_id, to_traffic_influ_data(*body));
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // Validate the patch against its own real schema (TrafficInfluSubPatch) before
+            // applying it, the same discipline every other merge-patch route in this project uses.
+            sbi_core::http2::Response err;
+            auto patch_dto =
+                sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSubPatch>(req, err);
+            if (!patch_dto.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            auto patched =
+                af_traffic_influence_subs.merge_patch(af_id, sub_id, json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such traffic influence subscription");
+            }
+            // Re-push the PATCHED subscription, not the patch: UDR holds a whole record, and
+            // sending only the changed fields would silently erase the rest.
+            const auto merged = patched->get<sbi_gen::TrafficInfluSub_TrafficInfluence>();
+            push_influence_to_udr(
+                udr_client, udr_base_url, af_id + "-" + sub_id, to_traffic_influ_data(merged));
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfTrafficInfluenceApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_traffic_influence_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            if (!af_traffic_influence_subs.remove(af_id, sub_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such traffic influence subscription");
+            }
+            // The UDR record must go too -- an orphaned influence rule would keep steering
+            // traffic for a subscription the AF believes it deleted.
+            push_influence_to_udr(udr_client, udr_base_url, af_id + "-" + sub_id, std::nullopt);
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

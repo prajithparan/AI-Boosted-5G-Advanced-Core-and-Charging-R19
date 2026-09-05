@@ -159,6 +159,28 @@ private:
 // Nnef_Inference/Nnef_Training/Nnef_VFLInference/Nnef_VFLTraining's own Individual Subscription
 // resources -- each deliberately its own class (not templated/shared) since each real resource has
 // its own real id namespace/lifecycle, same precedent as every other NEF subscription store.
+// ADR-0302: the AF-facing TS 29.522 TrafficInfluence subscriptions, keyed by "{afId}/{subId}" so
+// one AF cannot read or delete another's -- the resource is genuinely per-AF in the spec's own
+// path, and a flat id namespace would quietly make it global.
+class AfTrafficInfluenceSubStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json subscription);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& sub_id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& sub_id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& sub_id) {
+        return af_id + "/" + sub_id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> subscriptions_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);

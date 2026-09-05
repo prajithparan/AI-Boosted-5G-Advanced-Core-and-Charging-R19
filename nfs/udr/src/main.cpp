@@ -9039,8 +9039,17 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            auto all = traffic_influence_data.list();
+            // ADR-0302 fix: filter on the resource KEY, not on a document field.
+            //
+            // This previously matched `doc["influenceId"]`, a field the stored documents never
+            // contain -- `influenceId` is the id in the URL path, not part of the real
+            // TrafficInfluData schema (confirmed by direct read of the generated DTO). So the one
+            // filter this route honours silently returned an EMPTY list for every request that
+            // used it, while an unfiltered request worked. Found by ADR-0302's NEF broker test,
+            // which asked UDR for the record it had just successfully written.
+            auto rows = traffic_influence_data.list_with_ids();
             const auto it = req.query_params.find("influence-Ids");
+            std::vector<nlohmann::json> all;
             if (it != req.query_params.end() && !it->second.empty()) {
                 std::vector<std::string> wanted;
                 std::string cur;
@@ -9055,16 +9064,17 @@ int main() {
                 }
                 if (!cur.empty())
                     wanted.push_back(cur);
-                std::vector<nlohmann::json> filtered;
-                for (const auto& doc : all) {
-                    for (const auto& w : wanted) {
-                        if (doc.contains("influenceId") && doc["influenceId"] == w) {
-                            filtered.push_back(doc);
-                            break;
-                        }
+                for (const auto& [id, doc] : rows) {
+                    if (std::find(wanted.begin(), wanted.end(), id) != wanted.end()) {
+                        all.push_back(doc);
                     }
                 }
-                all = filtered;
+            } else {
+                all.reserve(rows.size());
+                for (auto& [id, doc] : rows) {
+                    (void)id;
+                    all.push_back(std::move(doc));
+                }
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -9172,7 +9182,8 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(req, err);
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(
+                req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -9216,7 +9227,8 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(req, err);
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::TrafficInfluSub_Application_Data>(
+                req, err);
             if (!body.has_value()) {
                 return err;
             }

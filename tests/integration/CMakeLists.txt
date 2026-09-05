@@ -51,6 +51,7 @@ add_executable(integration_tests
     test_chf_protocol_ceilings.cpp
     test_proportional_debit.cpp
     test_udm_map_server.cpp
+    test_nef_af_traffic_influence.cpp
     test_cdr_retention.cpp
     # ADR-0283: the retention test drives CHF's REAL CdrWriter against a real Doris, so its
     # translation units are compiled in rather than the behaviour being re-implemented in a
