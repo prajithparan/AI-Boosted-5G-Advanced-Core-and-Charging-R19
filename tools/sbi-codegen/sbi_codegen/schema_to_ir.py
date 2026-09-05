@@ -37,6 +37,33 @@ _CPP_RESERVED = {
 }
 
 
+
+def _is_constraint_only_member(member: dict) -> bool:
+    """True when an allOf member expresses only a CONSTRAINT and carries no data.
+
+    ADR-0301. Recognises the shapes 3GPP actually uses for mutual exclusivity and conditional
+    requirement -- `oneOf`/`anyOf`/`not` whose branches are bare `required` lists (or nested
+    combinations of the same), plus a bare top-level `required`. Deliberately conservative: a
+    member with `properties`, `$ref`, `type`, `items` or `enum` anywhere in it is NOT
+    constraint-only, and still falls through to the opaque path rather than having its data
+    silently discarded.
+    """
+    _CONSTRAINT_KEYS = {"oneOf", "anyOf", "allOf", "not", "required", "description", "title"}
+    if not isinstance(member, dict) or not member:
+        return False
+    if not set(member.keys()) <= _CONSTRAINT_KEYS:
+        return False
+    # A member that is nothing but a description carries no constraint either; treat it as
+    # constraint-only (it contributes no fields, which is the property that matters here).
+    for key in ("oneOf", "anyOf", "allOf"):
+        for branch in member.get(key, []):
+            if not _is_constraint_only_member(branch):
+                return False
+    nested_not = member.get("not")
+    if nested_not is not None and not _is_constraint_only_member(nested_not):
+        return False
+    return True
+
 def _cpp_field_name(json_name: str) -> str:
     # 3GPP JSON field names are lowerCamelCase but some are legitimately
     # digit-led (5qi, 5gMmCapability -- 5G QoS Identifier et al.), which is
@@ -306,7 +333,30 @@ class Converter:
             merged_fields: list[FieldIR] = []
             seen_by_json_name: dict[str, FieldIR] = {}
             index_by_json_name: dict[str, int] = {}
-            for member in all_of:
+            # ADR-0301: a schema may carry `allOf` AND its own sibling `properties`. JSON Schema
+            # composes both -- the effective type is "all of the members AND my own properties" --
+            # so the schema's own block is processed as an implicit final member rather than
+            # ignored.
+            #
+            # This was latent until constraint-only members started contributing zero fields
+            # (above): before that, every non-opaque allOf type drew all its fields from $ref or
+            # object members, so dropping the siblings happened to be invisible. With
+            # TS29522_TrafficInfluence's TrafficInfluSub -- whose allOf is PURELY constraints and
+            # whose every real field is a sibling -- it produced a struct with no fields at all,
+            # which is worse than the opaque fallback it replaced: it looks like a real DTO and
+            # would silently drop every field on round-trip. Caught by reading the generated
+            # output rather than trusting that "it is a struct now" meant it was correct.
+            members = list(all_of)
+            own_properties = schema.get("properties")
+            if isinstance(own_properties, dict) and own_properties:
+                members.append(
+                    {
+                        "type": "object",
+                        "properties": own_properties,
+                        "required": schema.get("required", []),
+                    }
+                )
+            for member in members:
                 if "$ref" in member:
                     ref_name, ref_schema, ref_file = self.registry.resolve_ref(member["$ref"], source_file)
                     self._enqueue(ref_name, ref_schema, ref_file)
@@ -317,6 +367,27 @@ class Converter:
                     props = member.get("properties", {})
                     req = member.get("required", [])
                     new_fields = self._convert_object_properties(props, req, source_file, name)
+                elif _is_constraint_only_member(member):
+                    # ADR-0301: a CONSTRAINT-only allOf member contributes no fields, so it must
+                    # not make the whole type opaque.
+                    #
+                    # 3GPP uses this shape constantly to express mutual exclusivity, e.g.
+                    # TS29522_TrafficInfluence's TrafficInfluSub:
+                    #     allOf:
+                    #       - oneOf: [required:[afAppId], required:[trafficFilters], ...]
+                    #       - oneOf: [required:[ipv4Addr], required:[ipv6Addr], ...]
+                    # Every branch is a bare `required` list. There are no properties anywhere in
+                    # it -- all the type's real data sits in the sibling `properties:` block this
+                    # generator already handles correctly. Treating it as unmodellable discarded a
+                    # fully-modellable type.
+                    #
+                    # What IS genuinely lost, and is disclosed rather than silently dropped: the
+                    # generated struct cannot ENFORCE "exactly one of these is present". Every
+                    # field simply stays optional. That is a real, narrower gap than an opaque
+                    # nlohmann::json (which enforces nothing AND validates no field types), and it
+                    # is the same class of runtime-validation gap this generator already has for
+                    # ordinary `required` handling.
+                    new_fields = []
                 else:
                     return OpaqueType(
                         name=name,
