@@ -122,11 +122,48 @@ struct RatingResult {
 // DETERMINISTIC multiplier clamped to [0.5x, 2.0x] of the price-configured grant and applied to
 // it -- see charging_engine.cpp's own implementation comment for the exact deterministic rule.
 // "This model informs the decision. The deterministic rating engine makes it."
+// ADR-0303 (C7 of ADR-0300, user-directed): the attributes a charging request actually carries,
+// flattened into one JSON object so an offering can be scoped by ANY of them.
+//
+// User direction: "10GB is usable on Slice ID 1 OR 5GB on Slice ID 10 OR UPF ID 5. Ideally any
+// attribute coming to CHF on N40/N28 shall be used for Charging and model product." That is not a
+// slice feature -- it is a general requirement that the rating decision see the request, not just
+// its `ratingGroup`.
+//
+// Every key here is a REAL field of the TS 32.291 request, named exactly as the spec names it, so
+// a catalog scope written against the specification matches without a translation table:
+//   from MultipleUnitUsage:              ratingGroup, uPFID
+//   from PDUSessionChargingInformation.pduSessionInformation:
+//                                        sNSSAI, dnnId, ratType, chargingCharacteristics,
+//                                        hPlmnId, servingCNPlmnId, pduSessionID
+//   from the request itself:             subscriberIdentifier, tenantIdentifier
+//
+// Absent fields are simply absent from the object -- an offering that constrains an attribute the
+// request does not carry does not match, which is the correct outcome rather than a silent pass.
+nlohmann::json
+collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCharging& request,
+                            const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage);
+
+// ADR-0303: does `attributes` satisfy an offering price's own `chargingScope` characteristic?
+//
+// `chargingScope` is a JSON object of attribute-name -> required value, stored as a TMF620
+// `prodSpecCharValueUse` characteristic -- catalog DATA, not code, which is principle P7 and the
+// reason slice ids are never compiled in. Semantics, chosen to be the least surprising:
+//   * every key present in the scope must match the request's value for that attribute;
+//   * a scope value that is an ARRAY matches if the request's value equals ANY element (that is
+//     what makes "usable on slice 1 or slice 10" one offering rather than two);
+//   * an attribute the request does not carry never matches a scope that constrains it;
+//   * an EMPTY or absent scope constrains nothing and matches everything, which is exactly the
+//     behaviour every already-configured offering had before this existed -- so no existing
+//     catalog entry changes meaning.
+bool charging_scope_matches(const nlohmann::json& scope, const nlohmann::json& attributes);
+
 RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
                                 std::int64_t rating_group,
                                 const std::string& supi = "",
                                 AiQuotaSizer* ai_quota_sizer = nullptr,
-                                QuotaFeatureStore* quota_feature_store = nullptr);
+                                QuotaFeatureStore* quota_feature_store = nullptr,
+                                const nlohmann::json& attributes = nlohmann::json::object());
 
 // P4.3 (ADR-0057): CHF as a real HTTP client of bss/balance-management (ADR-0056) -- reserves
 // `cost` against the real per-subscriber Bucket keyed by SUPI (this project's own disclosed
@@ -239,7 +276,13 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                  const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage,
                  chf::AiQuotaSizer* ai_quota_sizer = nullptr,
                  chf::QuotaFeatureStore* quota_feature_store = nullptr,
-                 std::optional<std::time_t> invocation_time_stamp = std::nullopt);
+                 std::optional<std::time_t> invocation_time_stamp = std::nullopt,
+                 // ADR-0303: the request's own attributes, for offering scope matching. Defaults
+                 // to empty so the Diameter Gy and CAP call sites -- which have no TS 32.291
+                 // request to draw them from -- keep working unchanged and simply match only
+                 // unscoped offerings, which is the honest outcome for them rather than a
+                 // fabricated slice/UPF context.
+                 const nlohmann::json& attributes = nlohmann::json::object());
 
 // P4.2/ADR-0055, TS 29.594 (Nchf_SpendingLimitControl): builds the real SpendingLimitStatus both
 // Subscribe/Update return, per the real confirmed schema. Extracted from main.cpp (was anonymous-

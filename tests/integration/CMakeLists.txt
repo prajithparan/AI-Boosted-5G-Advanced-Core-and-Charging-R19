@@ -50,6 +50,7 @@ add_executable(integration_tests
     test_udm_map_insert_subscriber_data.cpp
     test_chf_protocol_ceilings.cpp
     test_proportional_debit.cpp
+    test_charging_scope.cpp
     test_udm_map_server.cpp
     test_nef_af_traffic_influence.cpp
     test_cdr_retention.cpp
@@ -58,6 +59,7 @@ add_executable(integration_tests
     # fake. CHF is an executable, so there is no library target to link instead.
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/proportional_debit.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/charging_scope.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     ngap_test_gnb.cpp
     ue_nas_driver.cpp

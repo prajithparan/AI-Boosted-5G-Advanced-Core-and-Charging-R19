@@ -766,7 +766,10 @@ int main() {
                         usage,
                         &ai_quota_sizer,
                         &quota_feature_store,
-                        sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp));
+                        sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp),
+                        // ADR-0303: the request's own attributes, so an offering scoped to a
+                        // slice, a UPF, a DNN or a visited PLMN can be matched or skipped.
+                        chf::collect_charging_attributes(*body, usage));
                     if (charged.reserved && charged.rating.grant.has_value()) {
                         info.grantedUnit = charged.rating.grant;
                         // ADR-0072 (gap-closure: real N40 product-configurability): real
@@ -881,7 +884,10 @@ int main() {
                         usage,
                         &ai_quota_sizer,
                         &quota_feature_store,
-                        sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp));
+                        sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp),
+                        // ADR-0303: the request's own attributes, so an offering scoped to a
+                        // slice, a UPF, a DNN or a visited PLMN can be matched or skipped.
+                        chf::collect_charging_attributes(*body, usage));
                     if (charged.reserved && charged.rating.grant.has_value()) {
                         info.grantedUnit = charged.rating.grant;
                         // ADR-0072 (gap-closure: real N40 product-configurability): real

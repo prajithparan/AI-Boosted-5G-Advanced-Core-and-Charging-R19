@@ -70,11 +70,54 @@ std::optional<nlohmann::json> find_characteristic_value(
     return std::nullopt;
 }
 
+nlohmann::json
+collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCharging& request,
+                            const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage) {
+    nlohmann::json attributes = nlohmann::json::object();
+    attributes["ratingGroup"] = usage.ratingGroup;
+    if (usage.uPFID.has_value()) {
+        attributes["uPFID"] = *usage.uPFID;
+    }
+    if (request.subscriberIdentifier.has_value()) {
+        attributes["subscriberIdentifier"] = *request.subscriberIdentifier;
+    }
+    if (request.tenantIdentifier.has_value()) {
+        attributes["tenantIdentifier"] = *request.tenantIdentifier;
+    }
+    if (request.pDUSessionChargingInformation.has_value() &&
+        request.pDUSessionChargingInformation->pduSessionInformation.has_value()) {
+        const auto& pdu = *request.pDUSessionChargingInformation->pduSessionInformation;
+        attributes["dnnId"] = pdu.dnnId;
+        attributes["pduSessionID"] = pdu.pduSessionID;
+        if (pdu.networkSlicingInfo.has_value()) {
+            // The S-NSSAI as the spec shapes it ({sst, sd}), so a catalog scope can constrain the
+            // whole thing or -- via an array of them -- a set of slices.
+            attributes["sNSSAI"] = nlohmann::json(pdu.networkSlicingInfo->sNSSAI);
+        }
+        if (pdu.ratType.has_value()) {
+            attributes["ratType"] = nlohmann::json(*pdu.ratType);
+        }
+        if (pdu.chargingCharacteristics.has_value()) {
+            attributes["chargingCharacteristics"] = *pdu.chargingCharacteristics;
+        }
+        // hPlmnId vs servingCNPlmnId is what makes a session roaming or not, so both are exposed:
+        // C5's roaming rating is a scope over these two rather than a separate feature.
+        if (pdu.hPlmnId.has_value()) {
+            attributes["hPlmnId"] = nlohmann::json(*pdu.hPlmnId);
+        }
+        if (pdu.servingCNPlmnId.has_value()) {
+            attributes["servingCNPlmnId"] = nlohmann::json(*pdu.servingCNPlmnId);
+        }
+    }
+    return attributes;
+}
+
 RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
                                 std::int64_t rating_group,
                                 const std::string& supi,
                                 AiQuotaSizer* ai_quota_sizer,
-                                QuotaFeatureStore* quota_feature_store) {
+                                QuotaFeatureStore* quota_feature_store,
+                                const nlohmann::json& attributes) {
     sbi_core::http2::ClientRequest offerings_req;
     offerings_req.method = "GET";
     offerings_req.url = product_catalog_base() + kProductCatalogApiRoot + "/productOffering";
@@ -121,6 +164,19 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
         const auto rg_value = find_characteristic_value(price.prodSpecCharValueUse, "ratingGroup");
         if (!rg_value.has_value() || !rg_value->is_number_integer() ||
             rg_value->get<std::int64_t>() != rating_group) {
+            continue;
+        }
+
+        // ADR-0303: the offering's own attribute scope, from the catalog. An offering priced for
+        // one slice, one UPF or one visited PLMN is skipped for a request that does not match it,
+        // so the NEXT matching offering is used instead -- which is what makes "10 GB on slice 1
+        // OR 5 GB on slice 10" two real, separately-priced products rather than one.
+        const auto scope = find_characteristic_value(price.prodSpecCharValueUse, "chargingScope");
+        if (scope.has_value() && !charging_scope_matches(*scope, attributes)) {
+            spdlog::debug("chf: ProductOfferingPrice {} matches ratingGroup {} but its "
+                          "chargingScope does not match this request's attributes",
+                          price.id.value_or(""),
+                          rating_group);
             continue;
         }
 
@@ -483,13 +539,15 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                  const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage,
                  chf::AiQuotaSizer* ai_quota_sizer,
                  chf::QuotaFeatureStore* quota_feature_store,
-                 std::optional<std::time_t> invocation_time_stamp) {
+                 std::optional<std::time_t> invocation_time_stamp,
+                 const nlohmann::json& attributes) {
     ChargeUsageResult result;
     result.rating = build_rating_grant(catalog_client,
                                        static_cast<std::int64_t>(usage.ratingGroup),
                                        supi,
                                        ai_quota_sizer,
-                                       quota_feature_store);
+                                       quota_feature_store,
+                                       attributes);
 
     if (result.rating.cost.has_value() && !supi.empty()) {
         result.reserved =

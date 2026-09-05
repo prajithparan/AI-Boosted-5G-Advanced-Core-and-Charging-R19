@@ -35,7 +35,7 @@ find_package(libpqxx CONFIG REQUIRED)
 find_package(onnxruntime CONFIG REQUIRED)
 find_package(ONNX CONFIG REQUIRED)
 
-add_executable(chf src/main.cpp src/stores.cpp src/cdr.cpp src/cdr_asn1.cpp src/diameter_server.cpp src/rating_decision_store.cpp src/charging_engine.cpp src/proportional_debit.cpp src/cap_server.cpp src/ai_inference.cpp)
+add_executable(chf src/main.cpp src/stores.cpp src/cdr.cpp src/cdr_asn1.cpp src/diameter_server.cpp src/rating_decision_store.cpp src/charging_engine.cpp src/proportional_debit.cpp src/charging_scope.cpp src/cap_server.cpp src/ai_inference.cpp)
 target_link_libraries(chf PRIVATE sbi_core sbi_generated bss_sid redis++::redis++_static unofficial::libmariadb diameter_core libpqxx::pqxx ss7_core tcap_core cap_core tbcd_core onnxruntime::onnxruntime "$<LINK_LIBRARY:WHOLE_ARCHIVE,ONNX::onnx>" nf_config)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.
 # CONFIG_DIR: docs/DECISIONS.md ADR-0077 -- separate checked-in config/chf.json (partial retrofit
