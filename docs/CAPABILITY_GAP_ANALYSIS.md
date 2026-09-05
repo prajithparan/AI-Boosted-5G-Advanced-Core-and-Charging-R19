@@ -1427,3 +1427,129 @@ not missing coverage. NEF's 13-file/~45-operation
 surface and PCF's 7-file surface are the largest single blocks of remaining work in the project
 and will need to be split across multiple turns even under the "one subsystem per turn" framing
 already used for NEF/SCP/BSF.
+
+## ADR-0294 sweep: the NFs the original pass never covered (2026-09-05)
+
+The Summary table above says, of NSSF/BSF/NEF/SCP/5G-EIR/SMSF/GMLC/LMF, "Not yet swept against
+free5GC/open5GS source". That line stood for months. This section closes it.
+
+**Method, same as the original pass:** open5GS from the real `open5gs-main.zip` monorepo
+(`src/<nf>/`), free5GC cloned live per-NF (`github.com/free5gc/{nssf,bsf,nef}.git`). Every claim
+below cites what was actually read.
+
+**First real finding, before any per-NF comparison:** of the eight NFs, **only four have a
+reference to sweep against at all.**
+
+| NF | free5GC | open5GS |
+|---|---|---|
+| NSSF | real (`f5-nssf`, 26 Go files) | real (`src/nssf`, 1,734 lines) |
+| BSF | real (`f5-bsf`, 22 Go files) | real (`src/bsf`, 1,700 lines) |
+| NEF | real (`f5-nef`, 35 Go files) | **does not exist** |
+| SCP | **does not exist** | real (`src/scp`, 2,279 lines) |
+| 5G-EIR | **does not exist** | **does not exist** |
+| SMSF | **does not exist** | **does not exist** |
+| GMLC | **does not exist** | **does not exist** |
+| LMF | **does not exist** | **does not exist** |
+| NSACF | **does not exist** | **does not exist** |
+
+The bottom five are capabilities neither reference implementation has. Per ADR-0075's mandate
+this is recorded as a real lead, not as a victory lap: "no reference exists" says nothing about
+whether ours is *correct*, only that there is nothing to compare it against. Their own disclosed
+gaps (ADR-0187/0188/0189/0191: no IMEI provisioning path, no SMS-GMSC relay, no LPP/PRU
+positioning) are unaffected by this.
+
+### NSSF -- one real, previously undisclosed gap, and one place we are ahead
+
+Ours implements all 8 real operations across both `Nnssf_NSSelection` and
+`Nnssf_NSSAIAvailability`, and accepts all five real slice-info request types. open5GS handles
+**only** `slice-info-request-for-pdu-session` -- it returns `400 "Not implemented except PDU
+session"` for anything else (`src/nssf/nnssf-handler.c`) -- and has **no `Nnssf_NSSAIAvailability`
+service at all** (grep for `nssai-availability` over `src/nssf/` returns nothing). We are
+genuinely ahead of open5GS on service surface.
+
+free5GC is the deeper implementation, and the comparison is where the real finding is.
+`nsselection_network_slice_information.go` is 747 lines over a 539-line `util.go`. Ours is one
+function, `decide_slice_selection`, that filters the requested S-NSSAIs against a fixed seed
+catalog. What free5GC does that we do not:
+
+1. **The TAI is ignored entirely.** free5GC has `CheckSupportedSnssaiInTa`,
+   `CheckSupportedSnssaiInAmfTa`, `GetRestrictedSnssaiListFromConfig(tai)`,
+   `AuthorizeOfAmfTaFromConfig`. Our selection never reads the `tai` the request carries. A slice
+   restricted in one tracking area is allowed everywhere.
+2. **`nsiInformationList` is never returned.** This is the field that tells the AMF which NRF
+   serves the selected network slice instance, and it is the *entire point* of open5GS's NSSF
+   (`nssf_nsi_find_by_s_nssai` → `NsiInformation`). **Both** references produce it; we produce
+   none. This is the most consequential item here.
+3. **Our own NSSAIAvailability store is never consulted during selection.** We accept per-AMF
+   `SupportedNssaiAvailabilityData`, store it, authorize it and fire real notifications on it --
+   and then the selection decision ignores it and consults a static seed instead. free5GC's
+   `GetSupportedSnssaiListFromConfig(nfId, tai)` reads exactly this data. This is data we already
+   hold, unused.
+4. **No serving↔home S-NSSAI mapping**, so roaming selection is not modeled
+   (`FindMappingWithServingSnssai`/`FindMappingWithHomeSnssai`,
+   `GetMappingOfPlmnFromConfig`).
+5. **No `candidateAmfList`/`targetAmfSet`** in the response (`AddAmfInformation`) -- so NSSF can
+   never trigger an AMF relocation, which is one of its two real jobs.
+6. **`rejectedNssaiInTa` is never produced**; we only ever emit `rejectedNssaiInPlmn`.
+
+ADR-0183 disclosed item (1)-adjacent language ("not real subscriber-entitlement/NRF-discovery/
+NSAG-mapping logic"). Items 2, 3, 5 and 6 are **newly named here** and are more specific than that
+disclosure was.
+
+### BSF -- full parity, and the reference is the one that diverges from the spec
+
+All 15 operations in `TS29521_Nbsf_Management.yaml` are implemented, and the query filters on
+`GetPCFBindings` (`ipv4Addr`, `ipv6Prefix`, `macAddr48`, `dnn`, `supi`, `gpsi`, `ipDomain`,
+`snssai`) match the spec's own parameter list. free5GC covers the same four resource families
+(`pcfBindings`, `pcf-ue-bindings`, `pcf-mbs-bindings`, `subscriptions`) plus one extra --
+`GetIndPCFBinding` (`GET /pcfBindings/{bindingId}`) -- **which does not exist in the R19 YAML**
+(the individual resource is DELETE/PATCH only). That is free5GC carrying an older or extended
+shape, not a gap on our side; noted rather than copied, per this project's YAML-is-the-source rule.
+
+**No real gap found for BSF.** First NF in this project for which that is true against a real
+reference.
+
+### NEF -- the largest undisclosed gap this sweep found
+
+This project's NEF implements all 14 `Nnef_*` YAML files (ADR-0185 through ADR-0210). That is the
+*NF-facing* half. The **AF-facing half -- which is what "Network Exposure" names -- is entirely
+absent**, and free5GC has it:
+
+- free5GC mounts `/3gpp-traffic-influence/v1` (TS 29.522) and `/3gpp-pfd-management/v1`
+  (TS 29.122) as real, OAuth2-protected AF-facing route groups (`internal/sbi/server.go`,
+  `pkg/factory/config.go`).
+- Those YAMLs are **already in this repository**: 16 `TS29122_*.yaml` files and 44 `TS29522_*.yaml`
+  files under `specs/5G_APIs-REL-19/`. Of the 60, exactly **2 are wired into
+  `libs/sbi-generated/CMakeLists.txt`** (`TS29522_DNAIMapping`, `TS29522_ECSAddress`) and both only
+  as DTO sources for an `Nnef_*` SBI service -- neither is served as a northbound API. **58 real
+  spec files, present on disk, never built.**
+- **Why this was never caught:** ADR-0193's project-wide YAML coverage audit cross-referenced
+  `N<nf>_*` files only. `TS29122_*`/`TS29522_*` do not match that pattern, so the audit's own
+  "zero Tier-A gaps" verdict for NEF was scoped narrower than it read. Correcting the audit's
+  scope, not just its result.
+
+Second, structural: **our NEF has no outbound consumer at all.** Its only HTTP client traffic is
+NRF registration and heartbeat (`nfs/nef/src/main.cpp:250-320`); everything else is stored in
+in-process maps. free5GC's NEF really calls UDR (`AppDataInfluenceDataGet/Put`, `AppDataPfdsGet`)
+and PCF. A NEF that stores traffic-influence data locally instead of writing it to UDR does not
+influence anything -- the SMF/PCF that would act on it never see it. This is the same
+"server with no consumer" failure class ADR-0293 just closed for UDM's MAP client.
+
+### SCP -- the known gap, now corroborated with evidence
+
+ADR-0186 recorded that SCP's real message-forwarding role (TS 29.500 §§6.10-6.11) is unbuilt and
+was scoped out by explicit user decision. open5GS confirms the size of what that defers:
+`src/scp/sbi-path.c` is **1,299 lines** of real request forwarding with delegated discovery --
+parsing `3gpp-Sbi-Discovery-*` headers into a discovery option, preserving the original consumer's
+NF type on the forwarded request, and routing to the resolved producer. Ours implements
+`Nscp_EventExposure` (3 operations) and nothing else.
+
+Unchanged as a decision; recorded here so the deferral has a measured size rather than an
+adjective.
+
+### What this sweep did NOT do
+
+**No performance comparison was run, here or anywhere.** This is a capability sweep -- what each
+implementation *does*, read from its source. P10's "exceeds free5GC" claim from the
+commercialization mandate (ADR-0049) still has **zero** measurements behind it, and nothing in
+this section changes that. Blocker 3 in `docs/COMPLIANCE_P1_P15.md` stands exactly as written.
