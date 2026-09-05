@@ -153,6 +153,21 @@
 
 namespace {
 
+// ADR-0295: one optional TPS setting, config file first then environment -- the same precedence
+// nf_config::require uses per key. std::nullopt means "not configured", which is what leaves a
+// ceiling off; that distinction matters, because 0 means "configured to zero" and is rejected by
+// the callers' own `> 0.0` check rather than silently treated as absent.
+std::optional<double>
+chf_tps_setting(const nlohmann::json& config, const char* key, const char* env_name) {
+    if (const char* env = std::getenv(env_name); env != nullptr && *env != '\0') {
+        return std::strtod(env, nullptr);
+    }
+    if (config.contains(key) && !config.at(key).is_null()) {
+        return config.at(key).get<double>();
+    }
+    return std::nullopt;
+}
+
 using nlohmann::json;
 
 #ifndef CERTS_DIR
@@ -601,12 +616,16 @@ int main() {
     // "per-protocol" is what P15 asks for, and a shared budget would let an SBI storm starve Gy.
     // OFF unless `diameter_max_tps` is configured; see diameter_server.cpp's own Result-Code
     // caveat for the second reason it is off by default.
-    if (config.contains("diameter_max_tps") && !config.at("diameter_max_tps").is_null()) {
-        const auto diameter_tps = config.at("diameter_max_tps").get<double>();
+    // ADR-0295: env override, same config-file-first-then-env convention nf_config::require and
+    // sbi_core::read_tps_limit's own SBI_MAX_TPS already use. It exists so the ceiling can be
+    // driven from a test without a test value living in checked-in config.
+    if (chf_tps_setting(config, "diameter_max_tps", "CHF_DIAMETER_MAX_TPS").has_value()) {
+        const auto diameter_tps =
+            *chf_tps_setting(config, "diameter_max_tps", "CHF_DIAMETER_MAX_TPS");
         if (diameter_tps > 0.0) {
-            const auto diameter_burst = config.contains("diameter_tps_burst")
-                                            ? config.at("diameter_tps_burst").get<double>()
-                                            : diameter_tps;
+            const auto diameter_burst =
+                chf_tps_setting(config, "diameter_tps_burst", "CHF_DIAMETER_TPS_BURST")
+                    .value_or(diameter_tps);
             diameter_server.set_tps_limit(diameter_tps, diameter_burst);
             spdlog::info("chf: Diameter TPS ceiling active: {} req/s sustained, burst {}",
                          diameter_tps,
@@ -639,12 +658,11 @@ int main() {
     // P15 (ADR-0288): the SS7/M3UA front door's own ceiling -- the third protocol, completing
     // "per-protocol" TPS governance. Its own bucket, like Diameter's: a CAP storm and an SBI storm
     // are different failures and must not share a budget.
-    if (config.contains("cap_max_tps") && !config.at("cap_max_tps").is_null()) {
-        const auto cap_tps = config.at("cap_max_tps").get<double>();
+    if (chf_tps_setting(config, "cap_max_tps", "CHF_CAP_MAX_TPS").has_value()) {
+        const auto cap_tps = *chf_tps_setting(config, "cap_max_tps", "CHF_CAP_MAX_TPS");
         if (cap_tps > 0.0) {
-            const auto cap_burst = config.contains("cap_tps_burst")
-                                       ? config.at("cap_tps_burst").get<double>()
-                                       : cap_tps;
+            const auto cap_burst =
+                chf_tps_setting(config, "cap_tps_burst", "CHF_CAP_TPS_BURST").value_or(cap_tps);
             cap_server.set_tps_limit(cap_tps, cap_burst);
             spdlog::info("chf: CAP/SS7 TPS ceiling active: {} msg/s sustained, burst {}",
                          cap_tps,

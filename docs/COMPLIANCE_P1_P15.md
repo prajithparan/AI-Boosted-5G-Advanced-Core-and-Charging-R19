@@ -31,7 +31,7 @@ to this document more than to any other.
 | **P12** | Business-level alarming | **Done (first real slice)** | CDR sequence-gap alarm wired at Release + `chf_cdr_sequence_gap_total`; `sbi_requests_shed_total`; 4 Prometheus rules in `deploy/prometheus/business_alerts.yml`, every one verified against a metric this code really exports |
 | **P13** | Charging correctness under AI/ML/SON change | **Not started** | Belongs to P4.9, which is blocked on NWDAF |
 | **P14** | Retention-driven auto-archival | **Partial** | Archive-then-delete sweep in CHF (ADR-0283), hourly, **off by default**. Archives to newline-delimited JSON; a real deployment points it at object storage, which is not deployed here. Validated against real Doris in CI's `build` job (the only leg with a Doris service); skips locally and in both sanitizer legs |
-| **P15** | Protocol-level spike protection / TPS governance | **Substantially done** | A ceiling on **all three** protocol front doors: SBI's 22 servers with spec-defined `503` shedding (ADR-0280), Diameter answering the real `DIAMETER_TOO_BUSY` (ADR-0285/0291), and SS7/M3UA dropping rather than answering, because a TCAP abort costs as much as service (ADR-0288). All off unless configured. **Gaps: no load campaign, and no end-to-end test for the Diameter or SS7 ceiling** (ADR-0290) |
+| **P15** | Protocol-level spike protection / TPS governance | **Substantially done** | A ceiling on **all three** protocol front doors: SBI's 22 servers with spec-defined `503` shedding (ADR-0280), Diameter answering the real `DIAMETER_TOO_BUSY` (ADR-0285/0291), and SS7/M3UA dropping rather than answering, because a TCAP abort costs as much as service (ADR-0288). All off unless configured. All three now have an end-to-end test (ADR-0295): SBI's 503, Diameter's real `3004` answer over a real CER/CEA'd connection, and SS7's drop -- the last proved against a control run showing the same InitialDP reaches CHF's CAP handler when no ceiling is set. **Remaining gap: no load campaign** |
 
 ---
 
@@ -102,7 +102,7 @@ Ordered by how hard each would bite:
    nothing in this repository claims otherwise.
 4. **The synchronous HTTP/2 client** (ADR-0006/0009). It is why handover preparation blocks a gNB
    association for up to 10 s and why per-session SMF calls are serial.
-5. **Spike protection exists on all three protocols but has never been load-tested** (P15). Each ceiling is validated as a mechanism under a small deliberate overload, not a campaign — and the Diameter and SS7 ceilings have no end-to-end test at all (ADR-0290). All three are off unless configured, which is an opt-in policy choice, not a caveat.
+5. **Spike protection exists on all three protocols but has never been load-tested** (P15). Each ceiling is validated as a mechanism under a small deliberate overload, not a campaign. All three are now covered by an end-to-end test (ADR-0295, closing ADR-0290's gap), but a test that proves a mechanism fires is not a load campaign and this project does not claim it is. All three are off unless configured, which is an opt-in policy choice, not a caveat.
 6. **UPF's datapath is control-plane only in practice** — eBPF/XDP does not start without ambient
    capabilities, and downlink GTP-U encapsulation is not implemented in it at all.
 7. **Retention exists but archives to a local directory, not object storage** (P14). The sweep is

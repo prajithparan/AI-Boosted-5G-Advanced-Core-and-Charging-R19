@@ -33,6 +33,7 @@
 // manually outside ctest are likewise unaffected.
 
 #include <csignal>
+#include <fcntl.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -68,10 +69,27 @@ inline void arm_parent_death_signal() {
 // pattern after a real early-returning ASSERT there orphaned nrf/udr during development.
 class SpawnedProcess {
 public:
-    explicit SpawnedProcess(const char* path) {
+    // ADR-0295: `log_path`, when given, redirects the child's stdout AND stderr into that file, so
+    // a test can assert on what the NF itself reported. That is the only observable some real
+    // behaviour has -- an SS7 message DROPPED at a TPS ceiling produces no reply by design, so
+    // "nothing came back" is indistinguishable from a malformed message being ignored. The log
+    // line is the difference. Same evidence standard ADR-0269/ADR-0270 already used by reading
+    // AMF's and UPF's own logs, just no longer by hand.
+    explicit SpawnedProcess(const char* path, const char* log_path = nullptr) {
         pid_ = fork();
         if (pid_ == 0) {
             arm_parent_death_signal();
+            if (log_path != nullptr) {
+                // open/dup2/close are async-signal-safe, which is what makes them legal here.
+                const int fd = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (fd >= 0) {
+                    dup2(fd, STDOUT_FILENO);
+                    dup2(fd, STDERR_FILENO);
+                    if (fd > STDERR_FILENO) {
+                        close(fd);
+                    }
+                }
+            }
             execl(path, path, static_cast<char*>(nullptr));
             _exit(127); // only reached if execl fails
         }
