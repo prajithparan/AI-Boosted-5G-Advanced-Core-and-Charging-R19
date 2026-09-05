@@ -49,6 +49,7 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29591_Nnef_UEId.yaml
     TS29591_Nnef_DNAIMapping.yaml
     TS29522_DNAIMapping.yaml
+    TS29522_TrafficInfluence.yaml
     TS29591_Nnef_EASDeployment.yaml
     TS29570_Nscp_EventExposure.yaml
     TS29511_N5g-eir_EquipmentIdentityCheck.yaml
@@ -139,6 +140,7 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_UEId.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_DNAIMapping.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29522_DNAIMapping.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_TrafficInfluence.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_EASDeployment.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29570_Nscp_EventExposure.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29511_N5g-eir_EquipmentIdentityCheck.yaml

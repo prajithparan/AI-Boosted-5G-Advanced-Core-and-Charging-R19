@@ -49,6 +49,14 @@ inline const std::vector<std::uint32_t> kSubscriberDataMngtContextV3Oid = {0, 4,
 inline const std::vector<std::uint32_t> kLocationCancellationContextV3Oid = {
     0, 4, 0, 0, 1, 0, 2, 3};
 
+// Real Application Context Name OIDs for the VLR->HLR operations UDM RECEIVES (ADR-0299). Same
+// jss7-confirmed `{0, 4, 0, 0, 1, 0, <ac-Id>, <version>}` template, with the ac-Id arcs taken from
+// `MAPApplicationContextName`: networkLocUpContext(1) carries updateLocation (and the
+// insertSubscriberData the HLR pushes back inside the same dialogue), msPurgingContext(27) carries
+// purgeMS.
+inline const std::vector<std::uint32_t> kNetworkLocUpContextV3Oid = {0, 4, 0, 0, 1, 0, 1, 3};
+inline const std::vector<std::uint32_t> kMsPurgingContextV3Oid = {0, 4, 0, 0, 1, 0, 27, 3};
+
 // Real operation local codes -- TS 29.002 clause 17.6.1 (MAP-MobileServiceOperations), each cited
 // with its exact CODE local:N as printed on the page. Only insertSubscriberData has an argument
 // codec in map_operations.hpp; the rest are recorded as real, cited facts for future stages.

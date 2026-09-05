@@ -113,6 +113,7 @@
 #include "aka_crypto/milenage.hpp"
 #include "aka_crypto/suci.hpp"
 #include "map_client.hpp"
+#include "map_server.hpp"
 #include "stores.hpp"
 #include "tbcd_core/tbcd.hpp"
 
@@ -455,6 +456,13 @@ int main() {
                      vlr_peer_address,
                      vlr_peer_port);
     }
+    // ADR-0299: UDM's MAP SERVER (HLR role) -- 0 means disabled, which is the default. A 5G-only
+    // deployment has no VLR sending updateLocation, exactly as it has none to receive
+    // insertSubscriberData.
+    const auto map_server_port =
+        nf_config::require<std::uint16_t>(config, "map_server_port", "UDM_MAP_SERVER_PORT");
+    const auto hlr_number_digits =
+        nf_config::require<std::string>(config, "hlr_number", "UDM_HLR_NUMBER");
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
@@ -479,6 +487,17 @@ int main() {
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
 
     udm::AmfRegistrationStore amf_registrations;
+
+    // Started after the store it serves from, torn down before it (declaration order), so no
+    // association can be answering out of a store that is already gone.
+    std::optional<udm::MapServer> map_server;
+    if (map_server_port != 0) {
+        map_server.emplace(
+            map_server_port, tbcd_core::encode_tbcd(hlr_number_digits), amf_registrations);
+        spdlog::info("udm: MAP server (HLR role) listening on sctp://0.0.0.0:{}, hlrNumber={}",
+                     map_server_port,
+                     hlr_number_digits);
+    }
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0215).
     udm::RoamingInfoUpdateStore roaming_info_updates;
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #169, ADR-0216).

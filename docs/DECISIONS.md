@@ -24946,3 +24946,53 @@ until a time-denominated grant exists**. That is the same root cause ADR-0297 na
 non-proportional finalization: no time-priced offering, so no time grant. One missing capability
 explains both, and it is product/catalog configuration rather than protocol work. Stated here
 rather than left for someone to discover when a call drops at answer.
+
+## ADR-0300: every Partial and Not-supported commercial product is now mandatory, plus slice-based rating
+
+**Date:** 2026-09-05. **Status:** accepted, user-directed, mandatory. **Scheduling:** after the
+in-flight items (ADR-0299 MAP server, NEF's AF-facing surface).
+
+User direction, verbatim in intent: *"Partial and Not supported is a MUST to implement as it is
+required for a standard Telco. Also Slice based products also needs commercial rating model to
+support."*
+
+This closes the gap between what `README.md`'s commercial-products table honestly reports and what
+a real operator can actually sell. Every non-Supported row becomes committed work rather than a
+disclosure.
+
+### The mandate, itemised
+
+| # | Product | Today | What "done" requires |
+|---|---|---|---|
+| C1 | **Shared / family / group bundle** | **Not supported** | Balance buckets are keyed by SUPI (`bucket.id = supi`). Needs a group-bucket concept: a bucket a set of SUPIs draw from, membership held in the BSS (TMF632 Party / TMF637 Product Inventory), and reservation/finalize routed to the group bucket when the subscriber belongs to one |
+| C2 | **Time-based bundle / per-minute voice** | Partial | `GrantedUnit.time` is never populated. Needs a duration `unitOfMeasure` in the rating engine, which then makes CAP's `maxCallPeriodDuration` real (ADR-0298) and CAP's finalization proportional (ADR-0297) — one change closes three disclosed gaps |
+| C3 | **Tiered / fair-use throttling** | Partial — decided, not enforced | PCF pushes the `authSessAmbr` decision and SMF records it; it is never applied on the user plane. Needs the SMF→UPF PFCP path to install the rate limit |
+| C4 | **Voice + data combined bundle** | Partial | Expressible only as separate rating groups. Needs a shared allowance one offering can span across rating groups |
+| C5 | **Roaming bundle** | Partial | Rating does not distinguish roaming from home traffic. The rating half is buildable now (serving-PLMN vs home-PLMN is already known at charging time); see the blocked note below for settlement |
+| C6 | **Postpaid billing / invoicing** | Partial | CDRs land in Doris; there is no bill run. Needs TMF678 `CustomerBill` generation from rated usage, and TMF666 account balance roll-up |
+| C7 | **Slice-based products** | **Does not exist as a concept** | New. S-NSSAI is carried through the charging path but is not a rating dimension: an operator cannot price a slice differently, sell a slice-scoped allowance, or rate per-slice. Needs S-NSSAI as a first-class rating input alongside `ratingGroup`, and slice-scoped offerings in the catalog |
+
+### Two dependencies that are NOT mine to invent, flagged rather than silently absorbed
+
+1. **Roaming settlement (part of C5) stays blocked on spec material.** TAP3/RAP/NRTRDE are GSMA
+   documents, not 3GPP, and no copy is in this repository. The *rating* half of C5 — charging
+   roaming traffic at a roaming price — needs no GSMA text and is in scope. The *settlement* half
+   (producing files a real clearing house would accept) is not startable without the specification,
+   and this project's standing rule is that a fabricated file format is worse than an absent one.
+   This needs the documents or an explicit decision to descope settlement.
+
+2. **C7's commercial model needs an operator decision, not just code.** "Slice-based product" can
+   mean at least three different things: a slice-scoped allowance (10 GB usable only on the eMBB
+   slice), slice-differentiated pricing (the same GB costs more on a URLLC slice), or a
+   slice-as-subscription (a flat fee for slice access, usage unmetered). They imply different
+   catalog shapes and different rating logic. Building one and calling it "slice-based products"
+   would be picking for the operator. This is the question to settle before C7 starts.
+
+### Order
+
+C2 first: it is one change (a duration `unitOfMeasure`) that closes three already-disclosed gaps
+across two protocols, so it has the best ratio of work to debt removed. Then C1 (group buckets),
+C5-rating, C7 once its model is chosen, C3, C4, C6.
+
+Nothing here is claimed as started. `README.md`'s table stays exactly as honest as it is until each
+row actually changes.

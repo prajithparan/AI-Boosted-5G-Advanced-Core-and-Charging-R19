@@ -409,4 +409,119 @@ bool decode_cancel_location_res(const std::vector<std::uint8_t>& parameter) {
     return unwrap_top_level(parameter).has_value();
 }
 
+// --- updateLocation, purgeMS (ADR-0299) --------------------------------------------------------
+
+std::vector<std::uint8_t> encode_update_location_arg(const UpdateLocationArg& arg) {
+    std::vector<Tlv> fields;
+    // Order is load-bearing: imsi and vlr_number are both UNTAGGED OCTET STRINGs and are told
+    // apart only by where they sit.
+    fields.push_back(make_primitive(TagClass::kUniversal, UniversalTag::kOctetString, arg.imsi));
+    fields.push_back(make_primitive(TagClass::kContext, 1, arg.msc_number));
+    fields.push_back(
+        make_primitive(TagClass::kUniversal, UniversalTag::kOctetString, arg.vlr_number));
+    return wrap_top_level(fields);
+}
+
+std::optional<UpdateLocationArg>
+decode_update_location_arg(const std::vector<std::uint8_t>& parameter) {
+    const auto parts = unwrap_top_level(parameter);
+    if (!parts.has_value()) {
+        return std::nullopt;
+    }
+    // Positional decode for the two untagged OCTET STRINGs: the FIRST is imsi, the next one after
+    // it is vlr-Number. Searching by tag could not distinguish them.
+    UpdateLocationArg arg;
+    bool have_imsi = false;
+    bool have_vlr = false;
+    for (const auto& part : *parts) {
+        if (part.tag_class == TagClass::kUniversal &&
+            part.tag_number == UniversalTag::kOctetString && !part.constructed) {
+            if (!have_imsi) {
+                arg.imsi = part.value;
+                have_imsi = true;
+            } else if (!have_vlr) {
+                arg.vlr_number = part.value;
+                have_vlr = true;
+            }
+        } else if (part.tag_class == TagClass::kContext && part.tag_number == 1) {
+            arg.msc_number = part.value;
+        }
+    }
+    if (!have_imsi || !have_vlr || arg.msc_number.empty()) {
+        return std::nullopt; // all three are mandatory in the real structure
+    }
+    return arg;
+}
+
+std::vector<std::uint8_t> encode_update_location_res(const std::vector<std::uint8_t>& hlr_number) {
+    std::vector<Tlv> fields;
+    fields.push_back(make_primitive(TagClass::kUniversal, UniversalTag::kOctetString, hlr_number));
+    return wrap_top_level(fields);
+}
+
+std::optional<std::vector<std::uint8_t>>
+decode_update_location_res(const std::vector<std::uint8_t>& parameter) {
+    const auto parts = unwrap_top_level(parameter);
+    if (!parts.has_value() || parts->empty()) {
+        return std::nullopt;
+    }
+    const auto& first = parts->front();
+    if (first.tag_class != TagClass::kUniversal || first.tag_number != UniversalTag::kOctetString ||
+        first.constructed) {
+        return std::nullopt; // hlr-Number is mandatory -- no valid empty result exists here
+    }
+    return first.value;
+}
+
+std::vector<std::uint8_t> encode_purge_ms_arg(const PurgeMsArg& arg) {
+    std::vector<std::uint8_t> body;
+    encode_tlv(body, make_primitive(TagClass::kUniversal, UniversalTag::kOctetString, arg.imsi));
+    if (arg.vlr_number.has_value()) {
+        encode_tlv(body, make_primitive(TagClass::kContext, 0, *arg.vlr_number));
+    }
+    if (arg.sgsn_number.has_value()) {
+        encode_tlv(body, make_primitive(TagClass::kContext, 1, *arg.sgsn_number));
+    }
+    std::vector<std::uint8_t> out;
+    encode_tlv(out, make_context_constructed(3, std::move(body)));
+    return out;
+}
+
+std::optional<PurgeMsArg> decode_purge_ms_arg(const std::vector<std::uint8_t>& parameter) {
+    std::size_t offset = 0;
+    const auto outer = decode_tlv(parameter, offset);
+    // Same CONTEXT [3] CONSTRUCTED wrapper cancelLocation has, and the same reason to check it
+    // explicitly: a UNIVERSAL SEQUENCE here would be wrong on the wire.
+    if (!outer.has_value() || outer->tag_class != TagClass::kContext || !outer->constructed ||
+        outer->tag_number != 3) {
+        return std::nullopt;
+    }
+    const auto parts = decode_tlvs(outer->value);
+    if (!parts.has_value() || parts->empty()) {
+        return std::nullopt;
+    }
+    const auto& imsi = parts->front();
+    if (imsi.tag_class != TagClass::kUniversal || imsi.tag_number != UniversalTag::kOctetString ||
+        imsi.constructed) {
+        return std::nullopt;
+    }
+    PurgeMsArg arg;
+    arg.imsi = imsi.value;
+    if (const auto* vlr = find_tag(*parts, TagClass::kContext, 0); vlr != nullptr) {
+        arg.vlr_number = vlr->value;
+    }
+    if (const auto* sgsn = find_tag(*parts, TagClass::kContext, 1); sgsn != nullptr) {
+        arg.sgsn_number = sgsn->value;
+    }
+    return arg;
+}
+
+std::vector<std::uint8_t> encode_purge_ms_res() {
+    return wrap_top_level({});
+}
+
+bool decode_purge_ms_res(const std::vector<std::uint8_t>& parameter) {
+    return unwrap_top_level(parameter).has_value();
+}
+
 } // namespace map_core

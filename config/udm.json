@@ -4,5 +4,7 @@
   "nrf_base_url": "https://127.0.0.1:7777",
   "udr_base_url": "https://127.0.0.1:7781",
   "vlr_peer_address": "",
-  "vlr_peer_port": 2905
+  "vlr_peer_port": 2905,
+  "map_server_port": 0,
+  "hlr_number": "99970000001"
 }

@@ -162,4 +162,59 @@ decode_cancel_location_arg(const std::vector<std::uint8_t>& parameter);
 std::vector<std::uint8_t> encode_cancel_location_res();
 bool decode_cancel_location_res(const std::vector<std::uint8_t>& parameter);
 
+// --- updateLocation, purgeMS (ADR-0299) ---------------------------------------------------------
+//
+// These run the OTHER WAY: VLR/SGSN -> HLR. UDM is the receiver, so it DECODES the argument and
+// ENCODES the result -- the mirror of insertSubscriberData/cancelLocation above. Both directions
+// are provided for each operation anyway, because a codec that can only be driven from one side
+// cannot be tested from the other.
+//
+//   UpdateLocationArg ::= SEQUENCE {
+//     imsi IMSI, msc-Number [1] ISDN-AddressString, vlr-Number ISDN-AddressString,
+//     lmsi [10] LMSI OPTIONAL, extensionContainer OPTIONAL, ... }
+//   UpdateLocationRes ::= SEQUENCE { hlr-Number ISDN-AddressString, extensionContainer OPTIONAL,
+//     ..., add-Capability NULL OPTIONAL, pagingArea-Capability [0] NULL OPTIONAL }
+//
+// Note the asymmetry, taken from the real ASN.1 rather than tidied: `msc-Number` is tagged [1]
+// while `vlr-Number` -- sitting right next to it, same type -- is UNTAGGED and keeps its universal
+// OCTET STRING tag. `imsi` is untagged too. So the two untagged OCTET STRINGs are told apart by
+// POSITION (imsi first, vlr-Number after msc-Number), exactly the hazard cancelLocation's own
+// identity CHOICE has.
+//
+// Real, disclosed scope: imsi, msc_number and vlr_number only; every OPTIONAL and extension field
+// is ignored on decode and never produced on encode.
+struct UpdateLocationArg {
+    std::vector<std::uint8_t> imsi;       // IMSI, untagged, FIRST
+    std::vector<std::uint8_t> msc_number; // msc-Number [1]
+    std::vector<std::uint8_t> vlr_number; // vlr-Number, untagged, after msc-Number
+};
+
+std::vector<std::uint8_t> encode_update_location_arg(const UpdateLocationArg& arg);
+std::optional<UpdateLocationArg>
+decode_update_location_arg(const std::vector<std::uint8_t>& parameter);
+
+// hlr-Number is MANDATORY in UpdateLocationRes -- there is no valid empty result here, unlike
+// insertSubscriberData's and cancelLocation's.
+std::vector<std::uint8_t> encode_update_location_res(const std::vector<std::uint8_t>& hlr_number);
+std::optional<std::vector<std::uint8_t>>
+decode_update_location_res(const std::vector<std::uint8_t>& parameter);
+
+//   PurgeMS-Arg ::= [3] SEQUENCE { imsi IMSI, vlr-Number [0] ISDN-AddressString OPTIONAL,
+//                                  sgsn-Number [1] ISDN-AddressString OPTIONAL, ... }
+//   PurgeMS-Res ::= SEQUENCE { freezeTMSI [0] NULL OPTIONAL, freezeP-TMSI [1] NULL OPTIONAL,
+//                              extensionContainer OPTIONAL, ..., freezeM-TMSI [2] NULL OPTIONAL }
+//
+// Like cancelLocation, the ARGUMENT carries a CONTEXT [3] CONSTRUCTED wrapper, not a UNIVERSAL
+// SEQUENCE. The RESULT does not -- every field of it is optional, so an empty SEQUENCE is valid.
+struct PurgeMsArg {
+    std::vector<std::uint8_t> imsi;
+    std::optional<std::vector<std::uint8_t>> vlr_number;  // [0]
+    std::optional<std::vector<std::uint8_t>> sgsn_number; // [1]
+};
+
+std::vector<std::uint8_t> encode_purge_ms_arg(const PurgeMsArg& arg);
+std::optional<PurgeMsArg> decode_purge_ms_arg(const std::vector<std::uint8_t>& parameter);
+std::vector<std::uint8_t> encode_purge_ms_res();
+bool decode_purge_ms_res(const std::vector<std::uint8_t>& parameter);
+
 } // namespace map_core

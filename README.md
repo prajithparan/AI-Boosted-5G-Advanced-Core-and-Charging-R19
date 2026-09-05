@@ -104,6 +104,15 @@ Stated at the honest level of detail — what is really expressible today, and w
 | **Shared / family / group bundle** | **Not supported** | balance buckets are keyed by SUPI (`bucket.id = supi`); no group or shared bucket exists in the model |
 | **Postpaid billing / invoicing** | **Partial** | real TS 32.298 BER-encoded CDRs land in Doris with retention and archival (ADR-0283); there is no bill generation, invoicing or dunning |
 
+**Every `Partial` and `Not supported` row above is committed work, not a permanent state**
+(ADR-0300, user-directed): a standard telco has to be able to sell all of them, and slice-based
+products — which do not exist as a concept here at all yet — need a commercial rating model too.
+Two parts carry dependencies that are not code: roaming *settlement* needs GSMA TAP3/RAP/NRTRDE
+documents this repository does not have (the roaming *rating* half does not and is in scope), and
+"slice-based product" needs an operator decision between a slice-scoped allowance,
+slice-differentiated pricing, or slice-as-subscription, because those imply different catalogs and
+different rating logic.
+
 AI-assisted quota sizing (ONNX, in-process) adjusts **volume** grants only; service-specific-unit
 grants are deliberately excluded (ADR-0248's own disclosed scope).
 
