@@ -82,6 +82,14 @@ decode_apply_charging_arg(const std::vector<std::uint8_t>& parameter);
 struct ApplyChargingReportArg {
     LegType party_to_charge = LegType::kLeg1;  // partyToCharge [0] ReceivingSideID
     std::int32_t elapsed_hundred_ms_units = 0; // timeInformation [1], no-tariff-switch variant
+    // ADR-0298: legActive [2] BOOLEAN DEFAULT TRUE -- the field that distinguishes a PERIODIC
+    // report (the call is still up, maxCallPeriodDuration just expired, grant more or release)
+    // from a FINAL one (the call ended). Without it a gsmSCF cannot tell the two apart, which is
+    // why this codec could only ever handle one report per call.
+    //
+    // DEFAULT TRUE is honoured literally: BER omits a DEFAULT-valued field, so ABSENT means TRUE.
+    // Defaulting this to false instead would silently treat every periodic report as call-end.
+    bool leg_active = true;
 };
 
 std::vector<std::uint8_t> encode_apply_charging_report_arg(const ApplyChargingReportArg& arg);

@@ -214,6 +214,9 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
     // loop iterations instead of only within one iteration.
     std::optional<std::string> current_ref;
     std::optional<std::string> current_supi;
+    // ADR-0298: remembered so a mid-call re-authorization rates against the SAME rating group the
+    // InitialDP did, rather than re-deriving it from a serviceKey no later message carries.
+    std::optional<std::int64_t> current_rating_group;
     std::vector<std::uint8_t> peer_transaction_id;
 
     while (!stop_) {
@@ -280,9 +283,85 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                     }
                     const auto elapsed_seconds = report->elapsed_hundred_ms_units / 10;
                     spdlog::info("chf: real CAP ApplyChargingReport received (SUPI={}, "
-                                 "elapsedSeconds={})",
+                                 "elapsedSeconds={}, legActive={})",
                                  *current_supi,
-                                 elapsed_seconds);
+                                 elapsed_seconds,
+                                 report->leg_active);
+
+                    // ADR-0298: mid-call re-authorization. `legActive` (CAMEL-CallResult's own
+                    // real [2] BOOLEAN DEFAULT TRUE) is what separates a PERIODIC report -- the
+                    // call is still up and maxCallPeriodDuration just expired -- from the FINAL
+                    // one. Before this, every report was treated as call end, so a call longer
+                    // than one charging period was finalized while it was still running and then
+                    // carried on unmonitored and unbilled.
+                    if (report->leg_active && current_rating_group.has_value()) {
+                        // Rate a fresh period against the same rating group, exactly as the
+                        // InitialDP did: the same charge_one_usage shared code path, so the
+                        // reservation, CDR row and RatingDecision audit all happen for the renewal
+                        // too rather than only for the first period.
+                        sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging renewal{};
+                        renewal.ratingGroup = static_cast<sbi_gen::Uint32>(*current_rating_group);
+                        const auto renewed = chf::charge_one_usage(catalog_client,
+                                                                   balance_client,
+                                                                   cdr_writer_,
+                                                                   rating_decision_store_,
+                                                                   charging_data_store_,
+                                                                   grant_counter_,
+                                                                   reserve_rejected_counter_,
+                                                                   *current_ref,
+                                                                   "Update",
+                                                                   *current_supi,
+                                                                   "CHF",
+                                                                   "",
+                                                                   evt_invoke.invoke_id,
+                                                                   renewal);
+
+                        std::int32_t renewed_duration = 0;
+                        if (renewed.reserved && renewed.rating.grant.has_value() &&
+                            renewed.rating.grant->time.has_value()) {
+                            renewed_duration =
+                                static_cast<std::int32_t>(*renewed.rating.grant->time) * 10;
+                        }
+
+                        if (!renewed.reserved) {
+                            // Out of money mid-call. The honest action is to stop granting, not to
+                            // keep the call up on credit: no further ApplyCharging is sent, and
+                            // `releaseIfDurationExceeded` on the period already granted is what
+                            // makes the gsmSSF tear the call down. Disclosed rather than papered
+                            // over -- a real gsmSCF would typically also send ReleaseCall here,
+                            // which this build does not implement (cap_operations has the encoder,
+                            // nothing calls it).
+                            spdlog::warn("chf: CAP re-authorization REFUSED for SUPI={} (no "
+                                         "balance) -- no further charging period granted",
+                                         *current_supi);
+                            continue;
+                        }
+
+                        cap_core::ApplyChargingArg renewed_ac;
+                        renewed_ac.max_call_period_duration = renewed_duration;
+                        renewed_ac.release_if_duration_exceeded = true;
+
+                        tcap_core::Invoke renewed_invoke;
+                        renewed_invoke.invoke_id = evt_invoke.invoke_id + 1;
+                        renewed_invoke.operation_code.local = cap_core::Opcode::kApplyCharging;
+                        renewed_invoke.parameter = cap_core::encode_apply_charging_arg(renewed_ac);
+
+                        tcap_core::TcContinue renewal_cont;
+                        renewal_cont.originating_transaction_id = {0x00, 0x00, 0x00, 0x01};
+                        renewal_cont.destination_transaction_id = peer_transaction_id;
+                        renewal_cont.components.push_back(tcap_core::encode_invoke(renewed_invoke));
+                        send_tcap(socket, tcap_core::encode_tc_continue(renewal_cont));
+                        if (apply_charging_counter_ != nullptr) {
+                            apply_charging_counter_->Add(1);
+                        }
+                        spdlog::info("chf: CAP re-authorization granted -- another "
+                                     "ApplyCharging sent (maxCallPeriodDuration={} = {}s)",
+                                     renewed_duration,
+                                     renewed_duration / 10);
+                        // The dialogue stays open: current_ref/current_supi are deliberately NOT
+                        // cleared, so the next report lands on the same session.
+                        continue;
+                    }
 
                     // ADR-0297 made the HTTP Release and Diameter Gy paths charge proportionally.
                     // CAP deliberately does NOT, and the reason is a real dimension mismatch
@@ -315,6 +394,7 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
 
                     current_ref.reset();
                     current_supi.reset();
+                    current_rating_group.reset();
                 } else {
                     spdlog::info("chf: CAP peer's TC-Continue carried opcode {} (not implemented), "
                                  "ignoring",
@@ -388,6 +468,7 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
         const auto ref = charging_data_store_.create(supi);
         current_ref = ref;
         current_supi = supi;
+        current_rating_group = static_cast<std::int64_t>(arg->service_key);
         sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging usage{};
         usage.ratingGroup = static_cast<sbi_gen::Uint32>(arg->service_key);
         const auto charged = chf::charge_one_usage(catalog_client,

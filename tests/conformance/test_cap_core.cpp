@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "cap_core/cap_dictionary.hpp"
 #include "cap_core/cap_operations.hpp"
 #include "cap_core/cap_types.hpp"
@@ -255,3 +257,51 @@ TEST(CapTcapComposition, ApplyChargingReportTravelsInsideTcapReturnResultLast) {
 }
 
 } // namespace
+
+// --- legActive, ADR-0298 ---
+//
+// The one field that separates a periodic ApplyChargingReport from a final one. Its ASN.1 DEFAULT
+// is TRUE, and BER omits a DEFAULT-valued field -- so ABSENT MEANS TRUE, and a decoder that
+// defaulted it to false would silently treat every mid-call report as call end.
+
+TEST(CapOperations, ApplyChargingReportLegActiveDefaultsToTrueWhenAbsent) {
+    cap_core::ApplyChargingReportArg arg;
+    arg.party_to_charge = cap_core::LegType::kLeg1;
+    arg.elapsed_hundred_ms_units = 600;
+    arg.leg_active = true;
+
+    const auto bytes = cap_core::encode_apply_charging_report_arg(arg);
+    // A conformant encoder omits the field entirely when it carries its default value.
+    const auto decoded = cap_core::decode_apply_charging_report_arg(bytes);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_TRUE(decoded->leg_active) << "an absent legActive must decode as TRUE, not FALSE";
+    EXPECT_EQ(decoded->elapsed_hundred_ms_units, 600);
+}
+
+TEST(CapOperations, ApplyChargingReportLegActiveFalseRoundTrips) {
+    cap_core::ApplyChargingReportArg arg;
+    arg.elapsed_hundred_ms_units = 1200;
+    arg.leg_active = false;
+
+    const auto decoded =
+        cap_core::decode_apply_charging_report_arg(cap_core::encode_apply_charging_report_arg(arg));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_FALSE(decoded->leg_active) << "call-end must survive the round trip";
+    EXPECT_EQ(decoded->elapsed_hundred_ms_units, 1200);
+}
+
+TEST(CapOperations, ApplyChargingReportDecodesANonZeroLegActiveAsTrue) {
+    // X.690 encodes TRUE as any non-zero octet (conventionally 0xFF). A real peer that sends an
+    // explicit TRUE rather than omitting it must still be understood.
+    cap_core::ApplyChargingReportArg arg;
+    arg.elapsed_hundred_ms_units = 10;
+    arg.leg_active = false;
+    auto bytes = cap_core::encode_apply_charging_report_arg(arg);
+    // Flip the encoded FALSE (0x00 content octet) to 0xFF in place.
+    const auto pos = std::find(bytes.begin(), bytes.end(), 0x82); // [2] primitive tag
+    ASSERT_NE(pos, bytes.end()) << "the encoder did not emit legActive [2] for a false value";
+    *(pos + 2) = 0xFF;
+    const auto decoded = cap_core::decode_apply_charging_report_arg(bytes);
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_TRUE(decoded->leg_active);
+}

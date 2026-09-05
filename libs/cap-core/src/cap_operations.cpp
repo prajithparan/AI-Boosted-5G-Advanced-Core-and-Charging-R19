@@ -229,6 +229,17 @@ std::vector<std::uint8_t> encode_apply_charging_report_arg(const ApplyChargingRe
     encode_tlv(
         result_seq.value,
         wrap_explicit(1, encode_time_information_no_tariff_switch(arg.elapsed_hundred_ms_units)));
+    // ADR-0298: legActive [2] BOOLEAN DEFAULT TRUE. BER omits a field carrying its DEFAULT value,
+    // so only `false` is ever encoded -- emitting an explicit TRUE would be legal to decode but is
+    // not what a conformant encoder produces.
+    if (!arg.leg_active) {
+        Tlv leg_active;
+        leg_active.tag_class = TagClass::kContext;
+        leg_active.constructed = false;
+        leg_active.tag_number = 2;
+        leg_active.value = {0x00};
+        encode_tlv(result_seq.value, leg_active);
+    }
 
     std::vector<std::uint8_t> out;
     encode_tlv(out, result_seq);
@@ -266,6 +277,12 @@ decode_apply_charging_report_arg(const std::vector<std::uint8_t>& parameter) {
     }
     arg.party_to_charge = *leg;
     arg.elapsed_hundred_ms_units = *elapsed;
+    // ADR-0298: absent means TRUE, per the ASN.1 DEFAULT. BER encodes FALSE as a single 0x00
+    // content octet and TRUE as any non-zero octet (X.690 conventionally 0xFF).
+    if (const auto* la = find_tag(*parts, TagClass::kContext, 2);
+        la != nullptr && !la->value.empty()) {
+        arg.leg_active = la->value[0] != 0x00;
+    }
     return arg;
 }
 
