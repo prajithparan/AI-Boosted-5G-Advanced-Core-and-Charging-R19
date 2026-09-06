@@ -521,8 +521,24 @@ void write_converged_charging_cdr(chf::CdrWriter& cdr_writer,
                                   const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage,
                                   const RatingResult& rating,
                                   bool reserved,
-                                  std::optional<std::time_t> invocation_time_stamp) {
+                                  std::optional<std::time_t> invocation_time_stamp,
+                                  const nlohmann::json& attributes) {
     chf::CdrRecord cdr{};
+    // ADR-0311: rendered "<mcc>-<mnc>" -- a stable, queryable string. The attribute itself is the
+    // spec's own {mcc, mnc} object, which is correct for scope MATCHING (ADR-0303) but not for a
+    // SQL column, so it is flattened here rather than storing JSON in a VARCHAR.
+    if (const auto plmn = attributes.find("servingCNPlmnId");
+        plmn != attributes.end() && plmn->is_object()) {
+        const auto mcc = plmn->value("mcc", std::string{});
+        const auto mnc = plmn->value("mnc", std::string{});
+        if (!mcc.empty() && !mnc.empty()) {
+            cdr.serving_plmn = mcc + "-" + mnc;
+        }
+    }
+    if (const auto roaming = attributes.find("roaming");
+        roaming != attributes.end() && roaming->is_boolean()) {
+        cdr.is_roaming = roaming->get<bool>();
+    }
     cdr.charging_data_ref = ref;
     cdr.invocation_sequence_number = invocation_sequence_number;
     cdr.service_type = "ConvergedCharging";
@@ -668,7 +684,8 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                                  usage,
                                  result.rating,
                                  result.reserved,
-                                 invocation_time_stamp);
+                                 invocation_time_stamp,
+                                 attributes); // ADR-0311: persist servingCNPlmnId / roaming
     write_rating_decision(rating_decision_store, ref, usage, result.rating, result.reserved);
 
     // P4.8 (ADR-0074): record this request's own real reported usage as history for the NEXT

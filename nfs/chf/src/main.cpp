@@ -136,8 +136,10 @@
 
 // TS29594_Nchf_SpendingLimitControl's own types now live in TS26510_CommonData_grp.hpp -- see
 // stores.hpp's own comment (ADR-0072).
+#include "../../../bss/balance-management/src/bill_run.hpp"
 #include "TS26510_CommonData_grp.hpp"
 #include "TS32291_Nchf_OfflineOnlyCharging.hpp"
+#include "billing_items.hpp"
 #include "bss_sid/balance.hpp"
 #include "bss_sid/party.hpp"
 #include "bss_sid/product.hpp"
@@ -687,6 +689,73 @@ int main() {
     }
 
     // --- Nchf_ConvergedCharging ---
+
+    // ADR-0311: the bill run, driven on demand.
+    //
+    // This completes the chain ADR-0310 left one step short of: rated usage -> CDR -> line items
+    // -> CustomerBill. Before this, `billing::run_bill` existed and nothing produced its input.
+    //
+    // Disclosed placement decision: billing is BSS work, and this endpoint lives in CHF because
+    // CHF owns the CDR store and `CdrRecord` is its private type. Moving the runner into `bss/`
+    // properly requires CHF to expose CDRs over SBI first -- a new API surface with its own auth
+    // and paging design. That is the correct end state and this is deliberately not it; putting
+    // the runner here first makes the chain demonstrable and testable end to end without
+    // inventing an API that would then have to be redesigned. Stated so it is a staging decision
+    // on the record, not an architectural claim.
+    //
+    // NOT a real Nchf operation: this path is outside `kApiRoot` precisely so it cannot be
+    // mistaken for one. TS 32.291 has no bill-run operation; inventing a `/nchf-.../v3/billing`
+    // path would fabricate a 3GPP API.
+    server.add_route(
+        "POST", "/internal-billing/v1/runs", [&cdr_writer](const sbi_core::http2::Request& req) {
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const json::exception& e) {
+                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+            }
+            for (const char* required :
+                 {"billingAccountId", "billNo", "periodStart", "periodEnd"}) {
+                if (!body.contains(required) || !body[required].is_string()) {
+                    return sbi_core::http2::problem_response(
+                        400, "Invalid request", std::string(required) + " is required");
+                }
+            }
+
+            chf::CdrWriter::CdrQuery query;
+            query.period_start = body["periodStart"].get<std::string>();
+            query.period_end = body["periodEnd"].get<std::string>();
+            // A bill is for one subscriber's account. Absent means "every subscriber in the
+            // period", which is a real operator use (a whole-cycle run) rather than an error.
+            if (body.contains("subscriberIdentifier") && body["subscriberIdentifier"].is_string()) {
+                query.subscriber_identifier = body["subscriberIdentifier"].get<std::string>();
+            }
+
+            const auto cdrs = cdr_writer.query(query);
+            const auto items = chf::cdrs_to_billing_items(cdrs);
+            const auto result =
+                billing::run_bill(body["billingAccountId"].get<std::string>(),
+                                  body["billNo"].get<std::string>(),
+                                  sbi_core::format_rfc3339(std::chrono::system_clock::now()),
+                                  query.period_start,
+                                  query.period_end,
+                                  body.value("paymentDueDate", std::string{}),
+                                  items);
+
+            spdlog::info("chf: bill run {} for account {} -- {} CDRs, {} line items",
+                         body["billNo"].get<std::string>(),
+                         body["billingAccountId"].get<std::string>(),
+                         cdrs.size(),
+                         result.billed_items.size());
+
+            json out;
+            out["customerBill"] = result.bill;
+            out["appliedCustomerBillingRate"] = result.billed_items;
+            // Reported so a caller can tell "no usage in this period" from "usage found but none
+            // of it was rated" -- the two look identical in the bill itself.
+            out["cdrsExamined"] = cdrs.size();
+            return sbi_core::http2::Response::json(201, out.dump());
+        });
 
     server.add_route(
         "POST",

@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS cdr (
     reserved_cost_currency         VARCHAR(8),
     invocation_time_stamp          DATETIME,                -- real TS 32.291 field: invocationTimeStamp
     recorded_at                    DATETIME DEFAULT CURRENT_TIMESTAMP, -- project-internal: when CHF wrote this CDR row
+    serving_plmn                   VARCHAR(16) DEFAULT '', -- ADR-0311: real TS 32.291 pduSessionInformation.servingCNPlmnId, rendered "<mcc>-<mnc>". Empty when the request carried none. Needed to select a roaming partner's own CDRs for a TAP OUT batch -- without it, settlement cannot know whose usage a row is.
+    is_roaming                     BOOLEAN DEFAULT "0",    -- ADR-0311: Doris rejects `DEFAULT FALSE` for BOOLEAN ("mismatched input 'FALSE'", confirmed against a real apache/doris:all-in-one-4.1.3, not assumed from portable SQL) -- it wants a string/integer literal. the derived roaming flag (servingCNPlmnId != hPlmnId, ADR-0305). Stored rather than recomputed at query time because the hPlmnId it was derived from is not itself a column, so a later query could not reproduce it.
     asn1_cdr                       STRING DEFAULT ''        -- real TS 32.298 ChargingRecord, BER-encoded (ADR-0089), hex-encoded (ADR-0192, no native BLOB); empty if this row's own nf_consumer_node_functionality has no real TS 32.298 NetworkFunctionality value to map to (see cdr_asn1.cpp)
 )
 UNIQUE KEY(charging_data_ref, invocation_sequence_number, service_type)

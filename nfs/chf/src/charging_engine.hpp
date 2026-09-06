@@ -270,7 +270,13 @@ void write_converged_charging_cdr(chf::CdrWriter& cdr_writer,
                                   const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage,
                                   const RatingResult& rating,
                                   bool reserved,
-                                  std::optional<std::time_t> invocation_time_stamp = std::nullopt);
+                                  std::optional<std::time_t> invocation_time_stamp = std::nullopt,
+                                  // ADR-0311: the request's own attributes, so `serving_plmn` and
+                                  // `is_roaming` are PERSISTED on the CDR. Without them a roaming
+                                  // partner's usage cannot be selected for a TAP OUT batch later
+                                  // -- the information exists at charging time and was simply
+                                  // never written down.
+                                  const nlohmann::json& attributes = nlohmann::json::object());
 
 // P4.5/ADR-0060 (E5): writes one real RatingDecision audit row per MultipleUnitUsage entry that
 // was actually rated (rating.tariffId has a value) -- an unmatched offering/price is not a

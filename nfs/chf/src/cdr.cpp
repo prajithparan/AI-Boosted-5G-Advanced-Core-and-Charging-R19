@@ -114,15 +114,32 @@ void CdrWriter::write(const CdrRecord& record) {
     const auto asn1_bytes = encode_chf_cdr(record, record.recording_network_function_id);
     const auto asn1_hex = hex_encode(asn1_bytes);
 
+    // ADR-0311: UTC, not local time.
+    //
+    // This wrote `std::localtime` until a billing test caught it: the CDR column is an unqualified
+    // DATETIME, so a local-time value carries no offset and is ambiguous. TS 32.291's
+    // `invocationTimeStamp` is an ABSOLUTE time (RFC 3339 with an offset), and flattening it to
+    // whatever timezone the CHF host happens to run in means two CHF instances in different
+    // regions write incomparable timestamps into the same table -- and a billing period query
+    // silently selects the wrong rows.
+    //
+    // `std::localtime` was also the non-reentrant variant (shared static buffer); `gmtime_r` is
+    // both correct and reentrant.
+    //
+    // Disclosed migration consequence: rows written BEFORE this change hold local time and rows
+    // after hold UTC. In a deployment that has already accumulated CDRs those two are not
+    // comparable, and nothing here rewrites the old rows.
+    std::tm tm{};
     char ts_buf[32];
     std::strftime(
-        ts_buf, sizeof(ts_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&record.invocation_time_stamp));
+        ts_buf, sizeof(ts_buf), "%Y-%m-%d %H:%M:%S", gmtime_r(&record.invocation_time_stamp, &tm));
 
     std::ostringstream sql;
     sql << "INSERT INTO cdr (charging_data_ref, invocation_sequence_number, service_type, "
            "operation, subscriber_identifier, nf_consumer_node_functionality, rating_group, "
            "granted_total_volume, granted_service_specific_units, used_total_volume, "
-           "reserved_cost, reserved_cost_currency, invocation_time_stamp, asn1_cdr) VALUES ('"
+           "reserved_cost, reserved_cost_currency, invocation_time_stamp, serving_plmn, "
+           "is_roaming, asn1_cdr) VALUES ('"
         << escape(conn_, record.charging_data_ref) << "', " << record.invocation_sequence_number
         << ", '" << escape(conn_, record.service_type) << "', '" << escape(conn_, record.operation)
         << "', '" << escape(conn_, record.subscriber_identifier) << "', '"
@@ -131,7 +148,8 @@ void CdrWriter::write(const CdrRecord& record) {
         << ", " << sql_or_null(record.granted_service_specific_units) << ", "
         << sql_or_null(record.used_total_volume) << ", " << sql_or_null(record.reserved_cost)
         << ", " << sql_string_or_null(conn_, record.reserved_cost_currency) << ", '" << ts_buf
-        << "', '" << asn1_hex << "')";
+        << "', '" << escape(conn_, record.serving_plmn) << "', "
+        << (record.is_roaming ? "TRUE" : "FALSE") << ", '" << asn1_hex << "')";
 
     const auto query = sql.str();
     if (mysql_real_query(conn_, query.c_str(), static_cast<unsigned long>(query.size())) != 0) {
@@ -309,6 +327,80 @@ std::vector<std::int64_t> CdrWriter::detect_gaps(const std::string& charging_dat
         }
     }
     return gaps;
+}
+
+// ADR-0311: read CDRs back. See cdr.hpp for why only `Release` rows are returned.
+std::vector<CdrRecord> CdrWriter::query(const CdrQuery& q) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<CdrRecord> out;
+    if (conn_ == nullptr) {
+        return out;
+    }
+
+    std::ostringstream sql;
+    sql << "SELECT charging_data_ref, invocation_sequence_number, service_type, operation, "
+           "subscriber_identifier, nf_consumer_node_functionality, rating_group, "
+           "granted_total_volume, granted_service_specific_units, used_total_volume, "
+           "reserved_cost, reserved_cost_currency, UNIX_TIMESTAMP(invocation_time_stamp), "
+           "serving_plmn, is_roaming FROM cdr WHERE operation = 'Release'";
+    sql << " AND invocation_time_stamp >= '" << escape(conn_, q.period_start) << "'";
+    sql << " AND invocation_time_stamp < '" << escape(conn_, q.period_end) << "'";
+    if (q.subscriber_identifier.has_value()) {
+        sql << " AND subscriber_identifier = '" << escape(conn_, *q.subscriber_identifier) << "'";
+    }
+    if (q.serving_plmn.has_value()) {
+        sql << " AND serving_plmn = '" << escape(conn_, *q.serving_plmn) << "'";
+    }
+    if (q.is_roaming.has_value()) {
+        sql << " AND is_roaming = " << (*q.is_roaming ? "TRUE" : "FALSE");
+    }
+    sql << " ORDER BY invocation_time_stamp";
+
+    const auto statement = sql.str();
+    if (mysql_real_query(conn_, statement.c_str(), statement.size()) != 0) {
+        spdlog::warn("chf: CDR query failed: {}", mysql_error(conn_));
+        return out;
+    }
+    MYSQL_RES* result = mysql_store_result(conn_);
+    if (result == nullptr) {
+        return out;
+    }
+    while (MYSQL_ROW row = mysql_fetch_row(result)) {
+        CdrRecord record{};
+        record.charging_data_ref = row[0] != nullptr ? row[0] : "";
+        record.invocation_sequence_number = row[1] != nullptr ? std::stoll(row[1]) : 0;
+        record.service_type = row[2] != nullptr ? row[2] : "";
+        record.operation = row[3] != nullptr ? row[3] : "";
+        record.subscriber_identifier = row[4] != nullptr ? row[4] : "";
+        record.nf_consumer_node_functionality = row[5] != nullptr ? row[5] : "";
+        if (row[6] != nullptr) {
+            record.rating_group = std::stoll(row[6]);
+        }
+        if (row[7] != nullptr) {
+            record.granted_total_volume = static_cast<std::uint64_t>(std::stoull(row[7]));
+        }
+        if (row[8] != nullptr) {
+            record.granted_service_specific_units = static_cast<std::uint64_t>(std::stoull(row[8]));
+        }
+        if (row[9] != nullptr) {
+            record.used_total_volume = static_cast<std::uint64_t>(std::stoull(row[9]));
+        }
+        if (row[10] != nullptr) {
+            record.reserved_cost = std::stod(row[10]);
+        }
+        if (row[11] != nullptr) {
+            record.reserved_cost_currency = row[11];
+        }
+        if (row[12] != nullptr) {
+            record.invocation_time_stamp = static_cast<std::time_t>(std::stoll(row[12]));
+        }
+        record.serving_plmn = row[13] != nullptr ? row[13] : "";
+        // Doris returns BOOLEAN as "0"/"1" over the MySQL protocol.
+        record.is_roaming = row[14] != nullptr && std::string(row[14]) != "0";
+        out.push_back(std::move(record));
+    }
+    mysql_free_result(result);
+    return out;
 }
 
 } // namespace chf

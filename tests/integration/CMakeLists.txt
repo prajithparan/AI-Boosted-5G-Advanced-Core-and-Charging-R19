@@ -52,6 +52,8 @@ add_executable(integration_tests
     test_proportional_debit.cpp
     test_charging_scope.cpp
     test_balance_shared_bucket.cpp
+    test_cdr_billing_chain.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/billing_items.cpp
     test_udm_map_server.cpp
     test_nef_af_traffic_influence.cpp
     test_cdr_retention.cpp

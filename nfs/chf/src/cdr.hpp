@@ -61,6 +61,11 @@ struct CdrRecord {
     std::optional<double> reserved_cost;
     std::optional<std::string> reserved_cost_currency;
     std::time_t invocation_time_stamp = 0;
+    // ADR-0311: who served this usage, and whether that made it roaming. Both come from the
+    // attributes ADR-0303/ADR-0305 already collect off the real TS 32.291 request -- this is the
+    // first time they are PERSISTED, which is what makes a roaming CDR findable later.
+    std::string serving_plmn; // "<mcc>-<mnc>", empty when the request carried none
+    bool is_roaming = false;
 };
 
 // Real connection parameters for Doris's own FE MySQL-protocol query port (default 9030, real
@@ -94,6 +99,27 @@ public:
     // {3}. Returns an empty vector if fewer than 2 distinct sequence numbers exist (no range to
     // have a gap in) or no gap is found.
     std::vector<std::int64_t> detect_gaps(const std::string& charging_data_ref);
+
+    // ADR-0311: the query both billing and roaming settlement were missing.
+    //
+    // Before this, `CdrWriter` could only INSERT, count sequence gaps, and sweep old rows. Nothing
+    // could read a CDR back, which is why `billing::run_bill` had no way to obtain line items and
+    // why TAP OUT had no way to select a partner's usage -- both were disclosed as "nothing
+    // selects the rows" in ADR-0306 and ADR-0310.
+    //
+    // Only `Release` rows are returned. A session writes Create/Update/Release rows and the
+    // reserved cost accumulates across them; billing every row would charge a session several
+    // times over. Release is the row that closes a session, so it is the one a bill or a TAP batch
+    // is built from -- stated here because it is the difference between a correct invoice and a
+    // multiplied one.
+    struct CdrQuery {
+        std::string period_start;                         // "YYYY-MM-DD HH:MM:SS", inclusive
+        std::string period_end;                           // exclusive
+        std::optional<std::string> subscriber_identifier; // for a bill run
+        std::optional<std::string> serving_plmn;          // for a TAP OUT batch
+        std::optional<bool> is_roaming;
+    };
+    std::vector<CdrRecord> query(const CdrQuery& q);
 
     // P14 (ADR-0283): retention-driven archival. Archives every `cdr` row older than
     // `retention_days` into `archive_dir` as newline-delimited JSON, then deletes ONLY the rows it
