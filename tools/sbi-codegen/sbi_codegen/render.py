@@ -24,6 +24,61 @@ from .ir import AliasType, ObjectType, OpaqueType, OpenEnumType, TypeRef
 _TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 
 
+
+# ADR-0313: how many types' to_json/from_json bodies go into one generated .cpp.
+#
+# Measured on this machine, not guessed:
+#   unsplit (one ~3,000-type file):  10.0 GB peak RSS, 4m45s
+#   400 types/part (7 parts):         5.1 GB peak RSS, 1m40s
+#   150 types/part:                   see below -- chosen so several parts compile CONCURRENTLY
+#
+# The target is not just "smaller"; it is that `-j2` or better fits in this 15 GB machine while
+# other work runs. At 5.1 GB two concurrent parts would need 10.2 GB and still risk the OOM killer,
+# which is the exact failure this change exists to remove. 150 keeps each part low enough that
+# parallel compilation is genuinely safe again, at the cost of more object files -- link input is
+# cheap, OOM kills are not.
+_MAX_TYPES_PER_SOURCE = 150
+
+
+def _partition_for_sources(object_types, open_enum_types, alias_types):
+    """Deal the type lists across N source-file contexts, preserving order.
+
+    The header declares every type; each part implements a slice. Order is preserved so a type's
+    implementation stays in the same part across regenerations unless the schema itself changes.
+    """
+    total = len(object_types) + len(open_enum_types) + len(alias_types)
+    if total <= _MAX_TYPES_PER_SOURCE:
+        return [
+            {
+                "object_types": object_types,
+                "open_enum_types": open_enum_types,
+                "alias_types": alias_types,
+            }
+        ]
+
+    parts: list[dict] = []
+    # Aliases first (they carry the pattern validators and are cheap), then enums, then objects --
+    # objects dominate the count and the compile cost, so they are what actually gets spread.
+    remaining_alias = list(alias_types)
+    remaining_enum = list(open_enum_types)
+    remaining_object = list(object_types)
+
+    while remaining_alias or remaining_enum or remaining_object:
+        budget = _MAX_TYPES_PER_SOURCE
+        take_alias, remaining_alias = remaining_alias[:budget], remaining_alias[budget:]
+        budget -= len(take_alias)
+        take_enum, remaining_enum = remaining_enum[:budget], remaining_enum[budget:]
+        budget -= len(take_enum)
+        take_object, remaining_object = remaining_object[:budget], remaining_object[budget:]
+        parts.append(
+            {
+                "object_types": take_object,
+                "open_enum_types": take_enum,
+                "alias_types": take_alias,
+            }
+        )
+    return parts
+
 def _type_ref_to_cpp(ref: TypeRef) -> str:
     if ref.kind == "array":
         return f"std::vector<{_type_ref_to_cpp(ref.array_of)}>"
@@ -419,12 +474,42 @@ def render(ir_types: dict, commit: str, out_dir: pathlib.Path) -> list[pathlib.P
         }
 
         hpp = env.get_template("header.hpp.j2").render(**ctx)
-        cpp = env.get_template("source.cpp.j2").render(**ctx)
-
         hpp_path = out_dir / f"{group_name}.hpp"
-        cpp_path = out_dir / f"{group_name}.cpp"
         hpp_path.write_text(hpp, encoding="utf-8")
-        cpp_path.write_text(cpp, encoding="utf-8")
-        written.extend([hpp_path, cpp_path])
+        written.append(hpp_path)
+
+        # ADR-0313: the HEADER stays whole, the SOURCE is split across translation units.
+        #
+        # The monolithic header is not an accident and must not be split: 3GPP's YAML files have
+        # genuine cross-file circular dependencies, so this generator groups them into strongly
+        # connected components and emits one header per SCC with the types inside it topologically
+        # sorted (ADR-0010). Splitting the header would reintroduce exactly the "not declared in
+        # this scope" failure that design exists to prevent.
+        #
+        # The IMPLEMENTATION has no such constraint. Every to_json/from_json body is independent
+        # once the header is included, so the function bodies can be dealt out across several .cpp
+        # files that each include the same whole header.
+        #
+        # Why this matters, measured rather than assumed: compiling the single 33,263-line
+        # TS26510_CommonData_grp.cpp peaked at **10.0 GB RSS over 4m45s** (/usr/bin/time -v, this
+        # machine, after all 60 AF-facing files were wired in ADR-0312). That one translation unit
+        # is why a 15 GB machine could not sustain even -j2 and produced ten OOM kills in a single
+        # session. Splitting it into parts of at most _MAX_TYPES_PER_SOURCE types brings each part
+        # back to roughly a gigabyte.
+        #
+        # Types are partitioned in the SAME deterministic order the header declares them, so a
+        # given type's implementation lands in a stable file across runs -- a rebuild does not
+        # reshuffle every part and invalidate every object file.
+        parts = _partition_for_sources(object_types, open_enum_types, alias_types)
+        for index, part in enumerate(parts):
+            part_ctx = dict(ctx)
+            part_ctx.update(part)
+            # Only the first part emits the opaque-type bodies (there are none to emit) and any
+            # future whole-group preamble; keeping that on one part avoids duplicate definitions.
+            cpp = env.get_template("source.cpp.j2").render(**part_ctx)
+            suffix = "" if len(parts) == 1 else f"_part{index + 1}"
+            cpp_path = out_dir / f"{group_name}{suffix}.cpp"
+            cpp_path.write_text(cpp, encoding="utf-8")
+            written.append(cpp_path)
 
     return written
