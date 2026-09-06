@@ -161,6 +161,20 @@ collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCha
 //     catalog entry changes meaning.
 bool charging_scope_matches(const nlohmann::json& scope, const nlohmann::json& attributes);
 
+// ADR-0309 (C4 of ADR-0300): does an offering price's `ratingGroup` characteristic cover this
+// request's rating group?
+//
+// A voice+data bundle is one product that applies to SEVERAL rating groups -- voice and data
+// arrive on different ones. Until now the characteristic had to be a single integer equal to the
+// request's, so one offering served exactly one rating group and a combined bundle had to be
+// modelled as two separate products that could drift apart in price, validity and lifecycle.
+//
+// An ARRAY now means any-of, the identical semantics `charging_scope_matches` already gives array
+// values -- deliberately the same rule in both places, because two different meanings for "an
+// array in a catalog characteristic" is the kind of inconsistency an operator discovers the
+// expensive way. A single integer keeps working exactly as before.
+bool rating_group_matches(const nlohmann::json& characteristic, std::int64_t rating_group);
+
 RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
                                 std::int64_t rating_group,
                                 const std::string& supi = "",

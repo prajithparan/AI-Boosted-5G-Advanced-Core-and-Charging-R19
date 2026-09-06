@@ -180,9 +180,10 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
             continue;
         }
 
+        // ADR-0309: a single integer, or an ARRAY meaning any-of -- which is what lets ONE
+        // offering price cover voice and data rating groups as a single combined bundle.
         const auto rg_value = find_characteristic_value(price.prodSpecCharValueUse, "ratingGroup");
-        if (!rg_value.has_value() || !rg_value->is_number_integer() ||
-            rg_value->get<std::int64_t>() != rating_group) {
+        if (!rg_value.has_value() || !rating_group_matches(*rg_value, rating_group)) {
             continue;
         }
 

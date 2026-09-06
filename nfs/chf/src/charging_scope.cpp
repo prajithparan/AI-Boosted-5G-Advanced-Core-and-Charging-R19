@@ -37,4 +37,22 @@ bool charging_scope_matches(const nlohmann::json& scope, const nlohmann::json& a
     return true;
 }
 
+bool rating_group_matches(const nlohmann::json& characteristic, std::int64_t rating_group) {
+    if (characteristic.is_number_integer()) {
+        return characteristic.get<std::int64_t>() == rating_group;
+    }
+    if (characteristic.is_array()) {
+        for (const auto& candidate : characteristic) {
+            if (candidate.is_number_integer() && candidate.get<std::int64_t>() == rating_group) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // Anything else -- a string, an object, null -- is a misconfigured characteristic. It matches
+    // NOTHING rather than everything: an offering whose rating-group scope cannot be read must not
+    // silently become the offering that rates every request.
+    return false;
+}
+
 } // namespace chf

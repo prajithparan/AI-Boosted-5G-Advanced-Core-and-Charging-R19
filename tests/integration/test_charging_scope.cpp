@@ -141,3 +141,49 @@ TEST(ChargingScope, ARoamingDataBundleCombinesRoamingWithASlice) {
     visited_other_slice["sNSSAI"] = json{{"sst", 10}, {"sd", "00000a"}};
     EXPECT_FALSE(chf::charging_scope_matches(roaming_on_slice_1, visited_other_slice));
 }
+
+// --- combined bundles across rating groups (ADR-0309, C4) ---
+//
+// A voice+data bundle is ONE product that applies to several rating groups, because voice and data
+// arrive on different ones. Modelling it as two separate offerings lets their price, validity and
+// lifecycle drift apart silently -- which is the failure this closes.
+
+TEST(RatingGroupMatch, ASingleIntegerStillMatchesExactlyOneGroup) {
+    // The backward-compatibility guarantee: every offering configured before arrays were allowed
+    // keeps its exact previous behaviour.
+    EXPECT_TRUE(chf::rating_group_matches(json(10), 10));
+    EXPECT_FALSE(chf::rating_group_matches(json(10), 20));
+}
+
+TEST(RatingGroupMatch, AnArrayCoversSeveralGroupsAsOneProduct) {
+    // "this bundle rates voice (20) and data (10)" -- one offering, one price, one validity.
+    const json voice_and_data = json::array({10, 20});
+    EXPECT_TRUE(chf::rating_group_matches(voice_and_data, 10));
+    EXPECT_TRUE(chf::rating_group_matches(voice_and_data, 20));
+    EXPECT_FALSE(chf::rating_group_matches(voice_and_data, 30))
+        << "a group the bundle does not name must not be rated by it";
+}
+
+TEST(RatingGroupMatch, AnEmptyArrayMatchesNothing) {
+    EXPECT_FALSE(chf::rating_group_matches(json::array(), 10));
+}
+
+TEST(RatingGroupMatch, AMisconfiguredCharacteristicMatchesNothingRatherThanEverything) {
+    // Failing closed is load-bearing here: an offering whose rating-group scope cannot be read must
+    // not become the offering that rates every request in the system.
+    EXPECT_FALSE(chf::rating_group_matches(json("10"), 10)) << "a string is not a rating group";
+    EXPECT_FALSE(chf::rating_group_matches(json(nullptr), 10));
+    EXPECT_FALSE(chf::rating_group_matches(json::object(), 10));
+    EXPECT_FALSE(chf::rating_group_matches(json::array({"voice", "data"}), 10));
+}
+
+TEST(RatingGroupMatch, CombinesWithAChargingScopeRatherThanReplacingIt) {
+    // The two mechanisms are orthogonal: ratingGroup says WHICH services the bundle rates,
+    // chargingScope says WHERE it applies. A roaming voice+data bundle needs both.
+    const json voice_and_data = json::array({10, 20});
+    EXPECT_TRUE(chf::rating_group_matches(voice_and_data, 20));
+
+    json roaming_request = request_attributes();
+    roaming_request["roaming"] = true;
+    EXPECT_TRUE(chf::charging_scope_matches(json{{"roaming", true}}, roaming_request));
+}
