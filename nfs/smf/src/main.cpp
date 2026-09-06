@@ -133,6 +133,7 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29542_Nsmf_NIDD.hpp"
+#include "ambr.hpp"
 #include "event_subscription_store.hpp"
 #include "nas_5gsm_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
@@ -250,6 +251,9 @@ constexpr const char* kNiddApiRoot = "/nsmf-nidd/v1";
 // per-function, since Stage 5's real Update URR needs to reference the exact same ID Stage 1's
 // Create URR used.
 constexpr std::uint32_t kUrrId = 1;
+// ADR-0308: this session's QER id. Distinct from kUrrId's namespace -- TS 29.244 gives QER, URR
+// and FAR ids their own id spaces, so reusing the value 1 here is correct, not a collision.
+constexpr std::uint32_t kQerId = 1;
 
 // Must match nfs/nrf/src/main.cpp's kNrfInstanceId exactly -- see docs/DECISIONS.md ADR-0018.
 constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
@@ -783,11 +787,18 @@ std::optional<std::string> install_downlink_far(smf::PfcpPeer& pfcp_peer,
     return std::nullopt;
 }
 
+// ADR-0308: ambr_to_kbps lives in nfs/smf/src/ambr.{hpp,cpp} so it is testable without
+// linking the whole SMF binary.
 std::optional<N4EstablishmentResult>
 perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
                                  const std::string& upf_ip,
                                  std::uint8_t pdu_session_id,
-                                 std::optional<std::uint64_t> granted_total_volume_octets) {
+                                 std::optional<std::uint64_t> granted_total_volume_octets,
+                                 // ADR-0308: PCF's own authorised session AMBR, so UPF actually
+                                 // ENFORCES the throttle PCF decided. Absent = no QER sent, which
+                                 // is exactly the previous behaviour.
+                                 const std::optional<std::string>& ambr_uplink = std::nullopt,
+                                 const std::optional<std::string>& ambr_downlink = std::nullopt) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
                                                       pfcp_core::kPfcpPort);
 
@@ -878,6 +889,57 @@ perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
                      pdu_session_id,
                      volume_threshold_octets,
                      *granted_total_volume_octets);
+    }
+
+    // ADR-0308: the QER that makes PCF's throttle real on the user plane.
+    //
+    // README listed tiered/fair-use throttling as "decided, not enforced": PCF's `authSessAmbr`
+    // reached the UE in the NAS Establishment Accept and was recorded, but never reached UPF, so
+    // nothing rate-limited anything. UPF has had real QER enforcement in its datapath since
+    // ADR-0071 (`register_qer` with an MBR); SMF simply never sent one. This closes that.
+    //
+    // Gate status is OPEN/OPEN: this QER exists to apply a RATE limit, not to block traffic.
+    // Closing a gate here would drop the session's packets entirely, which is a different policy
+    // decision (and one PCF expresses differently), so it is not inferred from an AMBR.
+    if (ambr_uplink.has_value() || ambr_downlink.has_value()) {
+        const auto ul_kbps =
+            ambr_uplink.has_value() ? smf::ambr_to_kbps(*ambr_uplink) : std::nullopt;
+        const auto dl_kbps =
+            ambr_downlink.has_value() ? smf::ambr_to_kbps(*ambr_downlink) : std::nullopt;
+        if (!ul_kbps.has_value() && !dl_kbps.has_value()) {
+            spdlog::warn("smf: PCF's authSessAmbr (ul={}, dl={}) is not a rate this build can "
+                         "parse -- NO QER sent, so the session is UNTHROTTLED rather than "
+                         "throttled by a guessed value",
+                         ambr_uplink.value_or("<none>"),
+                         ambr_downlink.value_or("<none>"));
+        } else {
+            std::vector<std::uint8_t> create_qer;
+            pfcp_core::encode_ie(create_qer,
+                                 static_cast<std::uint16_t>(pfcp_core::IeType::QerId),
+                                 pfcp_core::encode_qer_id(kQerId));
+            pfcp_core::GateStatus gate{};
+            gate.ul_closed = false;
+            gate.dl_closed = false;
+            pfcp_core::encode_ie(create_qer,
+                                 static_cast<std::uint16_t>(pfcp_core::IeType::GateStatus),
+                                 pfcp_core::encode_gate_status(gate));
+            pfcp_core::Mbr mbr{};
+            mbr.ul_kbps = ul_kbps.value_or(0);
+            mbr.dl_kbps = dl_kbps.value_or(0);
+            pfcp_core::encode_ie(create_qer,
+                                 static_cast<std::uint16_t>(pfcp_core::IeType::Mbr),
+                                 pfcp_core::encode_mbr(mbr));
+            pfcp_core::encode_ie(
+                ies, static_cast<std::uint16_t>(pfcp_core::IeType::CreateQer), create_qer);
+            spdlog::info("smf: provisioning QER {} for pduSessionId {}: MBR ul={} kbps dl={} kbps "
+                         "(from PCF authSessAmbr ul='{}' dl='{}')",
+                         kQerId,
+                         pdu_session_id,
+                         mbr.ul_kbps,
+                         mbr.dl_kbps,
+                         ambr_uplink.value_or("<none>"),
+                         ambr_downlink.value_or("<none>"));
+        }
     }
 
     pfcp_core::Header req_header;
@@ -2197,12 +2259,36 @@ int main() {
             // disclosed via a log line, not fatal to this response -- the real gap it would block
             // on (no UPF discovered yet) shouldn't also block CreateSMContext's own already-real
             // PCF/AMF/CHF work.
+            // ADR-0308: PCF's authorised session AMBR, read BEFORE the N4 establishment so it can
+            // be installed as a real QER. It was previously read further down, only to build the
+            // NAS Establishment Accept -- which told the UE its rate limit while UPF enforced
+            // nothing. Extracted once here and reused for the NAS message below, so the value the
+            // UE is told and the value UPF enforces cannot drift apart.
+            std::optional<std::string> policy_ambr_ul;
+            std::optional<std::string> policy_ambr_dl;
+            if (decision.sessRules.has_value() && decision.sessRules->is_object() &&
+                !decision.sessRules->empty()) {
+                try {
+                    const auto rule =
+                        decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
+                    if (rule.authSessAmbr.has_value()) {
+                        policy_ambr_ul = rule.authSessAmbr->uplink;
+                        policy_ambr_dl = rule.authSessAmbr->downlink;
+                    }
+                } catch (const json::exception&) {
+                    // Malformed sessRules -- left absent, so no QER is sent and the NAS path falls
+                    // back to its own documented defaults, exactly as before.
+                }
+            }
+
             if (const auto upf_ip = upf_endpoint_store.get(); upf_ip.has_value()) {
                 const auto n4_result =
                     perform_n4_session_establishment(pfcp_peer,
                                                      *upf_ip,
                                                      static_cast<std::uint8_t>(*body->pduSessionId),
-                                                     granted_total_volume_octets);
+                                                     granted_total_volume_octets,
+                                                     policy_ambr_ul,
+                                                     policy_ambr_dl);
                 // ADR-0050 Stage 3/5: only register a session for later Usage Report handling if a
                 // real URR was actually provisioned above -- a session with no granted quota can
                 // never produce a Session Report Request in the first place (UPF only counts/
@@ -2278,18 +2364,17 @@ int main() {
                     // Sourced from PCF's real SmPolicyDecision.sessRules (built above), not
                     // fabricated -- falls back to nas_5gsm_codec's own disclosed defaults only if
                     // PCF returned no session rule at all.
-                    std::string ambr_ul = "1 Mbps";
-                    std::string ambr_dl = "1 Mbps";
+                    // ADR-0308: the SAME values installed as a QER above, so the rate the UE is
+                    // told and the rate UPF enforces are one decision rather than two reads that
+                    // could diverge.
+                    std::string ambr_ul = policy_ambr_ul.value_or("1 Mbps");
+                    std::string ambr_dl = policy_ambr_dl.value_or("1 Mbps");
                     std::uint8_t qfi = 1;
                     if (decision.sessRules.has_value() && decision.sessRules->is_object() &&
                         !decision.sessRules->empty()) {
                         try {
                             const auto rule =
                                 decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
-                            if (rule.authSessAmbr.has_value()) {
-                                ambr_ul = rule.authSessAmbr->uplink;
-                                ambr_dl = rule.authSessAmbr->downlink;
-                            }
                             if (rule.authDefQos.has_value() && rule.authDefQos->n5qi.has_value()) {
                                 qfi = static_cast<std::uint8_t>(*rule.authDefQos->n5qi & 0x3F);
                             }

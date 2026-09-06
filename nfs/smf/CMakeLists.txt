@@ -1,4 +1,4 @@
-add_executable(smf src/main.cpp src/sm_context_store.cpp src/event_subscription_store.cpp src/nas_5gsm_codec.cpp src/pfcp_peer.cpp)
+add_executable(smf src/main.cpp src/sm_context_store.cpp src/event_subscription_store.cpp src/nas_5gsm_codec.cpp src/pfcp_peer.cpp src/ambr.cpp)
 # ngap_core/ngap_generated: gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #101, ADR-0092) --
 # SMF needs the real NGAP PER codec to decode/encode the PathSwitchRequestTransfer/
 # PathSwitchRequestAcknowledgeTransfer transparent containers AMF relays verbatim as n2SmInfo (a
