@@ -159,6 +159,28 @@ std::vector<bss_sid::Bucket> BalanceStore::list_buckets() {
     return out;
 }
 
+std::optional<bss_sid::Bucket> BalanceStore::find_shared_bucket_for(const std::string& party_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    // Matched in SQL on the real JSONB `related_party` array rather than by scanning every bucket
+    // in C++: a subscriber's charging path runs this on every reservation, and a full table scan
+    // per request would be a real cost on a real subscriber base.
+    //
+    // `status` is checked here, not by the caller: an expired or suspended shared bucket must not
+    // silently absorb a family's usage, and pushing that check to every call site is how one of
+    // them eventually forgets.
+    const auto result =
+        txn.exec("SELECT * FROM bucket WHERE is_shared = TRUE "
+                 "AND related_party @> $1::jsonb "
+                 "AND (status IS NULL OR status = 'active') "
+                 "ORDER BY id LIMIT 1",
+                 pqxx::params{nlohmann::json::array({nlohmann::json{{"id", party_id}}}).dump()});
+    if (result.empty()) {
+        return std::nullopt;
+    }
+    return row_to_bucket(result[0]);
+}
+
 bss_sid::AccumulatedBalance
 BalanceStore::get_accumulated_balance(const std::string& party_account_id) {
     std::lock_guard<std::mutex> lock(mutex_);

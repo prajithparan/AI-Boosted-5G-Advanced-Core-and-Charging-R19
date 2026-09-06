@@ -176,6 +176,21 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
 // either way) -- callers must not grant units when this returns false, the real prepaid-
 // enforcement point this ADR closes (ADR-0048/0050's own disclosed "no balance/wallet deduction"
 // gap).
+// ADR-0307 (C1): which balance bucket this subscriber's usage actually draws from.
+//
+// Until now the answer was always the subscriber themselves -- `bucket.id = supi`, which is why
+// README listed shared/family/group bundles as Not supported. Now: if the subscriber belongs to an
+// ACTIVE shared bucket (TMF654 `isShared` + `relatedParty`, queried through the standard
+// `?relatedParty.id=` collection filter), usage is reserved and debited against THAT bucket, so a
+// family's members genuinely draw down one allowance. Otherwise the SUPI is the bucket id exactly
+// as before.
+//
+// Returns the supi unchanged on any lookup failure. That fallback is deliberate and is the safe
+// direction: a balance-management hiccup then charges the subscriber's own bucket, which may fail
+// for insufficient funds, rather than silently charging nothing -- and it never charges a DIFFERENT
+// family's bucket, which is the outcome that would be unrecoverable.
+std::string resolve_bucket_id(sbi_core::http2::Client& balance_client, const std::string& supi);
+
 bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
                                 const std::string& supi,
                                 const bss_sid::Money& cost,

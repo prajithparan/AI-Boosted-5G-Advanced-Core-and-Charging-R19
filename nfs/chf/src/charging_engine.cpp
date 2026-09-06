@@ -360,6 +360,28 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
     return {};
 }
 
+std::string resolve_bucket_id(sbi_core::http2::Client& balance_client, const std::string& supi) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url =
+        balance_management_base() + kBalanceManagementApiRoot + "/bucket?relatedParty.id=" + supi;
+    auto resp = balance_client.send(req);
+    if (!resp.has_value() || resp->status != 200) {
+        return supi;
+    }
+    try {
+        const auto buckets = json::parse(resp->body);
+        if (buckets.is_array() && !buckets.empty() && buckets[0].contains("id")) {
+            const auto shared_id = buckets[0]["id"].get<std::string>();
+            spdlog::info("chf: {} draws from shared bucket {}", supi, shared_id);
+            return shared_id;
+        }
+    } catch (const json::exception& e) {
+        spdlog::warn("chf: malformed shared-bucket lookup for {}: {}", supi, e.what());
+    }
+    return supi;
+}
+
 bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
                                 const std::string& supi,
                                 const bss_sid::Money& cost,
@@ -376,7 +398,8 @@ bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
     amount.units = cost.unit;
     reserve_req.amount = amount;
     bss_sid::BucketRef bucket{};
-    bucket.id = supi;
+    // ADR-0307: the SHARED bucket when the subscriber belongs to one, else their own.
+    bucket.id = resolve_bucket_id(balance_client, supi);
     reserve_req.bucket = bucket;
     reserve_req.description = description;
     reserve_req.usageType = "monetary";
@@ -431,7 +454,8 @@ void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
     amount_to_debit = std::clamp(amount_to_debit, 0.0, total_reserved);
 
     bss_sid::BucketRef bucket{};
-    bucket.id = supi;
+    // ADR-0307: the SHARED bucket when the subscriber belongs to one, else their own.
+    bucket.id = resolve_bucket_id(balance_client, supi);
 
     bss_sid::ReserveBalance unreserve_req{};
     bss_sid::Quantity unreserve_amount{};

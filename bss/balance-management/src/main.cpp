@@ -136,7 +136,20 @@ int main() {
     // --- Bucket (GET only -- see file header) ---
 
     server.add_route(
-        "GET", std::string(kApiRoot) + "/bucket", [&store](const sbi_core::http2::Request&) {
+        "GET", std::string(kApiRoot) + "/bucket", [&store](const sbi_core::http2::Request& req) {
+            // ADR-0307: `?relatedParty.id=` is TM Forum's own standard dot-path collection filter,
+            // not a bespoke query parameter -- which is why C1 needed no new resource. It returns
+            // the SHARED buckets that party belongs to, so CHF can ask "does this subscriber draw
+            // from a family bucket?" in one call.
+            const auto filter = req.query_params.find("relatedParty.id");
+            if (filter != req.query_params.end() && !filter->second.empty()) {
+                const auto shared = store.find_shared_bucket_for(filter->second);
+                json out = json::array();
+                if (shared.has_value()) {
+                    out.push_back(*shared);
+                }
+                return sbi_core::http2::Response::json(200, out.dump());
+            }
             return sbi_core::http2::Response::json(200, json(store.list_buckets()).dump());
         });
 

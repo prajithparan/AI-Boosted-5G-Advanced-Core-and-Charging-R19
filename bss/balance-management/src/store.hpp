@@ -38,6 +38,17 @@ public:
     std::optional<bss_sid::Bucket> get_bucket(const std::string& id);
     std::vector<bss_sid::Bucket> list_buckets();
 
+    // ADR-0307 (C1 of ADR-0300): the SHARED bucket a subscriber draws from, if any.
+    //
+    // No new resource and no schema change were needed -- TMF654's `Bucket` already carries
+    // `isShared` and `relatedParty`, which is exactly this concept, and both columns already
+    // existed. A family/group/enterprise bucket is one with `is_shared = true` whose
+    // `related_party` array names its members.
+    //
+    // Returns std::nullopt when the subscriber belongs to no shared bucket, which is the ordinary
+    // case and is what keeps every existing per-SUPI bucket working untouched.
+    std::optional<bss_sid::Bucket> find_shared_bucket_for(const std::string& party_id);
+
     // Real TMF654 AccumulatedBalance query: aggregates every Bucket belonging to party_account_id
     // into a single totalBalance. Disclosed simplification: sums remainingValue only (not
     // reservedValue), and assumes a single currency/unit across the party's buckets (no real
