@@ -1,7 +1,7 @@
 # libpqxx: real PostgreSQL persistence (see schema.sql's own header for the ADR/design rationale).
 find_package(libpqxx CONFIG REQUIRED)
 
-add_library(balance_management_store STATIC src/store.cpp)
+add_library(balance_management_store STATIC src/store.cpp src/bill_run.cpp)
 target_link_libraries(balance_management_store PUBLIC bss_sid libpqxx::pqxx)
 target_include_directories(balance_management_store PUBLIC src)
 

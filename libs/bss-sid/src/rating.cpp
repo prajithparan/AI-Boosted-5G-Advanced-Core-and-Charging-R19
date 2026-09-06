@@ -125,4 +125,44 @@ void from_json(const nlohmann::json& j, AppliedCustomerBillingRate& v) {
     get_optional(j, "taxIncludedAmount", v.taxIncludedAmount);
 }
 
+// ADR-0310: TMF678 CustomerBill. Field names verbatim from the real v4.0.0 swagger.
+void to_json(nlohmann::json& j, const CustomerBill& v) {
+    j = nlohmann::json::object();
+    put_optional(j, "id", v.id);
+    put_optional(j, "href", v.href);
+    put_optional(j, "billDate", v.billDate);
+    put_optional(j, "billNo", v.billNo);
+    put_optional(j, "category", v.category);
+    put_optional(j, "lastUpdate", v.lastUpdate);
+    put_optional(j, "nextBillDate", v.nextBillDate);
+    put_optional(j, "paymentDueDate", v.paymentDueDate);
+    put_optional(j, "runType", v.runType);
+    put_optional(j, "state", v.state);
+    put_optional(j, "amountDue", v.amountDue);
+    put_optional(j, "remainingAmount", v.remainingAmount);
+    put_optional(j, "taxExcludedAmount", v.taxExcludedAmount);
+    put_optional(j, "taxIncludedAmount", v.taxIncludedAmount);
+    put_optional(j, "billingAccount", v.billingAccount);
+    put_optional(j, "billingPeriod", v.billingPeriod);
+}
+
+void from_json(const nlohmann::json& j, CustomerBill& v) {
+    get_optional(j, "id", v.id);
+    get_optional(j, "href", v.href);
+    get_optional(j, "billDate", v.billDate);
+    get_optional(j, "billNo", v.billNo);
+    get_optional(j, "category", v.category);
+    get_optional(j, "lastUpdate", v.lastUpdate);
+    get_optional(j, "nextBillDate", v.nextBillDate);
+    get_optional(j, "paymentDueDate", v.paymentDueDate);
+    get_optional(j, "runType", v.runType);
+    get_optional(j, "state", v.state);
+    get_optional(j, "amountDue", v.amountDue);
+    get_optional(j, "remainingAmount", v.remainingAmount);
+    get_optional(j, "taxExcludedAmount", v.taxExcludedAmount);
+    get_optional(j, "taxIncludedAmount", v.taxIncludedAmount);
+    get_optional(j, "billingAccount", v.billingAccount);
+    get_optional(j, "billingPeriod", v.billingPeriod);
+}
+
 } // namespace bss_sid

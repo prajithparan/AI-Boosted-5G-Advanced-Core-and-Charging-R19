@@ -88,4 +88,50 @@ struct AppliedCustomerBillingRate {
 void to_json(nlohmann::json& j, const AppliedCustomerBillingRate& v);
 void from_json(const nlohmann::json& j, AppliedCustomerBillingRate& v);
 
+// ADR-0310 (C6 of ADR-0300): TMF678 `CustomerBill` -- the bill itself, as distinct from the
+// `AppliedCustomerBillingRate` line items above.
+//
+// Fields taken from the SAME real swagger this file's header already cites
+// (github.com/tmforum-apis/TMF678_CustomerBill, TMF678-CustomerBill-v4.0.0.swagger.json), fetched
+// and parsed directly for this ADR rather than recalled -- the precedent that already caught one
+// wrong field name (`appliedBillingRateType`, which does not exist) is exactly why.
+//
+// The real definition has NO required fields, so every member here is optional, matching it.
+//
+// Real, disclosed scope: `appliedPayment`, `billDocument`, `financialAccount`, `paymentMethod`,
+// `relatedParty` and `taxItem` are real fields of the spec that this project does not populate --
+// it has no payment, document-attachment, financial-account or tax subsystem to source them from.
+// They are omitted rather than modelled-and-left-empty, so a consumer cannot mistake an always-
+// empty array for "this bill genuinely had no payments".
+namespace CustomerBillState {
+// Real TMF678 `stateValue` enum, verbatim from the swagger.
+inline constexpr const char* kNew = "new";
+inline constexpr const char* kOnHold = "onHold";
+inline constexpr const char* kValidated = "validated";
+inline constexpr const char* kSent = "sent";
+inline constexpr const char* kPartiallyPaid = "partiallyPaid";
+inline constexpr const char* kSettled = "settled";
+} // namespace CustomerBillState
+
+struct CustomerBill {
+    std::optional<std::string> id;
+    std::optional<std::string> href;
+    std::optional<std::string> billDate;
+    std::optional<std::string> billNo;
+    std::optional<std::string> category;
+    std::optional<std::string> lastUpdate;
+    std::optional<std::string> nextBillDate;
+    std::optional<std::string> paymentDueDate;
+    std::optional<std::string> runType;
+    std::optional<std::string> state; // CustomerBillState::*
+    std::optional<Money> amountDue;
+    std::optional<Money> remainingAmount;
+    std::optional<Money> taxExcludedAmount;
+    std::optional<Money> taxIncludedAmount;
+    std::optional<BillingAccountRef> billingAccount;
+    std::optional<TimePeriod> billingPeriod;
+};
+void to_json(nlohmann::json& j, const CustomerBill& v);
+void from_json(const nlohmann::json& j, CustomerBill& v);
+
 } // namespace bss_sid
