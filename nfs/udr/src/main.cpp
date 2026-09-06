@@ -9497,7 +9497,8 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData>(req, err);
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData_Application_Data>(
+                req, err);
             if (!body.has_value()) {
                 return err;
             }
@@ -9607,7 +9608,9 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData>(req, err);
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData_Application_Data>(
+                    req, err);
             if (!body.has_value()) {
                 return err;
             }

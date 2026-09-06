@@ -803,7 +803,7 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdReq>(req, err);
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdReq_Nnef_UEId>(req, err);
             if (!body.has_value()) {
                 return err;
             }

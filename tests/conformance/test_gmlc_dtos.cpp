@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 TEST(GmlcDtos, LocUpdateDataRoundTrips) {
-    sbi_gen::LocUpdateData original;
+    sbi_gen::LocUpdateData_Ngmlc_Location original;
     original.supi = "imsi-001010000000001";
     original.locationRequestType.value = "MO_LR";
     original.locationEstimate = nlohmann::json{{"point", {{"lat", 1.0}, {"lon", 2.0}}}};
@@ -21,7 +21,7 @@ TEST(GmlcDtos, LocUpdateDataRoundTrips) {
     original.lcsQosClass.value = "BEST_EFFORT";
 
     nlohmann::json j = original;
-    auto decoded = j.get<sbi_gen::LocUpdateData>();
+    auto decoded = j.get<sbi_gen::LocUpdateData_Ngmlc_Location>();
     EXPECT_EQ(decoded.supi, "imsi-001010000000001");
     EXPECT_EQ(decoded.locationRequestType.value, "MO_LR");
     EXPECT_EQ(decoded.ageOfLocationEstimate, 5);

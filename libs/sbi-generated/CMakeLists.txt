@@ -50,6 +50,63 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29591_Nnef_DNAIMapping.yaml
     TS29522_DNAIMapping.yaml
     TS29522_TrafficInfluence.yaml
+    TS29122_AsSessionWithQoS.yaml
+    TS29122_ChargeableParty.yaml
+    TS29122_CommonData.yaml
+    TS29122_CpProvisioning.yaml
+    TS29122_DeviceTriggering.yaml
+    TS29122_ECRControl.yaml
+    TS29122_GMDviaMBMSbyMB2.yaml
+    TS29122_GMDviaMBMSbyxMB.yaml
+    TS29122_MonitoringEvent.yaml
+    TS29122_MsisdnLessMoSms.yaml
+    TS29122_NIDD.yaml
+    TS29122_NpConfiguration.yaml
+    TS29122_PfdManagement.yaml
+    TS29122_RacsParameterProvisioning.yaml
+    TS29122_ReportingNetworkStatus.yaml
+    TS29122_ResourceManagementOfBdt.yaml
+    TS29522_5GLANParameterProvision.yaml
+    TS29522_ACSParameterProvision.yaml
+    TS29522_AddressingParamProvision.yaml
+    TS29522_AIoT.yaml
+    TS29522_AKMA.yaml
+    TS29522_AMInfluence.yaml
+    TS29522_AMPolicyAuthorization.yaml
+    TS29522_AnalyticsExposure.yaml
+    TS29522_ApplyingBdtPolicy.yaml
+    TS29522_ASTI.yaml
+    TS29522_CagInfoParamProvision.yaml
+    TS29522_DataReportingProvisioning.yaml
+    TS29522_DataReporting.yaml
+    TS29522_EASDeployment.yaml
+    TS29522_EcsAddressProvision.yaml
+    TS29522_GroupParametersProvisioning.yaml
+    TS29522_ImsEventExposure.yaml
+    TS29522_ImsParamProvision.yaml
+    TS29522_ImsSessionManagement.yaml
+    TS29522_IPTVConfiguration.yaml
+    TS29522_LpiParameterProvision.yaml
+    TS29522_MBSGroupMsgDelivery.yaml
+    TS29522_MBSSession.yaml
+    TS29522_MBSTMGI.yaml
+    TS29522_MBSUserDataIngestSession.yaml
+    TS29522_MBSUserService.yaml
+    TS29522_MemberUESelectionAssistance.yaml
+    TS29522_MoLcsNotify.yaml
+    TS29522_MSEventExposure.yaml
+    TS29522_NIDDConfigurationTrigger.yaml
+    TS29522_PDTQPolicyNegotiation.yaml
+    TS29522_RSLPPIParametersProvisioning.yaml
+    TS29522_ServiceParameter.yaml
+    TS29522_SliceParamProvision.yaml
+    TS29522_TimeSyncExposure.yaml
+    TS29522_UAVFlightAssistance.yaml
+    TS29522_UEAddress.yaml
+    TS29522_UEId.yaml
+    TS29522_VFLInference.yaml
+    TS29522_VFLNFDiscovery.yaml
+    TS29522_VFLTraining.yaml
     TS29591_Nnef_EASDeployment.yaml
     TS29570_Nscp_EventExposure.yaml
     TS29511_N5g-eir_EquipmentIdentityCheck.yaml
@@ -141,6 +198,63 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_DNAIMapping.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29522_DNAIMapping.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29522_TrafficInfluence.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_AsSessionWithQoS.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_ChargeableParty.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_CommonData.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_CpProvisioning.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_DeviceTriggering.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_ECRControl.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_GMDviaMBMSbyMB2.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_GMDviaMBMSbyxMB.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_MonitoringEvent.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_MsisdnLessMoSms.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_NIDD.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_NpConfiguration.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_PfdManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_RacsParameterProvisioning.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_ReportingNetworkStatus.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29122_ResourceManagementOfBdt.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_5GLANParameterProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ACSParameterProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AddressingParamProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AIoT.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AKMA.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AMInfluence.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AMPolicyAuthorization.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_AnalyticsExposure.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ApplyingBdtPolicy.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ASTI.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_CagInfoParamProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_DataReportingProvisioning.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_DataReporting.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_EASDeployment.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_EcsAddressProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_GroupParametersProvisioning.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ImsEventExposure.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ImsParamProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ImsSessionManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_IPTVConfiguration.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_LpiParameterProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MBSGroupMsgDelivery.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MBSSession.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MBSTMGI.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MBSUserDataIngestSession.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MBSUserService.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MemberUESelectionAssistance.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MoLcsNotify.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_MSEventExposure.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_NIDDConfigurationTrigger.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_PDTQPolicyNegotiation.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_RSLPPIParametersProvisioning.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_ServiceParameter.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_SliceParamProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_TimeSyncExposure.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_UAVFlightAssistance.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_UEAddress.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_UEId.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_VFLInference.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_VFLNFDiscovery.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29522_VFLTraining.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_EASDeployment.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29570_Nscp_EventExposure.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29511_N5g-eir_EquipmentIdentityCheck.yaml
