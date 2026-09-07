@@ -156,6 +156,7 @@
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29122_AsSessionWithQoS.hpp" // ADR-0315
+#include "TS29122_MonitoringEvent.hpp"  // ADR-0316
 #include "TS29256_Nnef_Authentication.hpp"
 #include "TS29522_DNAIMapping.hpp"
 #include "TS29541_Nnef_SMContext.hpp"
@@ -204,6 +205,8 @@ constexpr const char* kTrafficInfluenceDataApiRoot = "/nnef-traffic-influence-da
 constexpr const char* kAfTrafficInfluenceApiRoot = "/3gpp-traffic-influence/v1";
 // ADR-0315: the AF-facing QoS request API (TS 29.122), second of the 57 AF-facing services.
 constexpr const char* kAfAsSessionWithQosApiRoot = "/3gpp-as-session-with-qos/v1";
+// ADR-0316: the AF-facing event-monitoring API (TS 29.122), third of the 57.
+constexpr const char* kAfMonitoringEventApiRoot = "/3gpp-monitoring-event/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -412,6 +415,66 @@ void delete_pcf_app_session(sbi_core::http2::Client& pcf_client,
     }
 }
 
+// ADR-0316: the AF's MonitoringType -> the Nudm_EE EventType UDM actually understands.
+//
+// These are two DIFFERENT enums for overlapping concepts, and the differences are the whole
+// reason this needs a function rather than a cast:
+//
+//   * `CHANGE_OF_IMSI_IMEI_ASSOCIATION` (TS 29.122, EPC naming) is
+//     `CHANGE_OF_SUPI_PEI_ASSOCIATION` in Nudm_EE (5GC naming). Same event, different era's
+//     vocabulary.
+//   * `UE_REACHABILITY` is ONE value for the AF but splits into `UE_REACHABILITY_FOR_DATA` and
+//     `UE_REACHABILITY_FOR_SMS` in Nudm_EE. The AF schema carries the discriminator itself --
+//     `reachabilityType` (SMS|DATA) -- so this is resolved from the request rather than guessed.
+//     An AF that asks for reachability without saying which gets DATA, which is what the field's
+//     own absence conventionally means for a data-oriented exposure API; that default is stated
+//     here rather than buried.
+//   * Everything else is name-identical and mapped 1:1.
+//
+// A MonitoringType with no Nudm_EE counterpart returns nullopt and the subscription is REJECTED
+// rather than silently created with a wrong event type -- a monitoring subscription that reports
+// the wrong event is worse than one that was refused.
+std::optional<std::string>
+monitoring_type_to_ee_event(const sbi_gen::MonitoringEventSubscription& sub) {
+    const auto& type = sub.monitoringType.value;
+    if (type == sbi_gen::MonitoringType::UE_REACHABILITY) {
+        const bool sms = sub.reachabilityType.has_value() &&
+                         sub.reachabilityType->value == sbi_gen::ReachabilityType::SMS;
+        return sms ? sbi_gen::EventType_Nudm_EE::UE_REACHABILITY_FOR_SMS
+                   : sbi_gen::EventType_Nudm_EE::UE_REACHABILITY_FOR_DATA;
+    }
+    if (type == sbi_gen::MonitoringType::CHANGE_OF_IMSI_IMEI_ASSOCIATION) {
+        return sbi_gen::EventType_Nudm_EE::CHANGE_OF_SUPI_PEI_ASSOCIATION;
+    }
+    if (type == sbi_gen::MonitoringType::LOSS_OF_CONNECTIVITY ||
+        type == sbi_gen::MonitoringType::LOCATION_REPORTING ||
+        type == sbi_gen::MonitoringType::ROAMING_STATUS ||
+        type == sbi_gen::MonitoringType::COMMUNICATION_FAILURE ||
+        type == sbi_gen::MonitoringType::AVAILABILITY_AFTER_DDN_FAILURE) {
+        return type; // name-identical in both enums
+    }
+    return std::nullopt;
+}
+
+// ADR-0316: which UE this subscription monitors, in the form UDM's Nudm_EE path expects.
+//
+// The AF identifies a UE by EXTERNAL identifier (`externalId`, an NAI) or `msisdn`; Nudm_EE's
+// `{ueIdentity}` takes a GPSI. `externalId` IS a GPSI in its `extid-` form and an MSISDN is a GPSI
+// in its `msisdn-` form, so this is a real formatting rule rather than an invented mapping.
+//
+// A group subscription (`externalGroupId`) is NOT translated: Nudm_EE subscribes per UE, and
+// expanding a group needs a membership lookup this route does not perform. Such a request is
+// stored at NEF and reported as not brokered, rather than silently monitoring nobody.
+std::optional<std::string> af_target_to_gpsi(const sbi_gen::MonitoringEventSubscription& sub) {
+    if (sub.externalId.has_value() && !sub.externalId->empty()) {
+        return "extid-" + *sub.externalId;
+    }
+    if (sub.msisdn.has_value() && !sub.msisdn->empty()) {
+        return "msisdn-" + *sub.msisdn;
+    }
+    return std::nullopt;
+}
+
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nrf_base) {
@@ -522,6 +585,9 @@ int main() {
     // first time, because nothing before now needed to tell another NF where to find this one.
     const auto self_base_url =
         nf_config::require<std::string>(config, "self_base_url", "NEF_SELF_BASE_URL");
+    // ADR-0316: UDM, for Nudm_EE event-monitoring subscriptions.
+    const auto udm_base_url =
+        nf_config::require<std::string>(config, "udm_base_url", "NEF_UDM_BASE_URL");
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -538,6 +604,7 @@ int main() {
 
     nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
     nef::AfQosSubStore af_qos_subs;
+    nef::AfMonitoringSubStore af_monitoring_subs;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -1420,6 +1487,209 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0316: TS 29.122 MonitoringEvent, the AF-facing event-monitoring API ---
+    //
+    // Third of the 57. Brokers to UDM's Nudm_EE ee-subscriptions, which is what actually reports
+    // reachability, loss-of-connectivity, location and roaming events. Two enums that overlap but
+    // differ (see monitoring_type_to_ee_event) and two identifier spaces that differ (see
+    // af_target_to_gpsi) sit between the AF's request and UDM's -- which is the substance of this
+    // slice, not the CRUD around it.
+
+    server.add_route(
+        "GET",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
+        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& sub : af_monitoring_subs.list(req.path_params.at("scsAsId"))) {
+                out.push_back(sub);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions",
+        [&verifier, &af_monitoring_subs, &udr_client, udm_base_url, self_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::MonitoringEventSubscription>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+
+            // A monitoring type with no Nudm_EE counterpart is refused rather than stored: a
+            // subscription that can never report is worse than an explicit rejection.
+            const auto ee_event = monitoring_type_to_ee_event(*body);
+            if (!ee_event.has_value()) {
+                return sbi_core::http2::problem_response(
+                    400,
+                    "Unsupported monitoringType",
+                    body->monitoringType.value + " has no Nudm_EE event counterpart in this build");
+            }
+
+            const auto af_id = req.path_params.at("scsAsId");
+            json j = *body;
+            const auto sub_id = af_monitoring_subs.create(af_id, j);
+
+            const auto gpsi = af_target_to_gpsi(*body);
+            if (!gpsi.has_value()) {
+                // A group subscription, or one identifying no UE this route can address. Stored,
+                // and said plainly -- not silently treated as monitoring something.
+                spdlog::warn("nef: monitoring subscription {} for AF {} names no single UE this "
+                             "build can address (group subscriptions are not expanded) -- stored "
+                             "at NEF, NOT brokered to UDM",
+                             sub_id,
+                             af_id);
+            } else {
+                sbi_gen::MonitoringConfiguration config{};
+                config.eventType.value = *ee_event;
+                sbi_gen::EeSubscription ee{};
+                // UDM reports to NEF, which then notifies the AF -- the same reason ADR-0315 points
+                // PCF at NEF rather than at the AF.
+                ee.callbackReference = self_base_url + "/nnef-callback/v1/monitoring-notify";
+                ee.monitoringConfigurations = json{{"0", config}};
+                if (body->maximumNumberOfReports.has_value()) {
+                    sbi_gen::ReportingOptions options{};
+                    options.maxNumOfReports = body->maximumNumberOfReports;
+                    ee.reportingOptions = options;
+                }
+
+                sbi_core::http2::ClientRequest udm_req;
+                udm_req.method = "POST";
+                udm_req.url = udm_base_url + "/nudm-ee/v1/" + *gpsi + "/ee-subscriptions";
+                udm_req.headers.emplace("content-type", "application/json");
+                udm_req.body = json(ee).dump();
+                auto udm_resp = udr_client.send(udm_req);
+                if (udm_resp.has_value() && udm_resp->status < 300) {
+                    if (const auto loc = udm_resp->headers.find("location");
+                        loc != udm_resp->headers.end()) {
+                        const auto slash = loc->second.rfind('/');
+                        if (slash != std::string::npos) {
+                            af_monitoring_subs.set_ee_subscription(
+                                af_id, sub_id, *gpsi, loc->second.substr(slash + 1));
+                        }
+                    }
+                    spdlog::info("nef: monitoring subscription {} brokered to UDM for {} "
+                                 "(eventType={})",
+                                 sub_id,
+                                 *gpsi,
+                                 *ee_event);
+                } else {
+                    spdlog::warn("nef: UDM ee-subscription failed for {} (status={}) -- the AF's "
+                                 "monitoring request is recorded but NOTHING will report on it",
+                                 *gpsi,
+                                 udm_resp.has_value() ? udm_resp->status : 0);
+                }
+            }
+
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfMonitoringEventApiRoot) + "/" + af_id +
+                                     "/subscriptions/" + sub_id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto sub = af_monitoring_subs.get(req.path_params.at("scsAsId"),
+                                              req.path_params.at("subscriptionId"));
+            if (!sub.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            return sbi_core::http2::Response::json(200, sub->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::MonitoringEventSubscription>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_monitoring_subs.put(
+                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            // Disclosed, same shape as ADR-0315's PUT: the UDM ee-subscription is not updated to
+            // match. Nudm_EE modifies via PATCH with its own shape; approximating it here would
+            // risk a subscription reporting a different event than the AF now asks for.
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_monitoring_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto patched = af_monitoring_subs.merge_patch(req.path_params.at("scsAsId"),
+                                                          req.path_params.at("subscriptionId"),
+                                                          json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfMonitoringEventApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_monitoring_subs, &udr_client, udm_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("scsAsId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            const auto ee = af_monitoring_subs.ee_subscription(af_id, sub_id);
+            if (!af_monitoring_subs.remove(af_id, sub_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            // UDM must stop reporting: an ee-subscription outliving the AF request that created it
+            // would keep pushing events to a NEF callback for a subscription that no longer exists.
+            if (ee.has_value()) {
+                sbi_core::http2::ClientRequest del;
+                del.method = "DELETE";
+                del.url =
+                    udm_base_url + "/nudm-ee/v1/" + ee->first + "/ee-subscriptions/" + ee->second;
+                if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
+                    spdlog::warn("nef: UDM ee-subscription {} could not be deleted -- UDM may keep "
+                                 "reporting events for a subscription the AF has removed",
+                                 ee->second);
+                }
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

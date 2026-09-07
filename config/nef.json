@@ -4,5 +4,6 @@
   "nrf_base_url": "https://127.0.0.1:7777",
   "self_base_url": "https://127.0.0.1:7790",
   "udr_base_url": "https://127.0.0.1:7781",
-  "pcf_base_url": "https://127.0.0.1:7783"
+  "pcf_base_url": "https://127.0.0.1:7783",
+  "udm_base_url": "https://127.0.0.1:7780"
 }

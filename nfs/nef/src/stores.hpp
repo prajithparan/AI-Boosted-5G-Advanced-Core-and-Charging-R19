@@ -212,6 +212,38 @@ private:
     std::uint64_t next_id_ = 1;
 };
 
+// ADR-0316: AF-facing TS 29.122 MonitoringEvent subscriptions, keyed "{scsAsId}/{subId}" for the
+// same per-AF isolation reason as the two AF stores above.
+class AfMonitoringSubStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json subscription);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& sub_id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& sub_id);
+    // The UDM ee-subscription this created: "{ueIdentity}/{subscriptionId}", so DELETE can remove
+    // the right one. Same reasoning as ADR-0315's app-session tracking -- a monitoring
+    // subscription the AF deleted must not keep UDM reporting events to a NEF callback for a
+    // subscription that no longer exists.
+    void set_ee_subscription(const std::string& af_id,
+                             const std::string& sub_id,
+                             const std::string& ue_identity,
+                             const std::string& ee_sub_id);
+    std::optional<std::pair<std::string, std::string>> ee_subscription(const std::string& af_id,
+                                                                       const std::string& sub_id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& sub_id) {
+        return af_id + "/" + sub_id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> subscriptions_;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> ee_subs_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);
