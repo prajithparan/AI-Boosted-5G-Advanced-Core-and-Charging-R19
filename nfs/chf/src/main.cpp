@@ -707,7 +707,9 @@ int main() {
     // mistaken for one. TS 32.291 has no bill-run operation; inventing a `/nchf-.../v3/billing`
     // path would fabricate a 3GPP API.
     server.add_route(
-        "POST", "/internal-billing/v1/runs", [&cdr_writer](const sbi_core::http2::Request& req) {
+        "POST",
+        "/internal-billing/v1/runs",
+        [&cdr_writer, &balance_client](const sbi_core::http2::Request& req) {
             json body;
             try {
                 body = json::parse(req.body);
@@ -725,13 +727,74 @@ int main() {
             chf::CdrWriter::CdrQuery query;
             query.period_start = body["periodStart"].get<std::string>();
             query.period_end = body["periodEnd"].get<std::string>();
-            // A bill is for one subscriber's account. Absent means "every subscriber in the
-            // period", which is a real operator use (a whole-cycle run) rather than an error.
-            if (body.contains("subscriberIdentifier") && body["subscriberIdentifier"].is_string()) {
-                query.subscriber_identifier = body["subscriberIdentifier"].get<std::string>();
+
+            // ADR-0314: which subscribers this bill covers.
+            //
+            // ADR-0311 shipped this endpoint taking `billingAccountId` and
+            // `subscriberIdentifier` as INDEPENDENT inputs, with nothing connecting them. That is
+            // correct for a single-subscriber account and quietly WRONG for a family: a shared
+            // bucket (ADR-0307) has several members, and billing only the one named subscriber
+            // under-bills the account by the usage of everyone else on it. Under-billing is the
+            // failure mode that does not generate a complaint, so nothing would have surfaced it.
+            //
+            // Resolution order, most explicit first:
+            //   1. an explicit `subscriberIdentifiers` array -- the operator said exactly who
+            //   2. a single `subscriberIdentifier` -- unchanged from ADR-0311
+            //   3. otherwise, the MEMBERS of the billing account's own shared bucket, read from
+            //      balance-management (TMF654 `relatedParty`, the same membership ADR-0307's
+            //      charging path already draws down against)
+            //   4. if the account has no shared bucket, every subscriber in the period -- the
+            //      pre-existing whole-cycle behaviour
+            std::vector<std::string> subscribers;
+            if (body.contains("subscriberIdentifiers") &&
+                body["subscriberIdentifiers"].is_array()) {
+                for (const auto& s : body["subscriberIdentifiers"]) {
+                    if (s.is_string()) {
+                        subscribers.push_back(s.get<std::string>());
+                    }
+                }
+            } else if (body.contains("subscriberIdentifier") &&
+                       body["subscriberIdentifier"].is_string()) {
+                subscribers.push_back(body["subscriberIdentifier"].get<std::string>());
+            } else {
+                sbi_core::http2::ClientRequest bucket_req;
+                bucket_req.method = "GET";
+                bucket_req.url = chf::balance_management_base() + chf::kBalanceManagementApiRoot +
+                                 "/bucket/" + body["billingAccountId"].get<std::string>();
+                if (auto bucket_resp = balance_client.send(bucket_req);
+                    bucket_resp.has_value() && bucket_resp->status == 200) {
+                    try {
+                        const auto bucket = json::parse(bucket_resp->body);
+                        for (const auto& party : bucket.value("relatedParty", json::array())) {
+                            if (party.contains("id") && party["id"].is_string()) {
+                                subscribers.push_back(party["id"].get<std::string>());
+                            }
+                        }
+                    } catch (const json::exception& e) {
+                        spdlog::warn("chf: malformed bucket for billing account {}: {}",
+                                     body["billingAccountId"].get<std::string>(),
+                                     e.what());
+                    }
+                }
             }
 
-            const auto cdrs = cdr_writer.query(query);
+            std::vector<chf::CdrRecord> cdrs;
+            if (subscribers.empty()) {
+                cdrs = cdr_writer.query(query);
+            } else {
+                // One query per member. Deliberately not a single IN(...) query: the store's
+                // filter takes one subscriber, and widening it is a change to a billing query
+                // that deserves its own test rather than being smuggled in here.
+                for (const auto& subscriber : subscribers) {
+                    auto member_query = query;
+                    member_query.subscriber_identifier = subscriber;
+                    const auto member_cdrs = cdr_writer.query(member_query);
+                    cdrs.insert(cdrs.end(), member_cdrs.begin(), member_cdrs.end());
+                }
+                spdlog::info("chf: bill run covers {} subscriber(s) on account {}",
+                             subscribers.size(),
+                             body["billingAccountId"].get<std::string>());
+            }
             const auto items = chf::cdrs_to_billing_items(cdrs);
             const auto result =
                 billing::run_bill(body["billingAccountId"].get<std::string>(),
