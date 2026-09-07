@@ -621,6 +621,14 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client pcf_client(std::move(pcf_client_tls));
+    // ADR-0317: notifications go OUT to Application Functions, which are not NFs in this
+    // project's PKI. Its own client, so an AF's TLS behaviour cannot disturb the NF-facing ones.
+    sbi_core::http2::TlsConfig af_client_tls{
+        .cert_path = CERTS_DIR "/nef/cert.pem",
+        .key_path = CERTS_DIR "/nef/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client af_client(std::move(af_client_tls));
 
     nef::PfdCatalogStore pfd_catalog;
     seed_pfd_catalog(pfd_catalog);
@@ -1492,6 +1500,82 @@ int main() {
             return resp;
         });
 
+    // --- ADR-0317: notification delivery, the piece every AF-facing service was missing ---
+    //
+    // ADR-0302, ADR-0315 and ADR-0316 each accepted `notificationDestination` and stored it, and
+    // each disclosed the same gap: NEF delivered NOTHING. UDM and PCF dutifully call NEF's
+    // callback URIs and the reports stopped there, so an AF that subscribed correctly was never
+    // told anything. This closes it once for every service rather than per-service.
+    //
+    // Correlation is by URI: the callback NEF hands to UDM carries the AF id and subscription id
+    // in its own path, and UDM calls back exactly that URI. Nothing to keep in sync.
+    server.add_route(
+        "POST",
+        "/nnef-callback/v1/monitoring-notify/{afId}/{subscriptionId}",
+        [&af_monitoring_subs, &af_client, self_base_url](const sbi_core::http2::Request& req) {
+            // Deliberately NOT bearer-checked: the caller here is UDM over mTLS, and this URI is
+            // one NEF generated and handed out itself. Requiring an OAuth2 token would mean UDM's
+            // event-exposure path needing an NEF-scoped token it has no reason to hold.
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            const auto subscription = af_monitoring_subs.get(af_id, sub_id);
+            if (!subscription.has_value()) {
+                // The AF deleted its subscription but UDM has not stopped reporting yet. 404 tells
+                // UDM this callback is dead rather than silently accepting reports for nobody.
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such monitoring subscription");
+            }
+            const auto destination = subscription->value("notificationDestination", std::string{});
+            if (destination.empty()) {
+                spdlog::warn("nef: monitoring report for {}/{} has nowhere to go -- the AF "
+                             "subscription carries no notificationDestination",
+                             af_id,
+                             sub_id);
+                sbi_core::http2::Response accepted;
+                accepted.status = 204;
+                return accepted;
+            }
+
+            // Rebuilt as the AF-facing TS 29.122 shape rather than forwarded verbatim: UDM sends a
+            // Nudm_EE MonitoredResourceReport, and an AF is entitled to the API it subscribed
+            // through. `subscription` points at the AF's OWN resource, not UDM's.
+            sbi_gen::MonitoringNotification notification{};
+            notification.subscription = self_base_url + std::string(kAfMonitoringEventApiRoot) +
+                                        "/" + af_id + "/subscriptions/" + sub_id;
+
+            json payload = notification;
+            // The event content UDM reported is carried through under its own key rather than
+            // being re-modelled: this build does not map every Nudm_EE report field onto
+            // TS 29.122's MonitoringEventReport, and inventing that mapping would put fabricated
+            // values in front of an AF. Stated here rather than silently dropped.
+            try {
+                payload["_nudmEeReport"] = json::parse(req.body);
+            } catch (const json::exception&) {
+                // A malformed body from UDM is not the AF's problem; the notification still goes
+                // out, carrying only what NEF can vouch for.
+            }
+
+            sbi_core::http2::ClientRequest out;
+            out.method = "POST";
+            out.url = destination;
+            out.headers.emplace("content-type", "application/json");
+            out.body = payload.dump();
+            if (auto resp = af_client.send(out); !resp.has_value() || resp->status >= 300) {
+                spdlog::warn("nef: delivering a monitoring report to AF {} at {} failed "
+                             "(status={})",
+                             af_id,
+                             destination,
+                             resp.has_value() ? resp->status : 0);
+            } else {
+                spdlog::info(
+                    "nef: monitoring report delivered to AF {} for subscription {}", af_id, sub_id);
+            }
+
+            sbi_core::http2::Response accepted;
+            accepted.status = 204;
+            return accepted;
+        });
+
     // --- ADR-0316: TS 29.122 MonitoringEvent, the AF-facing event-monitoring API ---
     //
     // Third of the 57. Brokers to UDM's Nudm_EE ee-subscriptions, which is what actually reports
@@ -1558,7 +1642,12 @@ int main() {
                 sbi_gen::EeSubscription ee{};
                 // UDM reports to NEF, which then notifies the AF -- the same reason ADR-0315 points
                 // PCF at NEF rather than at the AF.
-                ee.callbackReference = self_base_url + "/nnef-callback/v1/monitoring-notify";
+                // ADR-0317: the callback carries WHICH AF subscription it belongs to. UDM echoes
+                // the URI it was given, so encoding the ids in the path is enough to correlate an
+                // inbound report back to the AF that asked for it -- no correlation-id state to
+                // keep in sync, and no lookup that could go stale.
+                ee.callbackReference =
+                    self_base_url + "/nnef-callback/v1/monitoring-notify/" + af_id + "/" + sub_id;
                 ee.monitoringConfigurations = json{{"0", config}};
                 if (body->maximumNumberOfReports.has_value()) {
                     sbi_gen::ReportingOptions options{};
