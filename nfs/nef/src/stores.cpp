@@ -482,4 +482,82 @@ bool AfTrafficInfluenceSubStore::remove(const std::string& af_id, const std::str
     return subscriptions_.erase(key(af_id, sub_id)) > 0;
 }
 
+// --- ADR-0315: AF-facing AsSessionWithQoS subscriptions ---
+
+std::string AfQosSubStore::create(const std::string& af_id, nlohmann::json subscription) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto sub_id = std::to_string(next_id_++);
+    subscriptions_[key(af_id, sub_id)] = std::move(subscription);
+    return sub_id;
+}
+
+std::optional<nlohmann::json> AfQosSubStore::get(const std::string& af_id,
+                                                 const std::string& sub_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = subscriptions_.find(key(af_id, sub_id));
+    if (it == subscriptions_.end()) {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
+std::vector<nlohmann::json> AfQosSubStore::list(const std::string& af_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto prefix = af_id + "/";
+    std::vector<nlohmann::json> out;
+    for (const auto& [k, v] : subscriptions_) {
+        if (k.rfind(prefix, 0) == 0) {
+            out.push_back(v);
+        }
+    }
+    return out;
+}
+
+bool AfQosSubStore::put(const std::string& af_id,
+                        const std::string& sub_id,
+                        nlohmann::json subscription) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = subscriptions_.find(key(af_id, sub_id));
+    if (it == subscriptions_.end()) {
+        return false;
+    }
+    it->second = std::move(subscription);
+    return true;
+}
+
+std::optional<nlohmann::json> AfQosSubStore::merge_patch(const std::string& af_id,
+                                                         const std::string& sub_id,
+                                                         const nlohmann::json& patch) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = subscriptions_.find(key(af_id, sub_id));
+    if (it == subscriptions_.end()) {
+        return std::nullopt;
+    }
+    it->second.merge_patch(patch);
+    return it->second;
+}
+
+bool AfQosSubStore::remove(const std::string& af_id, const std::string& sub_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    app_sessions_.erase(key(af_id, sub_id));
+    return subscriptions_.erase(key(af_id, sub_id)) > 0;
+}
+
+void AfQosSubStore::set_app_session(const std::string& af_id,
+                                    const std::string& sub_id,
+                                    const std::string& app_session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    app_sessions_[key(af_id, sub_id)] = app_session_id;
+}
+
+std::optional<std::string> AfQosSubStore::app_session(const std::string& af_id,
+                                                      const std::string& sub_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = app_sessions_.find(key(af_id, sub_id));
+    if (it == app_sessions_.end()) {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
 } // namespace nef

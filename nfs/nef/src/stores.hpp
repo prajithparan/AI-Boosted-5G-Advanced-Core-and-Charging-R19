@@ -181,6 +181,37 @@ private:
     std::uint64_t next_id_ = 1;
 };
 
+// ADR-0315: AF-facing TS 29.122 AsSessionWithQoS subscriptions, keyed by "{scsAsId}/{subId}" for
+// the same reason the TrafficInfluence store is (ADR-0302): the resource is per-AF in the spec's
+// own path, and a flat id namespace would quietly make one AF's QoS subscriptions visible to
+// another.
+class AfQosSubStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json subscription);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& sub_id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& sub_id);
+    // ADR-0315: the PCF app-session this subscription created, so DELETE can tear the right one
+    // down. Without it the AF could delete its subscription while the QoS it asked for stayed
+    // installed at PCF -- an authorisation that outlives the request that made it.
+    void set_app_session(const std::string& af_id,
+                         const std::string& sub_id,
+                         const std::string& app_session_id);
+    std::optional<std::string> app_session(const std::string& af_id, const std::string& sub_id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& sub_id) {
+        return af_id + "/" + sub_id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> subscriptions_;
+    std::unordered_map<std::string, std::string> app_sessions_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);

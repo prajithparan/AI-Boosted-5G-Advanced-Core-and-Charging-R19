@@ -155,6 +155,7 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "TS29122_AsSessionWithQoS.hpp" // ADR-0315
 #include "TS29256_Nnef_Authentication.hpp"
 #include "TS29522_DNAIMapping.hpp"
 #include "TS29541_Nnef_SMContext.hpp"
@@ -201,6 +202,8 @@ constexpr const char* kTrafficInfluenceDataApiRoot = "/nnef-traffic-influence-da
 // services above. This is the "exposure" NEF is named for, and ADR-0294 found the whole surface
 // missing.
 constexpr const char* kAfTrafficInfluenceApiRoot = "/3gpp-traffic-influence/v1";
+// ADR-0315: the AF-facing QoS request API (TS 29.122), second of the 57 AF-facing services.
+constexpr const char* kAfAsSessionWithQosApiRoot = "/3gpp-as-session-with-qos/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -326,6 +329,89 @@ bool push_influence_to_udr(sbi_core::http2::Client& udr_client,
     return true;
 }
 
+// ADR-0315: an AF's QoS request becomes a real PCF application session.
+//
+// This is the AsSessionWithQoS analogue of ADR-0302's traffic-influence brokering, and the same
+// principle decides it: a NEF that records an AF's QoS request and tells nobody has authorised
+// nothing. PCF is what actually installs QoS, via Npcf_PolicyAuthorization app-sessions -- an
+// endpoint this project already implements.
+//
+// Real, disclosed mapping. Only fields present in BOTH schemas are carried:
+//   dnn        -> AppSessionContextReqData.dnn
+//   notifUri   -> REQUIRED by the PCF schema; sourced from this NEF's own callback URI, because
+//                 the AF's own notificationDestination is where NEF sends events, not where PCF
+//                 should send them. Pointing PCF at the AF directly would bypass the exposure
+//                 function entirely, which is the one thing NEF exists to prevent.
+//   suppFeat   -> REQUIRED; carried from the AF's supportedFeatures when present, else "0",
+//                 which is the real "no optional features" value rather than an invented one.
+//
+// NOT mapped, each for a stated reason rather than an oversight:
+//   * `flowInfo`/`ethFlowInfo` describe the AF's traffic filters and PCF expects them inside
+//     `medComponents` -> `medSubComps`, a nested structure whose construction has real semantics
+//     (media type, flow direction) this slice does not attempt. Sending a session with no media
+//     component is honest: PCF authorises the session, not specific flows.
+//   * `qosReference` names an operator-configured QoS profile. PCF carries it per media
+//     component, so it goes where medComponents would -- deferred with them, together, rather
+//     than half-wired.
+//   * `gpsi`/`extGroupId` identify the target; `AppSessionContextReqData` identifies by UE
+//     address, and translating one to the other needs a UDM lookup this route does not perform.
+std::optional<std::string>
+create_pcf_app_session(sbi_core::http2::Client& pcf_client,
+                       const std::string& pcf_base_url,
+                       const std::string& nef_callback_uri,
+                       const sbi_gen::AsSessionWithQoSSubscription& sub) {
+    sbi_gen::AppSessionContextReqData req{};
+    req.notifUri = nef_callback_uri;
+    req.suppFeat = sub.supportedFeatures.value_or("0");
+    req.dnn = sub.dnn;
+
+    sbi_gen::AppSessionContext context{};
+    context.ascReqData = req;
+
+    sbi_core::http2::ClientRequest http_req;
+    http_req.method = "POST";
+    http_req.url = pcf_base_url + "/npcf-policyauthorization/v1/app-sessions";
+    http_req.headers.emplace("content-type", "application/json");
+    http_req.body = nlohmann::json(context).dump();
+    auto resp = pcf_client.send(http_req);
+    if (!resp.has_value() || resp->status >= 300) {
+        spdlog::warn("nef: PCF app-session creation failed (status={}) -- the AF's QoS request is "
+                     "recorded at NEF but NOTHING has authorised it",
+                     resp.has_value() ? resp->status : 0);
+        return std::nullopt;
+    }
+    // The app-session id comes back in Location; it is what DELETE needs later.
+    if (const auto location = resp->headers.find("location"); location != resp->headers.end()) {
+        const auto slash = location->second.rfind('/');
+        if (slash != std::string::npos) {
+            const auto id = location->second.substr(slash + 1);
+            spdlog::info("nef: PCF app-session {} created for an AF QoS request", id);
+            return id;
+        }
+    }
+    spdlog::warn("nef: PCF accepted the app-session but returned no Location -- it cannot be "
+                 "deleted later, so it is treated as not created");
+    return std::nullopt;
+}
+
+void delete_pcf_app_session(sbi_core::http2::Client& pcf_client,
+                            const std::string& pcf_base_url,
+                            const std::string& app_session_id) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST"; // real Npcf_PolicyAuthorization: delete is a POST to .../delete
+    req.url =
+        pcf_base_url + "/npcf-policyauthorization/v1/app-sessions/" + app_session_id + "/delete";
+    req.headers.emplace("content-type", "application/json");
+    req.body = "{}";
+    auto resp = pcf_client.send(req);
+    if (!resp.has_value() || resp->status >= 300) {
+        spdlog::warn("nef: PCF app-session {} could not be deleted (status={}) -- the QoS "
+                     "authorisation may outlive the AF subscription that created it",
+                     app_session_id,
+                     resp.has_value() ? resp->status : 0);
+    }
+}
+
 // Runs on a dedicated thread, never on the server's io_context -- same reasoning as
 // nfs/ausf/src/main.cpp's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019).
 void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nrf_base) {
@@ -428,6 +514,14 @@ int main() {
     // registration -- see ADR-0294.
     const auto udr_base_url =
         nf_config::require<std::string>(config, "udr_base_url", "NEF_UDR_BASE_URL");
+    // ADR-0315: NEF's second real downstream NF -- PCF, for AF QoS authorisation.
+    const auto pcf_base_url =
+        nf_config::require<std::string>(config, "pcf_base_url", "NEF_PCF_BASE_URL");
+    // ADR-0315: this NEF's own externally-reachable base, so PCF is told to notify NEF rather than
+    // the AF directly. Present in config/nef.json since the file was written; read here for the
+    // first time, because nothing before now needed to tell another NF where to find this one.
+    const auto self_base_url =
+        nf_config::require<std::string>(config, "self_base_url", "NEF_SELF_BASE_URL");
 
     sbi_core::init_metrics(metrics_bind_address);
 
@@ -443,6 +537,7 @@ int main() {
     sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
 
     nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
+    nef::AfQosSubStore af_qos_subs;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -453,6 +548,12 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client udr_client(std::move(udr_client_tls));
+    sbi_core::http2::TlsConfig pcf_client_tls{
+        .cert_path = CERTS_DIR "/nef/cert.pem",
+        .key_path = CERTS_DIR "/nef/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client pcf_client(std::move(pcf_client_tls));
 
     nef::PfdCatalogStore pfd_catalog;
     seed_pfd_catalog(pfd_catalog);
@@ -1319,6 +1420,154 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0315: TS 29.122 AsSessionWithQoS, the AF-facing QoS request API ---
+    //
+    // Second of the 57 AF-facing services. Six operations on the same collection/item shape
+    // TrafficInfluence uses, and the same principle: this BROKERS. An AF's QoS request becomes a
+    // real PCF application session, because PCF is what installs QoS -- a NEF that records the
+    // request and tells nobody has authorised nothing.
+
+    server.add_route(
+        "GET",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
+        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& sub : af_qos_subs.list(req.path_params.at("scsAsId"))) {
+                out.push_back(sub);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions",
+        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url, self_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscription>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("scsAsId");
+            json j = *body;
+            const auto sub_id = af_qos_subs.create(af_id, j);
+
+            // PCF is told where to notify NEF, not where to notify the AF: routing PCF straight to
+            // the AF would bypass the exposure function, which is the one thing NEF exists to do.
+            const auto app_session = create_pcf_app_session(
+                pcf_client, pcf_base_url, self_base_url + "/nnef-callback/v1/qos-notify", *body);
+            if (app_session.has_value()) {
+                af_qos_subs.set_app_session(af_id, sub_id, *app_session);
+            }
+
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfAsSessionWithQosApiRoot) + "/" + af_id +
+                                     "/subscriptions/" + sub_id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto sub = af_qos_subs.get(req.path_params.at("scsAsId"),
+                                       req.path_params.at("subscriptionId"));
+            if (!sub.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such AsSessionWithQoS subscription");
+            }
+            return sbi_core::http2::Response::json(200, sub->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscription>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_qos_subs.put(
+                    req.path_params.at("scsAsId"), req.path_params.at("subscriptionId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such AsSessionWithQoS subscription");
+            }
+            // Disclosed: the PCF app-session is NOT updated to match. Npcf_PolicyAuthorization
+            // modifies a session via PATCH with its own AppSessionContextUpdateData shape, which
+            // is a different translation from the one above and is not attempted here rather than
+            // being approximated. A replaced subscription therefore keeps its original
+            // authorisation until it is deleted.
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_qos_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto patch_dto =
+                sbi_core::http2::parse_json_body<sbi_gen::AsSessionWithQoSSubscriptionPatch>(req,
+                                                                                             err);
+            if (!patch_dto.has_value()) {
+                return err;
+            }
+            auto patched = af_qos_subs.merge_patch(req.path_params.at("scsAsId"),
+                                                   req.path_params.at("subscriptionId"),
+                                                   json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such AsSessionWithQoS subscription");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfAsSessionWithQosApiRoot) + "/{scsAsId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_qos_subs, &pcf_client, pcf_base_url](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("scsAsId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            // Read the app-session id BEFORE removing the subscription -- remove() erases it.
+            const auto app_session = af_qos_subs.app_session(af_id, sub_id);
+            if (!af_qos_subs.remove(af_id, sub_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such AsSessionWithQoS subscription");
+            }
+            // The QoS authorisation must not outlive the request that asked for it.
+            if (app_session.has_value()) {
+                delete_pcf_app_session(pcf_client, pcf_base_url, *app_session);
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
