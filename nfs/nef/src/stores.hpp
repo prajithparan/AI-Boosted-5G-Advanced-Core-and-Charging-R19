@@ -286,6 +286,33 @@ private:
     std::uint64_t next_id_ = 1;
 };
 
+// ADR-0322: one store shape reused by the AF-facing provisioning services that share it.
+//
+// Deliberately generic where the earlier AF stores were not: AfTrafficInfluenceSubStore,
+// AfQosSubStore, AfMonitoringSubStore and AfServiceParamSubStore each carry service-specific
+// state (a PCF app-session id, a UDM ee-subscription pair), which is why they are separate
+// classes. These three carry NONE -- they are per-AF keyed documents with identical lifecycles --
+// so a shared class is the honest expression of that, not a premature abstraction over things
+// that differ.
+class AfDocumentStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json document);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& id, nlohmann::json document);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& id) {
+        return af_id + "/" + id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> documents_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);

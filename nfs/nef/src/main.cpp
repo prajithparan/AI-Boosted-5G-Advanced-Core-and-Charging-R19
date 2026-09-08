@@ -158,8 +158,11 @@
 #include "TS29122_AsSessionWithQoS.hpp" // ADR-0315
 #include "TS29122_MonitoringEvent.hpp"  // ADR-0316
 #include "TS29256_Nnef_Authentication.hpp"
+#include "TS29522_ACSParameterProvision.hpp" // ADR-0322
 #include "TS29522_DNAIMapping.hpp"
-#include "TS29522_UEId.hpp" // ADR-0319
+#include "TS29522_IPTVConfiguration.hpp"     // ADR-0322
+#include "TS29522_LpiParameterProvision.hpp" // ADR-0322
+#include "TS29522_UEId.hpp"                  // ADR-0319
 #include "TS29541_Nnef_SMContext.hpp"
 #include "TS29577_Nipsmgw_SMService.hpp"
 #include "TS29591_Nnef_EASDeployment.hpp"
@@ -212,6 +215,10 @@ constexpr const char* kAfMonitoringEventApiRoot = "/3gpp-monitoring-event/v1";
 constexpr const char* kAfUeIdApiRoot = "/3gpp-ueid/v1";
 // ADR-0321: the AF-facing service-parameter provisioning API (TS 29.522), fifth of the 57.
 constexpr const char* kAfServiceParamApiRoot = "/3gpp-service-parameter/v1";
+// ADR-0322: three more AF-facing provisioning services (TS 29.522), sixth through eighth of 57.
+constexpr const char* kAfIptvApiRoot = "/3gpp-iptv-configuration/v1";
+constexpr const char* kAfLpiApiRoot = "/3gpp-lpi-parameter-provision/v1";
+constexpr const char* kAfAcsApiRoot = "/3gpp-acs-parameter-provision/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -612,6 +619,9 @@ int main() {
     nef::AfMonitoringSubStore af_monitoring_subs;
     nef::AfUeIdMappingStore af_ueid_mappings;
     nef::AfServiceParamSubStore af_service_param_subs;
+    nef::AfDocumentStore af_iptv_configs;
+    nef::AfDocumentStore af_lpi_provisionings;
+    nef::AfDocumentStore af_acs_subscriptions;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -1502,6 +1512,432 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0322: three more AF-facing provisioning services (TS 29.522) ---
+    //
+    // IPTVConfiguration, LpiParameterProvision and ACSParameterProvision. All three are per-AF
+    // provisioned documents with identical lifecycles, which is why they share one store class
+    // rather than getting three near-identical ones.
+    //
+    // Only IPTV has a downstream: `application-data/iptvConfigData` is a real UDR resource this
+    // project already serves, so IPTV configurations are provisioned there. LPI (Local Positioning
+    // Information) and ACS (Auto-Configuration Server) parameters have NO UDR counterpart in this
+    // project's data model -- they are accepted and stored at NEF, and nothing downstream applies
+    // them. That is disclosed rather than dressed up: the API is real and conformant, the effect
+    // is not there yet.
+
+    server.add_route(
+        "GET",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations",
+        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_iptv_configs.list(req.path_params.at("afId"))) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations",
+        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+            const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData_IPTVConfiguration>(
+                req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto id = af_iptv_configs.create(af_id, j);
+            // ADR-0322: IPTV configurations have a real UDR home
+            // (application-data/iptvConfigData), so they are provisioned there rather than kept
+            // only at NEF. The other two services in this batch have no UDR counterpart -- see
+            // their own comments.
+            {
+                sbi_core::http2::ClientRequest udr_req;
+                udr_req.method = "PUT";
+                udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" +
+                              af_id + "-" + id;
+                udr_req.headers.emplace("content-type", "application/json");
+                udr_req.body = j.dump();
+                if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
+                    spdlog::warn(
+                        "nef: IPTV configuration for {}/{} did not reach UDR -- stored at NEF, "
+                        "but nothing in the core will apply it",
+                        af_id,
+                        id);
+                }
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace(
+                "location", std::string(kAfIptvApiRoot) + "/" + af_id + "/configurations/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
+        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_iptv_configs.get(req.path_params.at("afId"),
+                                         req.path_params.at("configurationId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IPTV configuration");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
+        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+            const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::IptvConfigData_IPTVConfiguration>(
+                req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("configurationId");
+            json j = *body;
+            if (!af_iptv_configs.put(af_id, id, j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IPTV configuration");
+            }
+            // ADR-0322: IPTV configurations have a real UDR home
+            // (application-data/iptvConfigData), so they are provisioned there rather than kept
+            // only at NEF. The other two services in this batch have no UDR counterpart -- see
+            // their own comments.
+            {
+                sbi_core::http2::ClientRequest udr_req;
+                udr_req.method = "PUT";
+                udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" +
+                              af_id + "-" + id;
+                udr_req.headers.emplace("content-type", "application/json");
+                udr_req.body = j.dump();
+                if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
+                    spdlog::warn(
+                        "nef: IPTV configuration for {}/{} did not reach UDR -- stored at NEF, "
+                        "but nothing in the core will apply it",
+                        af_id,
+                        id);
+                }
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
+        [&verifier, &af_iptv_configs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::IptvConfigDataPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_iptv_configs.merge_patch(req.path_params.at("afId"),
+                                                       req.path_params.at("configurationId"),
+                                                       json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IPTV configuration");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfIptvApiRoot) + "/{afId}/configurations/{configurationId}",
+        [&verifier, &af_iptv_configs, &udr_client, udr_base_url, this_unused = 0](
+            const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("configurationId");
+            if (!af_iptv_configs.remove(af_id, id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such IPTV configuration");
+            }
+            {
+                sbi_core::http2::ClientRequest del;
+                del.method = "DELETE";
+                del.url = udr_base_url + "/nudr-dr/v2/application-data/iptvConfigData/" + af_id +
+                          "-" + id;
+                if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
+                    spdlog::warn(
+                        "nef: IPTV configuration for {}/{} may still be applied -- UDR delete "
+                        "failed",
+                        af_id,
+                        id);
+                }
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis",
+        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_lpi_provisionings.list(req.path_params.at("afId"))) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis",
+        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvision>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto id = af_lpi_provisionings.create(af_id, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace(
+                "location", std::string(kAfLpiApiRoot) + "/" + af_id + "/provisionedLpis/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_lpi_provisionings.get(req.path_params.at("afId"),
+                                              req.path_params.at("provisionedLpiId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such LPI provisioning");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvision>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("provisionedLpiId");
+            json j = *body;
+            if (!af_lpi_provisionings.put(af_id, id, j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such LPI provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+        [&verifier, &af_lpi_provisionings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::LpiParametersProvisionPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_lpi_provisionings.merge_patch(req.path_params.at("afId"),
+                                                            req.path_params.at("provisionedLpiId"),
+                                                            json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such LPI provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfLpiApiRoot) + "/{afId}/provisionedLpis/{provisionedLpiId}",
+        [&verifier, &af_lpi_provisionings, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("provisionedLpiId");
+            if (!af_lpi_provisionings.remove(af_id, id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such LPI provisioning");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_acs_subscriptions.list(req.path_params.at("afId"))) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto id = af_acs_subscriptions.create(af_id, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfAcsApiRoot) + "/" + af_id + "/subscriptions/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_acs_subscriptions.get(req.path_params.at("afId"),
+                                              req.path_params.at("subscriptionId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such ACS configuration");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("subscriptionId");
+            json j = *body;
+            if (!af_acs_subscriptions.put(af_id, id, j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such ACS configuration");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_acs_subscriptions](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::AcsConfigurationDataPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_acs_subscriptions.merge_patch(req.path_params.at("afId"),
+                                                            req.path_params.at("subscriptionId"),
+                                                            json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such ACS configuration");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfAcsApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_acs_subscriptions, this_unused = 0](const sbi_core::http2::Request& req) {
+            (void)this_unused;
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto id = req.path_params.at("subscriptionId");
+            if (!af_acs_subscriptions.remove(af_id, id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such ACS configuration");
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
