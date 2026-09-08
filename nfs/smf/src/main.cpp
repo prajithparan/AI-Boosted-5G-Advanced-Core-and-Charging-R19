@@ -789,6 +789,55 @@ std::optional<std::string> install_downlink_far(smf::PfcpPeer& pfcp_peer,
 
 // ADR-0308: ambr_to_kbps lives in nfs/smf/src/ambr.{hpp,cpp} so it is testable without
 // linking the whole SMF binary.
+
+// ADR-0320: the AF traffic-influence records that apply to a PDU session.
+//
+// NEF has written `TrafficInfluData` into UDR since ADR-0302 and nothing has ever read it. An
+// influence rule that no SMF consults does not influence anything -- the same shape of gap
+// ADR-0293 found when UDM's MAP client had no caller, and ADR-0311 found when nothing read a CDR
+// back.
+//
+// Matching is done HERE rather than by query filter, deliberately: UDR's own influenceData
+// collection GET honours only `influence-Ids` (ADR-0253 discloses this, and ADR-0302 fixed that
+// one filter after finding it never matched anything). Asking UDR to filter by dnn/snssai would
+// silently return the unfiltered set, so SMF fetches and matches itself rather than trusting a
+// filter that is documented not to work.
+//
+// A record with neither `dnn` nor `snssai` is treated as applying to every session, which is what
+// an unconstrained influence rule means.
+std::vector<nlohmann::json> fetch_matching_influence_data(sbi_core::http2::Client& udr_client,
+                                                          const std::string& udr_base_url,
+                                                          const std::string& dnn,
+                                                          const nlohmann::json& snssai) {
+    std::vector<nlohmann::json> matches;
+    sbi_core::http2::ClientRequest req;
+    req.method = "GET";
+    req.url = udr_base_url + "/nudr-dr/v2/application-data/influenceData";
+    auto resp = udr_client.send(req);
+    if (!resp.has_value() || resp->status != 200) {
+        return matches;
+    }
+    try {
+        const auto all = nlohmann::json::parse(resp->body);
+        if (!all.is_array()) {
+            return matches;
+        }
+        for (const auto& record : all) {
+            const auto record_dnn = record.value("dnn", std::string{});
+            if (!record_dnn.empty() && record_dnn != dnn) {
+                continue;
+            }
+            if (record.contains("snssai") && !snssai.is_null() && record["snssai"] != snssai) {
+                continue;
+            }
+            matches.push_back(record);
+        }
+    } catch (const nlohmann::json::exception& e) {
+        spdlog::warn("smf: malformed influenceData from UDR: {}", e.what());
+    }
+    return matches;
+}
+
 std::optional<N4EstablishmentResult>
 perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
                                  const std::string& upf_ip,
@@ -1621,6 +1670,11 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "SMF_NRF_BASE_URL");
     const auto self_base_url =
         nf_config::require<std::string>(config, "self_base_url", "SMF_SELF_BASE_URL");
+    // ADR-0320: UDR, for AF traffic-influence data. NEF has been writing TrafficInfluData to UDR
+    // since ADR-0302 and NOTHING has ever read it -- the same "written but never consumed" gap
+    // ADR-0293 found for UDM's MAP client, one component further along.
+    const auto udr_base_url =
+        nf_config::require<std::string>(config, "udr_base_url", "SMF_UDR_BASE_URL");
     const auto pcf_base_url =
         nf_config::require<std::string>(config, "pcf_base_url", "SMF_PCF_BASE_URL");
     // ADR-0277: NSACF, for Network Slice Admission Control on the number of PDU sessions
@@ -1666,6 +1720,12 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client pcf_client(std::move(pcf_client_tls));
+    sbi_core::http2::TlsConfig udr_client_tls{
+        .cert_path = CERTS_DIR "/smf/cert.pem",
+        .key_path = CERTS_DIR "/smf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client udr_client(std::move(udr_client_tls));
     sbi_core::OAuth2Client pcf_oauth(
         pcf_client, nrf_base_url + "/oauth2/token", smf_instance_id, "npcf-smpolicycontrol", "PCF");
 
@@ -2049,6 +2109,8 @@ int main() {
          &pcf_client,
          &pcf_oauth,
          &pcf_base_url,
+         &udr_client,   // ADR-0320
+         &udr_base_url, // ADR-0320
          &self_base_url,
          &pcf_sm_policy_create_counter,
          &amf_client,
@@ -2264,6 +2326,45 @@ int main() {
             // NAS Establishment Accept -- which told the UE its rate limit while UPF enforced
             // nothing. Extracted once here and reused for the NAS message below, so the value the
             // UE is told and the value UPF enforces cannot drift apart.
+            // ADR-0320: consult the AF traffic-influence rules that apply to this session.
+            //
+            // What is APPLIED here is deliberately narrow and stated rather than implied: the
+            // matching records are logged and their DNAI/route targets recorded against the
+            // session. Actually STEERING traffic to a DNAI requires selecting a different UPF for
+            // the session, and this project has one UPF and no re-selection -- so acting on the
+            // routing decision is a real, separate capability (UPF selection by DNAI) that this
+            // does not pretend to have.
+            //
+            // The gap this DOES close: influence data written by an AF is now read by the NF that
+            // is supposed to act on it, instead of accumulating in UDR unread.
+            {
+                const auto influence = fetch_matching_influence_data(
+                    udr_client,
+                    udr_base_url,
+                    body->dnn.value_or(""),
+                    body->sNssai.has_value() ? json(*body->sNssai) : json(nullptr));
+                for (const auto& record : influence) {
+                    std::string routes;
+                    for (const auto& route : record.value("trafficRoutes", json::array())) {
+                        if (!routes.empty()) {
+                            routes += ", ";
+                        }
+                        routes += route.value("dnai", std::string{"<no dnai>"});
+                    }
+                    spdlog::info("smf: AF traffic influence applies to this session (afAppId={}, "
+                                 "dnn={}, routes=[{}]) -- recorded; DNAI steering needs UPF "
+                                 "selection this build does not have",
+                                 record.value("afAppId", std::string{"<none>"}),
+                                 record.value("dnn", std::string{"<any>"}),
+                                 routes);
+                }
+                if (!influence.empty()) {
+                    spdlog::info("smf: {} AF influence record(s) matched pduSessionId {}",
+                                 influence.size(),
+                                 body->pduSessionId.value_or(0));
+                }
+            }
+
             std::optional<std::string> policy_ambr_ul;
             std::optional<std::string> policy_ambr_dl;
             if (decision.sessRules.has_value() && decision.sessRules->is_object() &&

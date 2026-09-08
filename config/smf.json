@@ -6,5 +6,6 @@
   "pcf_base_url": "https://127.0.0.1:7783",
   "nsacf_base_url": "https://127.0.0.1:7797",
   "amf_base_url": "https://127.0.0.1:7778",
-  "chf_base_url": "https://127.0.0.1:7784"
+  "chf_base_url": "https://127.0.0.1:7784",
+  "udr_base_url": "https://127.0.0.1:7781"
 }
