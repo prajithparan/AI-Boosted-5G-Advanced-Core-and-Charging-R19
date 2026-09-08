@@ -210,6 +210,8 @@ constexpr const char* kAfAsSessionWithQosApiRoot = "/3gpp-as-session-with-qos/v1
 constexpr const char* kAfMonitoringEventApiRoot = "/3gpp-monitoring-event/v1";
 // ADR-0319: the AF-facing UE identifier API (TS 29.522), fourth of the 57.
 constexpr const char* kAfUeIdApiRoot = "/3gpp-ueid/v1";
+// ADR-0321: the AF-facing service-parameter provisioning API (TS 29.522), fifth of the 57.
+constexpr const char* kAfServiceParamApiRoot = "/3gpp-service-parameter/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -609,6 +611,7 @@ int main() {
     nef::AfQosSubStore af_qos_subs;
     nef::AfMonitoringSubStore af_monitoring_subs;
     nef::AfUeIdMappingStore af_ueid_mappings;
+    nef::AfServiceParamSubStore af_service_param_subs;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -1499,6 +1502,219 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0321: TS 29.522 ServiceParameter, AF service-parameter provisioning ---
+    //
+    // Fifth of the 57, and a straightforward broker: an AF provisions service parameters that the
+    // core network should apply to its traffic, and UDR's `application-data/serviceParamData` is
+    // where the 5GC keeps them. Same principle as ADR-0302 -- parameters an AF provisions that
+    // never reach UDR are parameters nothing applies.
+    //
+    // Real, disclosed field mapping. `ServiceParameterData` (AF-facing, TS 29.522) and
+    // `ServiceParameterData_Application_Data` (UDR-facing, TS 29.519) share their identifying
+    // fields, so the carried set is exactly the intersection and nothing is synthesised:
+    // afServiceId, appId, dnn, snssai, externalGroupId, anyUeInd, gpsi, ueIpv4, ueIpv6, ueMac,
+    // paramOverPc5, paramOverUu.
+    //
+    // NOT carried: `notificationDestination`/`requestTestNotification`/`websockNotifConfig` are
+    // NEF-side subscription machinery, not service parameters, and have no UDR counterpart --
+    // sending them would put NEF's own plumbing into the core network's data store.
+
+    server.add_route(
+        "GET",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& sub : af_service_param_subs.list(req.path_params.at("afId"))) {
+                out.push_back(sub);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions",
+        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData_ServiceParameter>(
+                    req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto sub_id = af_service_param_subs.create(af_id, j);
+
+            // Only the fields UDR's own schema shares are sent; see this block's header.
+            json udr_body = json::object();
+            for (const char* field : {"afServiceId",
+                                      "appId",
+                                      "dnn",
+                                      "snssai",
+                                      "externalGroupId",
+                                      "anyUeInd",
+                                      "gpsi",
+                                      "ueIpv4",
+                                      "ueIpv6",
+                                      "ueMac",
+                                      "paramOverPc5",
+                                      "paramOverUu"}) {
+                if (j.contains(field)) {
+                    udr_body[field] = j[field];
+                }
+            }
+
+            sbi_core::http2::ClientRequest udr_req;
+            udr_req.method = "PUT";
+            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
+                          "-" + sub_id;
+            udr_req.headers.emplace("content-type", "application/json");
+            udr_req.body = udr_body.dump();
+            if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
+                spdlog::warn("nef: service parameters for {}/{} did not reach UDR (status={}) -- "
+                             "the subscription exists at NEF but nothing will apply them",
+                             af_id,
+                             sub_id,
+                             r.has_value() ? r->status : 0);
+            } else {
+                spdlog::info("nef: service parameters for {}/{} provisioned to UDR", af_id, sub_id);
+            }
+
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location",
+                                 std::string(kAfServiceParamApiRoot) + "/" + af_id +
+                                     "/subscriptions/" + sub_id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto sub = af_service_param_subs.get(req.path_params.at("afId"),
+                                                 req.path_params.at("subscriptionId"));
+            if (!sub.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such service parameter subscription");
+            }
+            return sbi_core::http2::Response::json(200, sub->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body =
+                sbi_core::http2::parse_json_body<sbi_gen::ServiceParameterData_ServiceParameter>(
+                    req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            json j = *body;
+            if (!af_service_param_subs.put(af_id, sub_id, j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such service parameter subscription");
+            }
+            // Unlike the QoS and monitoring slices, replacing here IS re-provisioned to UDR: the
+            // UDR resource is a plain PUT-replaceable document with the same shape, so there is no
+            // second translation to get wrong.
+            json udr_body = json::object();
+            for (const char* field : {"afServiceId",
+                                      "appId",
+                                      "dnn",
+                                      "snssai",
+                                      "externalGroupId",
+                                      "anyUeInd",
+                                      "gpsi",
+                                      "ueIpv4",
+                                      "ueIpv6",
+                                      "ueMac",
+                                      "paramOverPc5",
+                                      "paramOverUu"}) {
+                if (j.contains(field)) {
+                    udr_body[field] = j[field];
+                }
+            }
+            sbi_core::http2::ClientRequest udr_req;
+            udr_req.method = "PUT";
+            udr_req.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
+                          "-" + sub_id;
+            udr_req.headers.emplace("content-type", "application/json");
+            udr_req.body = udr_body.dump();
+            if (auto r = udr_client.send(udr_req); !r.has_value() || r->status >= 300) {
+                spdlog::warn(
+                    "nef: replaced service parameters for {}/{} did not reach UDR", af_id, sub_id);
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_service_param_subs](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto patched = af_service_param_subs.merge_patch(req.path_params.at("afId"),
+                                                             req.path_params.at("subscriptionId"),
+                                                             json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such service parameter subscription");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfServiceParamApiRoot) + "/{afId}/subscriptions/{subscriptionId}",
+        [&verifier, &af_service_param_subs, &udr_client, udr_base_url](
+            const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            if (!af_service_param_subs.remove(af_id, sub_id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such service parameter subscription");
+            }
+            // Parameters must stop applying when the AF withdraws them.
+            sbi_core::http2::ClientRequest del;
+            del.method = "DELETE";
+            del.url = udr_base_url + "/nudr-dr/v2/application-data/serviceParamData/" + af_id +
+                      "-" + sub_id;
+            if (auto r = udr_client.send(del); !r.has_value() || r->status >= 300) {
+                spdlog::warn("nef: service parameters for {}/{} may still be applied -- UDR "
+                             "delete failed",
+                             af_id,
+                             sub_id);
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

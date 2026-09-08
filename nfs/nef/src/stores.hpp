@@ -266,6 +266,26 @@ private:
     std::uint64_t next_id_ = 1;
 };
 
+// ADR-0321: AF-facing TS 29.522 ServiceParameter subscriptions, per-AF keyed like the others.
+class AfServiceParamSubStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json subscription);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& sub_id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& sub_id, nlohmann::json subscription);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& sub_id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& sub_id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& sub_id) {
+        return af_id + "/" + sub_id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> subscriptions_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);
