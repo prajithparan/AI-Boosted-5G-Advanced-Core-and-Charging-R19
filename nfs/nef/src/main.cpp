@@ -159,6 +159,7 @@
 #include "TS29122_MonitoringEvent.hpp"  // ADR-0316
 #include "TS29256_Nnef_Authentication.hpp"
 #include "TS29522_DNAIMapping.hpp"
+#include "TS29522_UEId.hpp" // ADR-0319
 #include "TS29541_Nnef_SMContext.hpp"
 #include "TS29577_Nipsmgw_SMService.hpp"
 #include "TS29591_Nnef_EASDeployment.hpp"
@@ -207,6 +208,8 @@ constexpr const char* kAfTrafficInfluenceApiRoot = "/3gpp-traffic-influence/v1";
 constexpr const char* kAfAsSessionWithQosApiRoot = "/3gpp-as-session-with-qos/v1";
 // ADR-0316: the AF-facing event-monitoring API (TS 29.122), third of the 57.
 constexpr const char* kAfMonitoringEventApiRoot = "/3gpp-monitoring-event/v1";
+// ADR-0319: the AF-facing UE identifier API (TS 29.522), fourth of the 57.
+constexpr const char* kAfUeIdApiRoot = "/3gpp-ueid/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -605,6 +608,7 @@ int main() {
     nef::AfTrafficInfluenceSubStore af_traffic_influence_subs;
     nef::AfQosSubStore af_qos_subs;
     nef::AfMonitoringSubStore af_monitoring_subs;
+    nef::AfUeIdMappingStore af_ueid_mappings;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -1500,6 +1504,260 @@ int main() {
             return resp;
         });
 
+    // --- ADR-0319: TS 29.522 UEId, the AF-facing UE identifier API ---
+    //
+    // Fourth of the 57, and the file splits cleanly in two:
+    //
+    //   * THREE LOOKUPS (`/retrieve`, `/get-msisdn`, `/verify-msisdn`) ask "who is the UE at this
+    //     IP address / does this MSISDN belong to them". Answering needs an IP-to-identity source
+    //     -- a UPF session lookup or an H-NEF mapping database -- which this project does not
+    //     have. `nnef-ueid/v1/fetch` (the NF-facing twin) already discloses exactly this and
+    //     answers 204. These answer **404**, which the real YAML defines for all three, rather
+    //     than fabricating an identity or -- worse for `/verify-msisdn` -- returning
+    //     `verifResult: false`, which would ASSERT that an MSISDN does not belong to a UE when the
+    //     truth is that nothing here can tell.
+    //
+    //   * SIX PROVISIONING OPERATIONS manage `UeIdMappingInfo`, which is a ProSe/Ranging
+    //     application-layer-id <-> GPSI pair. That is a DIFFERENT mapping from the one the lookups
+    //     need -- checked rather than assumed, after an initial plan to have provisioning feed the
+    //     lookups turned out to be based on a misreading of the schema. These are real,
+    //     store-backed and complete.
+
+    server.add_route(
+        "POST",
+        std::string(kAfUeIdApiRoot) + "/retrieve",
+        [&verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::UeIdReq_UEId>(req, err).has_value()) {
+                return err;
+            }
+            return sbi_core::http2::problem_response(
+                404,
+                "No UE identity available",
+                "this deployment has no IP-to-identity source (no UPF session lookup, no H-NEF "
+                "mapping database), so no external identifier can be returned for the supplied "
+                "address");
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfUeIdApiRoot) + "/get-msisdn",
+        [&verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::MsisdnReq>(req, err).has_value()) {
+                return err;
+            }
+            return sbi_core::http2::problem_response(
+                404,
+                "No MSISDN available",
+                "this deployment has no IP-to-identity source, so no MSISDN can be returned for "
+                "the supplied address");
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfUeIdApiRoot) + "/verify-msisdn",
+        [&verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::MsisdnVerifReq>(req, err).has_value()) {
+                return err;
+            }
+            // Deliberately NOT `verifResult: false`. That would tell the AF the MSISDN does not
+            // belong to the UE, which is a claim; the truth is that nothing here can determine it,
+            // and an AF acting on a false negative could deny a legitimate user.
+            return sbi_core::http2::problem_response(
+                404,
+                "MSISDN cannot be verified",
+                "this deployment has no IP-to-identity source, so the supplied MSISDN can be "
+                "neither confirmed nor denied for the supplied address");
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& m : af_ueid_mappings.list(req.path_params.at("afId"))) {
+                out.push_back(m);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfo>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto af_id = req.path_params.at("afId");
+            json j = *body;
+            const auto id = af_ueid_mappings.create(af_id, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace(
+                "location", std::string(kAfUeIdApiRoot) + "/" + af_id + "/provisionings/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto m = af_ueid_mappings.get(req.path_params.at("afId"),
+                                          req.path_params.at("provisioningId"));
+            if (!m.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such UE ID mapping provisioning");
+            }
+            return sbi_core::http2::Response::json(200, m->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfo>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_ueid_mappings.put(
+                    req.path_params.at("afId"), req.path_params.at("provisioningId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such UE ID mapping provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::UeIdMappingInfoPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_ueid_mappings.merge_patch(req.path_params.at("afId"),
+                                                        req.path_params.at("provisioningId"),
+                                                        json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such UE ID mapping provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!af_ueid_mappings.remove(req.path_params.at("afId"),
+                                         req.path_params.at("provisioningId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such UE ID mapping provisioning");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0318: QoS event delivery, completing what ADR-0315 wired only halfway ---
+    //
+    // ADR-0315 told PCF to notify NEF and ADR-0317 built delivery for monitoring, but the QoS
+    // callback had no route -- so PCF's events reached NEF's door and stopped. Same mechanism,
+    // second event source.
+    server.add_route(
+        "POST",
+        "/nnef-callback/v1/qos-notify/{afId}/{subscriptionId}",
+        [&af_qos_subs, &af_client, self_base_url](const sbi_core::http2::Request& req) {
+            const auto af_id = req.path_params.at("afId");
+            const auto sub_id = req.path_params.at("subscriptionId");
+            const auto subscription = af_qos_subs.get(af_id, sub_id);
+            if (!subscription.has_value()) {
+                // Tells PCF the callback is dead rather than absorbing events for a subscription
+                // the AF has deleted.
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such AsSessionWithQoS subscription");
+            }
+            const auto destination = subscription->value("notificationDestination", std::string{});
+            if (destination.empty()) {
+                spdlog::warn("nef: QoS event for {}/{} has nowhere to go -- the AF subscription "
+                             "carries no notificationDestination",
+                             af_id,
+                             sub_id);
+                sbi_core::http2::Response accepted;
+                accepted.status = 204;
+                return accepted;
+            }
+
+            // The AF subscribed through TS 29.122 and is entitled to that API's own shape, so the
+            // notification names the AF's OWN resource rather than PCF's app-session.
+            json payload;
+            payload["subscription"] = self_base_url + std::string(kAfAsSessionWithQosApiRoot) +
+                                      "/" + af_id + "/subscriptions/" + sub_id;
+            // Same disclosure as ADR-0317: PCF's EventsNotification is carried through rather than
+            // re-modelled into TS 29.122's own event types, because this build does not have that
+            // field mapping and inventing one would show an AF values it never reported.
+            try {
+                payload["_npcfEventsNotification"] = json::parse(req.body);
+            } catch (const json::exception&) {
+                // A malformed body from PCF is not the AF's problem; send what NEF can vouch for.
+            }
+
+            sbi_core::http2::ClientRequest out;
+            out.method = "POST";
+            out.url = destination;
+            out.headers.emplace("content-type", "application/json");
+            out.body = payload.dump();
+            if (auto resp = af_client.send(out); !resp.has_value() || resp->status >= 300) {
+                spdlog::warn("nef: delivering a QoS event to AF {} at {} failed (status={})",
+                             af_id,
+                             destination,
+                             resp.has_value() ? resp->status : 0);
+            } else {
+                spdlog::info(
+                    "nef: QoS event delivered to AF {} for subscription {}", af_id, sub_id);
+            }
+
+            sbi_core::http2::Response accepted;
+            accepted.status = 204;
+            return accepted;
+        });
+
     // --- ADR-0317: notification delivery, the piece every AF-facing service was missing ---
     //
     // ADR-0302, ADR-0315 and ADR-0316 each accepted `notificationDestination` and stored it, and
@@ -1826,7 +2084,12 @@ int main() {
             // PCF is told where to notify NEF, not where to notify the AF: routing PCF straight to
             // the AF would bypass the exposure function, which is the one thing NEF exists to do.
             const auto app_session = create_pcf_app_session(
-                pcf_client, pcf_base_url, self_base_url + "/nnef-callback/v1/qos-notify", *body);
+                pcf_client,
+                pcf_base_url,
+                // ADR-0318: same correlation-by-URI as ADR-0317 -- PCF echoes the notifUri it was
+                // given, so the path identifies which AF subscription an event belongs to.
+                self_base_url + "/nnef-callback/v1/qos-notify/" + af_id + "/" + sub_id,
+                *body);
             if (app_session.has_value()) {
                 af_qos_subs.set_app_session(af_id, sub_id, *app_session);
             }

@@ -639,4 +639,64 @@ AfMonitoringSubStore::ee_subscription(const std::string& af_id, const std::strin
     return it->second;
 }
 
+// --- ADR-0319: AF-provisioned UE-ID mappings ---
+
+std::string AfUeIdMappingStore::create(const std::string& af_id, nlohmann::json mapping) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto id = std::to_string(next_id_++);
+    mappings_[key(af_id, id)] = std::move(mapping);
+    return id;
+}
+
+std::optional<nlohmann::json> AfUeIdMappingStore::get(const std::string& af_id,
+                                                      const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = mappings_.find(key(af_id, id));
+    if (it == mappings_.end()) {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
+std::vector<nlohmann::json> AfUeIdMappingStore::list(const std::string& af_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto prefix = af_id + "/";
+    std::vector<nlohmann::json> out;
+    for (const auto& [k, v] : mappings_) {
+        if (k.rfind(prefix, 0) == 0) {
+            out.push_back(v);
+        }
+    }
+    return out;
+}
+
+bool AfUeIdMappingStore::put(const std::string& af_id,
+                             const std::string& id,
+                             nlohmann::json mapping) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = mappings_.find(key(af_id, id));
+    if (it == mappings_.end()) {
+        return false;
+    }
+    it->second = std::move(mapping);
+    return true;
+}
+
+std::optional<nlohmann::json> AfUeIdMappingStore::merge_patch(const std::string& af_id,
+                                                              const std::string& id,
+                                                              const nlohmann::json& patch) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = mappings_.find(key(af_id, id));
+    if (it == mappings_.end()) {
+        return std::nullopt;
+    }
+    it->second.merge_patch(patch);
+    return it->second;
+}
+
+bool AfUeIdMappingStore::remove(const std::string& af_id, const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return mappings_.erase(key(af_id, id)) > 0;
+}
+
 } // namespace nef

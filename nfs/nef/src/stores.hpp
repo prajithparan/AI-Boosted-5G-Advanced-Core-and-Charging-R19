@@ -244,6 +244,28 @@ private:
     std::uint64_t next_id_ = 1;
 };
 
+// ADR-0319: AF-provisioned UE-ID mappings (TS 29.522 UEId). The provisioned resource is a
+// ProSe/Ranging application-layer-id <-> GPSI pair -- NOT an IP-to-identity mapping, which is a
+// different thing the lookup operations in the same file ask for.
+class AfUeIdMappingStore {
+public:
+    std::string create(const std::string& af_id, nlohmann::json mapping);
+    std::optional<nlohmann::json> get(const std::string& af_id, const std::string& id);
+    std::vector<nlohmann::json> list(const std::string& af_id);
+    bool put(const std::string& af_id, const std::string& id, nlohmann::json mapping);
+    std::optional<nlohmann::json>
+    merge_patch(const std::string& af_id, const std::string& id, const nlohmann::json& patch);
+    bool remove(const std::string& af_id, const std::string& id);
+
+private:
+    static std::string key(const std::string& af_id, const std::string& id) {
+        return af_id + "/" + id;
+    }
+    std::mutex mutex_;
+    std::unordered_map<std::string, nlohmann::json> mappings_;
+    std::uint64_t next_id_ = 1;
+};
+
 class InferEventSubStore {
 public:
     std::string create(nlohmann::json subscription);
