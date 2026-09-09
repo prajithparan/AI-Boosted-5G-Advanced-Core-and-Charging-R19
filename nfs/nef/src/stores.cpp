@@ -814,6 +814,13 @@ std::optional<nlohmann::json> AfDocumentStore::merge_patch(const std::string& af
     return it->second;
 }
 
+bool AfDocumentStore::create_with_id(const std::string& af_id,
+                                     const std::string& id,
+                                     nlohmann::json document) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return documents_.emplace(key(af_id, id), std::move(document)).second;
+}
+
 std::optional<nlohmann::json> AfDocumentStore::json_patch(const std::string& af_id,
                                                           const std::string& id,
                                                           const nlohmann::json& patch) {

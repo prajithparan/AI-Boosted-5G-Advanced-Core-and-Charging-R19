@@ -311,6 +311,11 @@ public:
     // failed "test"), which the caller renders as a 400.
     std::optional<nlohmann::json>
     json_patch(const std::string& af_id, const std::string& id, const nlohmann::json& patch);
+    // Create at a caller-chosen id, for the APIs whose PUT is an upsert -- TS 29.122/29.522
+    // define several where the AF names the resource and PUT creates it if absent. Distinct from
+    // create(), which allocates the id itself. Returns false only if the id is already taken,
+    // which the PUT path has already ruled out via put().
+    bool create_with_id(const std::string& af_id, const std::string& id, nlohmann::json document);
     bool remove(const std::string& af_id, const std::string& id);
 
 private:
