@@ -158,11 +158,16 @@
 #include "TS29122_AsSessionWithQoS.hpp" // ADR-0315
 #include "TS29122_MonitoringEvent.hpp"  // ADR-0316
 #include "TS29256_Nnef_Authentication.hpp"
-#include "TS29522_ACSParameterProvision.hpp" // ADR-0322
+#include "TS29522_5GLANParameterProvision.hpp"  // ADR-0323
+#include "TS29522_ACSParameterProvision.hpp"    // ADR-0322
+#include "TS29522_AddressingParamProvision.hpp" // ADR-0323
+#include "TS29522_CagInfoParamProvision.hpp"    // ADR-0323
 #include "TS29522_DNAIMapping.hpp"
-#include "TS29522_IPTVConfiguration.hpp"     // ADR-0322
-#include "TS29522_LpiParameterProvision.hpp" // ADR-0322
-#include "TS29522_UEId.hpp"                  // ADR-0319
+#include "TS29522_GroupParametersProvisioning.hpp" // ADR-0323
+#include "TS29522_IPTVConfiguration.hpp"           // ADR-0322
+#include "TS29522_LpiParameterProvision.hpp"       // ADR-0322
+#include "TS29522_SliceParamProvision.hpp"         // ADR-0323
+#include "TS29522_UEId.hpp"                        // ADR-0319
 #include "TS29541_Nnef_SMContext.hpp"
 #include "TS29577_Nipsmgw_SMService.hpp"
 #include "TS29591_Nnef_EASDeployment.hpp"
@@ -219,6 +224,15 @@ constexpr const char* kAfServiceParamApiRoot = "/3gpp-service-parameter/v1";
 constexpr const char* kAfIptvApiRoot = "/3gpp-iptv-configuration/v1";
 constexpr const char* kAfLpiApiRoot = "/3gpp-lpi-parameter-provision/v1";
 constexpr const char* kAfAcsApiRoot = "/3gpp-acs-parameter-provision/v1";
+// ADR-0323: the four `/pp`-shaped parameter-provisioning services (TS 29.522), ninth through
+// twelfth of the 57.
+// ADR-0323: the `/pp` services have no {afId} in their paths, so their documents share one
+// namespace rather than being invented into per-AF buckets the spec does not define.
+constexpr const char* kPpNamespace = "pp";
+constexpr const char* kAfCagPpApiRoot = "/3gpp-cag-info-provision/v1";
+constexpr const char* kAfAddrPpApiRoot = "/3gpp-addressing-param-provision/v1";
+constexpr const char* kAfSlicePpApiRoot = "/3gpp-slice-param-provision/v1";
+constexpr const char* kAfGroupPpApiRoot = "/3gpp-group-parameter-provision/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -622,6 +636,10 @@ int main() {
     nef::AfDocumentStore af_iptv_configs;
     nef::AfDocumentStore af_lpi_provisionings;
     nef::AfDocumentStore af_acs_subscriptions;
+    nef::AfDocumentStore af_cag_pp;
+    nef::AfDocumentStore af_addr_pp;
+    nef::AfDocumentStore af_slice_pp;
+    nef::AfDocumentStore af_group_pp;
     // One client per thread is this project's standing contract for http2::Client (libcurl's own
     // per-easy-handle single-thread requirement); the server runs its handlers on a single
     // io_context thread, so one client shared by those handlers is correct here -- the same shape
@@ -1512,6 +1530,453 @@ int main() {
                     404, "Not Found", "No event exposure subscription " + id);
             }
             event_exposure_delete_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // --- ADR-0323: the four `/pp` parameter-provisioning services (TS 29.522) ---
+    //
+    // CagInfoParamProvision, AddressingParamProvision, SliceParamProvision and
+    // GroupParametersProvisioning -- 24 operations, one shape.
+    //
+    // Note the path difference from every AF service before them: these collections are a flat
+    // `/pp`, with NO `{afId}` segment. So unlike TrafficInfluence/QoS/Monitoring, the spec does
+    // not scope these resources per-AF at all, and this build does not invent a scoping the API
+    // does not have -- they share one namespace, which is what the path says. An operator wanting
+    // per-AF isolation here would need it in the spec first.
+    //
+    // Downstream: these provision parameters that belong in UDM's `Nudm_PP` (which this project
+    // implements, ADR-0237) or UDR's provisioned-data. Wiring each to its correct destination is
+    // per-service work -- CAG info, static IP addressing, slice parameters and group data land in
+    // different places -- and is NOT done here. They are accepted, validated against their real
+    // generated DTOs, and stored. The APIs are real; nothing downstream applies them yet.
+
+    server.add_route(
+        "GET",
+        std::string(kAfCagPpApiRoot) + "/pp",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_cag_pp.list(kPpNamespace)) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfCagPpApiRoot) + "/pp",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id = af_cag_pp.create(kPpNamespace, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location", std::string(kAfCagPpApiRoot) + "/pp/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_cag_pp.get(kPpNamespace, req.path_params.at("ppId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CAG info provisioning");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_cag_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CAG info provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::CagInfoPpDataPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_cag_pp.merge_patch(
+                kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CAG info provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfCagPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_cag_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!af_cag_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such CAG info provisioning");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfAddrPpApiRoot) + "/pp",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_addr_pp.list(kPpNamespace)) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfAddrPpApiRoot) + "/pp",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::AddrPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id = af_addr_pp.create(kPpNamespace, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location", std::string(kAfAddrPpApiRoot) + "/pp/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_addr_pp.get(kPpNamespace, req.path_params.at("ppId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such addressing parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::AddrPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_addr_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such addressing parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::AddrPpDataPatch>(req, err).has_value()) {
+                return err;
+            }
+            auto patched = af_addr_pp.merge_patch(
+                kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such addressing parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfAddrPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_addr_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!af_addr_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such addressing parameter provisioning");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfSlicePpApiRoot) + "/pp",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_slice_pp.list(kPpNamespace)) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfSlicePpApiRoot) + "/pp",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::SlicePpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id = af_slice_pp.create(kPpNamespace, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location", std::string(kAfSlicePpApiRoot) + "/pp/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_slice_pp.get(kPpNamespace, req.path_params.at("ppId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such slice parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::SlicePpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_slice_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such slice parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::SlicePpDataPatch>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            auto patched = af_slice_pp.merge_patch(
+                kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such slice parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfSlicePpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_slice_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!af_slice_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such slice parameter provisioning");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfGroupPpApiRoot) + "/pp",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            json out = json::array();
+            for (const auto& d : af_group_pp.list(kPpNamespace)) {
+                out.push_back(d);
+            }
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
+    server.add_route(
+        "POST",
+        std::string(kAfGroupPpApiRoot) + "/pp",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::GrpPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            const auto id = af_group_pp.create(kPpNamespace, j);
+            sbi_core::http2::Response resp;
+            resp.status = 201;
+            resp.headers.emplace("content-type", "application/json");
+            resp.headers.emplace("location", std::string(kAfGroupPpApiRoot) + "/pp/" + id);
+            resp.body = j.dump();
+            return resp;
+        });
+
+    server.add_route(
+        "GET",
+        std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            auto d = af_group_pp.get(kPpNamespace, req.path_params.at("ppId"));
+            if (!d.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such group parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, d->dump());
+        });
+
+    server.add_route(
+        "PUT",
+        std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<sbi_gen::GrpPpData>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            json j = *body;
+            if (!af_group_pp.put(kPpNamespace, req.path_params.at("ppId"), j)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such group parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, j.dump());
+        });
+
+    server.add_route(
+        "PATCH",
+        std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::GrpPpDataPatch>(req, err).has_value()) {
+                return err;
+            }
+            auto patched = af_group_pp.merge_patch(
+                kPpNamespace, req.path_params.at("ppId"), json::parse(req.body));
+            if (!patched.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such group parameter provisioning");
+            }
+            return sbi_core::http2::Response::json(200, patched->dump());
+        });
+
+    server.add_route(
+        "DELETE",
+        std::string(kAfGroupPpApiRoot) + "/pp/{ppId}",
+        [&verifier, &af_group_pp](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!af_group_pp.remove(kPpNamespace, req.path_params.at("ppId"))) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "No such group parameter provisioning");
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
