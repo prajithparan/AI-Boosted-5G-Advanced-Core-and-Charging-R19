@@ -302,6 +302,15 @@ public:
     bool put(const std::string& af_id, const std::string& id, nlohmann::json document);
     std::optional<nlohmann::json>
     merge_patch(const std::string& af_id, const std::string& id, const nlohmann::json& patch);
+    // RFC 6902 JSON Patch, for the two services whose PATCH declares
+    // application/json-patch+json rather than application/merge-patch+json (ADR-0326:
+    // TS29522_ImsParamProvision and TS29522_ImsSessionManagement). Applied under the same lock as
+    // every other mutation, so it is atomic with respect to concurrent writers -- a
+    // get/apply/put sequence in the handler would not be. Returns nullopt when there is no such
+    // document; propagates nlohmann's exception when the patch itself is invalid (unknown op, a
+    // failed "test"), which the caller renders as a 400.
+    std::optional<nlohmann::json>
+    json_patch(const std::string& af_id, const std::string& id, const nlohmann::json& patch);
     bool remove(const std::string& af_id, const std::string& id);
 
 private:

@@ -814,6 +814,22 @@ std::optional<nlohmann::json> AfDocumentStore::merge_patch(const std::string& af
     return it->second;
 }
 
+std::optional<nlohmann::json> AfDocumentStore::json_patch(const std::string& af_id,
+                                                          const std::string& id,
+                                                          const nlohmann::json& patch) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = documents_.find(key(af_id, id));
+    if (it == documents_.end()) {
+        return std::nullopt;
+    }
+    // nlohmann::json::patch is all-or-nothing -- it throws rather than leaving a half-applied
+    // document -- so assigning its result only on success keeps the stored document intact when a
+    // patch is rejected. The exception is deliberately not caught here: the handler needs its
+    // message for the ProblemDetails body.
+    it->second = it->second.patch(patch);
+    return it->second;
+}
+
 bool AfDocumentStore::remove(const std::string& af_id, const std::string& id) {
     std::lock_guard<std::mutex> lock(mutex_);
     return documents_.erase(key(af_id, id)) > 0;
