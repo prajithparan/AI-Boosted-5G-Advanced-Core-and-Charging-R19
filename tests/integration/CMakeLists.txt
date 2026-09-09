@@ -35,6 +35,7 @@ add_executable(integration_tests
     test_udr_context_data.cpp
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
+    test_http2_route_precedence.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp

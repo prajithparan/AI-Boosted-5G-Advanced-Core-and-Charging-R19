@@ -40,3 +40,12 @@ add_test(
 set_tests_properties(structural_conformance PROPERTIES
     DEPENDS "RoundTrip.GuamiNestedObjectRoundTrips;RoundTrip.NFTypeUnknownValueRoundTrips"
 )
+
+# ADR-0325: every 3GPP API root a server registers must equal its YAML's servers[0].url.
+# Ten NEF roots were derived from spec filenames instead and no test could see it, because a
+# test that builds its URL from the same constant the server registers is self-consistent by
+# construction. This one reads the YAML.
+add_test(
+    NAME api_root_conformance
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/validate_api_roots.py ${CMAKE_SOURCE_DIR}
+)

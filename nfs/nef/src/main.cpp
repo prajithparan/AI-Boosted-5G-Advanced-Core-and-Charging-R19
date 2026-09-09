@@ -228,28 +228,28 @@ constexpr const char* kAfUeIdApiRoot = "/3gpp-ueid/v1";
 // ADR-0321: the AF-facing service-parameter provisioning API (TS 29.522), fifth of the 57.
 constexpr const char* kAfServiceParamApiRoot = "/3gpp-service-parameter/v1";
 // ADR-0322: three more AF-facing provisioning services (TS 29.522), sixth through eighth of 57.
-constexpr const char* kAfIptvApiRoot = "/3gpp-iptv-configuration/v1";
-constexpr const char* kAfLpiApiRoot = "/3gpp-lpi-parameter-provision/v1";
-constexpr const char* kAfAcsApiRoot = "/3gpp-acs-parameter-provision/v1";
+constexpr const char* kAfIptvApiRoot = "/3gpp-iptvconfiguration/v1";
+constexpr const char* kAfLpiApiRoot = "/3gpp-lpi-pp/v1";
+constexpr const char* kAfAcsApiRoot = "/3gpp-acs-pp/v1";
 // ADR-0323: the four `/pp`-shaped parameter-provisioning services (TS 29.522), ninth through
 // twelfth of the 57.
 // ADR-0323: the `/pp` services have no {afId} in their paths, so their documents share one
 // namespace rather than being invented into per-AF buckets the spec does not define.
 constexpr const char* kPpNamespace = "pp";
-constexpr const char* kAfCagPpApiRoot = "/3gpp-cag-info-provision/v1";
-constexpr const char* kAfAddrPpApiRoot = "/3gpp-addressing-param-provision/v1";
-constexpr const char* kAfSlicePpApiRoot = "/3gpp-slice-param-provision/v1";
-constexpr const char* kAfGroupPpApiRoot = "/3gpp-group-parameter-provision/v1";
+constexpr const char* kAfCagPpApiRoot = "/3gpp-caginfo-pp/v1";
+constexpr const char* kAfAddrPpApiRoot = "/3gpp-addr-pp/v1";
+constexpr const char* kAfSlicePpApiRoot = "/3gpp-slice-pp/v1";
+constexpr const char* kAfGroupPpApiRoot = "/3gpp-grp-pp/v1";
 // ADR-0324: eight more AF-facing services (TS 29.122 and TS 29.522), thirteenth
 // through twentieth of the 57.
 constexpr const char* kAfDeviceTriggerApiRoot = "/3gpp-device-triggering/v1";
 constexpr const char* kAfNpConfigApiRoot = "/3gpp-network-parameter-configuration/v1";
-constexpr const char* kAfRacsApiRoot = "/3gpp-racs-parameter-provisioning/v1";
-constexpr const char* kAfNetStatusApiRoot = "/3gpp-network-status/v1";
+constexpr const char* kAfRacsApiRoot = "/3gpp-racs-pp/v1";
+constexpr const char* kAfNetStatusApiRoot = "/3gpp-net-stat-report/v1";
 constexpr const char* kAfBdtApiRoot = "/3gpp-bdt/v1";
 constexpr const char* kAfAnalyticsApiRoot = "/3gpp-analyticsexposure/v1";
 constexpr const char* kAfAstiApiRoot = "/3gpp-asti/v1";
-constexpr const char* kAfImsEventApiRoot = "/3gpp-ims-event-exposure/v1";
+constexpr const char* kAfImsEventApiRoot = "/3gpp-ims-ee/v1";
 constexpr const char* kInferenceApiRoot = "/nnef-inference/v1";
 constexpr const char* kTrainingApiRoot = "/nnef-training/v1";
 constexpr const char* kVflInferenceApiRoot = "/nnef-vfl-inference/v1";
@@ -2151,6 +2151,31 @@ int main() {
             return resp;
         });
 
+    // ADR-0325: FetchAnalyticsInfo. Present in TS29522_AnalyticsExposure and missed when the
+    // service was added in ADR-0324 -- the method sets were read per path, but only for the two
+    // paths the six-operation shape expects, so a third path went unseen.
+    //
+    // The request is parsed against the real AnalyticsRequest. The response is 501: AnalyticsData
+    // has to come from NWDAF, which is Phase 5 and not built. Synthesising a plausible-looking
+    // analytics payload here would be the one failure mode this project cannot afford.
+    server.add_route(
+        "POST",
+        std::string(kAfAnalyticsApiRoot) + "/{afId}/fetch",
+        [&verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::AnalyticsRequest>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            return sbi_core::http2::problem_response(
+                501,
+                "Not Implemented",
+                "Analytics fetch requires NWDAF, which is not deployed in this core");
+        });
+
     server.add_route(
         "GET",
         std::string(kAfAnalyticsApiRoot) + "/{afId}/subscriptions",
@@ -2242,6 +2267,33 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
+        });
+
+    // ADR-0325: RetrieveStatusofConfiguration. Registered BEFORE the item routes below on purpose:
+    // sbi_core's matcher is first-registered-wins with no preference for a literal segment over a
+    // parameter one (libs/sbi-core/src/http2_server.cpp:119), so "/configurations/retrieve" and
+    // "/configurations/{configId}" are decided by registration order alone. They do not collide
+    // today -- the item path defines no POST -- but that is a property of the current spec, not of
+    // the router, and relying on it would leave a trap for whoever adds one.
+    //
+    // 501 for the same reason as FetchAnalyticsInfo: the status of an access-time distribution
+    // configuration comes from TSCTSF, which is not wired to NEF here.
+    server.add_route(
+        "POST",
+        std::string(kAfAstiApiRoot) + "/{afId}/configurations/retrieve",
+        [&verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response err;
+            if (!sbi_core::http2::parse_json_body<sbi_gen::StatusRequestData>(req, err)
+                     .has_value()) {
+                return err;
+            }
+            return sbi_core::http2::problem_response(
+                501,
+                "Not Implemented",
+                "Configuration status retrieval requires TSCTSF, which is not wired to NEF");
         });
 
     server.add_route(
@@ -3615,7 +3667,7 @@ int main() {
 
     server.add_route(
         "GET",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -3629,7 +3681,7 @@ int main() {
 
     server.add_route(
         "POST",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -3645,21 +3697,20 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace(
-                "location", std::string(kAfUeIdApiRoot) + "/" + af_id + "/provisionings/" + id);
+            resp.headers.emplace("location",
+                                 std::string(kAfUeIdApiRoot) + "/" + af_id + "/pp/" + id);
             resp.body = j.dump();
             return resp;
         });
 
     server.add_route(
         "GET",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            auto m = af_ueid_mappings.get(req.path_params.at("afId"),
-                                          req.path_params.at("provisioningId"));
+            auto m = af_ueid_mappings.get(req.path_params.at("afId"), req.path_params.at("ppId"));
             if (!m.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such UE ID mapping provisioning");
@@ -3669,7 +3720,7 @@ int main() {
 
     server.add_route(
         "PUT",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -3680,8 +3731,7 @@ int main() {
                 return err;
             }
             json j = *body;
-            if (!af_ueid_mappings.put(
-                    req.path_params.at("afId"), req.path_params.at("provisioningId"), j)) {
+            if (!af_ueid_mappings.put(req.path_params.at("afId"), req.path_params.at("ppId"), j)) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such UE ID mapping provisioning");
             }
@@ -3690,7 +3740,7 @@ int main() {
 
     server.add_route(
         "PATCH",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -3700,9 +3750,8 @@ int main() {
                      .has_value()) {
                 return err;
             }
-            auto patched = af_ueid_mappings.merge_patch(req.path_params.at("afId"),
-                                                        req.path_params.at("provisioningId"),
-                                                        json::parse(req.body));
+            auto patched = af_ueid_mappings.merge_patch(
+                req.path_params.at("afId"), req.path_params.at("ppId"), json::parse(req.body));
             if (!patched.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such UE ID mapping provisioning");
@@ -3712,13 +3761,12 @@ int main() {
 
     server.add_route(
         "DELETE",
-        std::string(kAfUeIdApiRoot) + "/{afId}/provisionings/{provisioningId}",
+        std::string(kAfUeIdApiRoot) + "/{afId}/pp/{ppId}",
         [&verifier, &af_ueid_mappings](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            if (!af_ueid_mappings.remove(req.path_params.at("afId"),
-                                         req.path_params.at("provisioningId"))) {
+            if (!af_ueid_mappings.remove(req.path_params.at("afId"), req.path_params.at("ppId"))) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No such UE ID mapping provisioning");
             }
