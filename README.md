@@ -1,6 +1,16 @@
 # 5G Advanced Core and Charging R-19
 
-> **Built by AI. Built for AI. Bound by the spec.**
+<p align="center">
+  <img src="docs/assets/motto.svg" alt="Built by AI. Built for AI. Bound by the spec."
+       width="820">
+</p>
+
+<h3 align="center">
+  Built by AI. &nbsp;Built for AI. &nbsp;<em>Bound by the spec.</em>
+</h3>
+
+<p align="center"><sub>The third clause governs the first two. The model advises; a
+deterministic, spec-grounded path decides.</sub></p>
 
 A modular, standards-faithful 5G Core (5GC) implementation in modern C++, targeting 3GPP
 **Release 19 (5G-Advanced)**. Every Network Function's northbound API is meant to be **generated**

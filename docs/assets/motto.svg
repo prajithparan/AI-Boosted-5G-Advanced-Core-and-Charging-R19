@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 104" width="940" height="104"
+     role="img" aria-label="Built by AI. Built for AI. Bound by the spec.">
+  <title>Built by AI. Built for AI. Bound by the spec.</title>
+  <!-- No background rect on purpose: a transparent ground keeps the motto legible on GitHub's
+       light AND dark themes. Every colour below is chosen to clear WCAG AA contrast on both a
+       white and a near-black backdrop, which rules out the obvious pure-saturation choices. -->
+  <style>
+    .m {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+    }
+    .rule { font-size: 15px; font-weight: 600; letter-spacing: 2.6px; }
+  </style>
+  <text class="m" x="470" y="52" text-anchor="middle">
+    <tspan fill="#0EA5E9">Built by AI.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#8B5CF6">Built for AI.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#10B981">Bound by the spec.</tspan>
+  </text>
+  <text class="rule" x="470" y="86" text-anchor="middle" fill="#94A3B8">
+    THE MODEL ADVISES &#183; THE SPEC DECIDES
+  </text>
+</svg>
