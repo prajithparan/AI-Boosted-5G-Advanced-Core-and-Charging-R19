@@ -1,5 +1,7 @@
 # 5G Advanced Core and Charging R-19
 
+> **Built by AI. Built for AI. Bound by the spec.**
+
 A modular, standards-faithful 5G Core (5GC) implementation in modern C++, targeting 3GPP
 **Release 19 (5G-Advanced)**. Every Network Function's northbound API is meant to be **generated**
 from the official 3GPP OpenAPI YAML — never hand-written — with a TM Forum SID-aligned
@@ -130,6 +132,32 @@ All of them are already JSON-shaped data behind real APIs, which is what makes t
 problem rather than a re-architecture.
 
 Full phase plan: [`PROMPT.md`](PROMPT.md).
+
+### AI capabilities
+
+One AI feature is built and running in the charging path. Everything else on this list is not
+built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
+backs it.
+
+| Capability | Status | What backs it |
+|---|---|---|
+| **Dynamic GSU / predictive quota sizing** (grant size adapts to the subscriber's own usage history) | **Built, default OFF** | real ONNX Runtime **in-process C++ inference** (`chf::AiQuotaSizer`) -- never a Python call at runtime. A Python sidecar (`nfs/chf/training/train_quota_sizing.py`) trains, MLflow tracks the run, and CHF loads only the exported `.onnx` artifact (ADR-0074) |
+| **Per-subscriber feature store** | **Built** | `chf::QuotaFeatureStore` in Redis keeps a rolling usage window per `SUPI`+`ratingGroup`, updated when real `usedUnitContainer` figures are reported |
+| **Model governance / auditability** | **Built** | every AI-influenced rating decision records an `aiAdvisory`: model id, model version, the exact input feature vector, the model's output, and **which deterministic bound actually applied**. A decision the model did not influence records no advisory, which is a real state rather than a gap |
+| **Deterministic guardrails** | **Built** | the model *suggests*; the rating engine *decides*. The grant is always the price-configured base multiplied by a clamp to **[0.5x, 2.0x]** -- never the raw prediction. Plus a kill switch (`CHF_AI_QUOTA_SIZING_ENABLED`, **default OFF**), a per-inference latency budget, model-version pinning, and a cold-start path that falls back to the plain deterministic grant |
+| **NWDAF (AnLF + MTLF)** | **Not built** | Phase 5. There is no `nfs/nwdaf` directory. NEF's `AnalyticsExposure` and `ReportingNetworkStatus` routes exist and answer **501**, because the NF they belong to does not exist (ADR-0324) |
+| **The three mandated analytics** (NF load prediction, anomaly detection, slice SLA / service experience) | **Not built** | they are NWDAF-resident and NWDAF is not built |
+| **Energy-efficiency analytics, federated learning (VFL)** | **Not built** | NEF carries the AF-facing `VFLInference` / `VFLTraining` / `VFLNFDiscovery` surfaces (ADR-0326/0327), but they store or answer 501 -- there is no training or inference behind them |
+| **Drift monitoring** (`Nnwdaf_MLModelMonitor`) | **Not built** | needs NWDAF |
+| **ARPU / RPU-driven charging models, churn propensity, next-best-offer** | **Not built** | no model, and in several cases no collected training data either |
+| **Agentic / MCP layer over NF state** | **Not built** | proposed read-only in `CLAUDE.md`, never started |
+
+**Honest summary:** the platform has *one* production AI capability -- dynamic grant sizing -- and
+it ships disabled. The architecture around it is the part that is genuinely reusable: train in
+Python, serve ONNX in-process from C++, keep features in Redis, clamp the model's influence to a
+bounded multiplier on a deterministic decision, and log every advisory with the bound that applied.
+That shape is what additional models plug into. Calling the system "AI-powered" today would be
+overstating a single clamped regressor behind a default-off switch.
 
 ## Capability-completeness gap-closure
 
