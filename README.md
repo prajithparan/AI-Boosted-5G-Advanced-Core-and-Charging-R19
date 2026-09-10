@@ -5,10 +5,6 @@
        width="820">
 </p>
 
-<h3 align="center">
-  Built by AI. &nbsp;Built for AI. &nbsp;<em>Bound by the spec.</em>
-</h3>
-
 <p align="center"><sub>The third clause governs the first two. The model advises; a
 deterministic, spec-grounded path decides.</sub></p>
 
