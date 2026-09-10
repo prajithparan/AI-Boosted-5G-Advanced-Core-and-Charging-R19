@@ -1,0 +1,10 @@
+date:        2026-09-10T08:18:30+05:30
+kernel:      Linux 7.0.0-30-generic
+cpu:         11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz
+cores:       8
+memory:      15.4 GiB
+commit:      8ad0b37
+build type:  Release
+free5gc:     free5gc/nrf:v3.4.4
+also resident: firefox Isolated Web Co nrf 
+note:        load generator and SUT share this host, loopback only, for BOTH systems

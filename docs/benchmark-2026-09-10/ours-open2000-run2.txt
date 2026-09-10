@@ -1,0 +1,20 @@
+sbi-loadgen: GET https://127.0.0.1:7777/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF concurrency=32 warmup=2s duration=15s
+
+=== sbi-loadgen results ===
+target            : GET https://127.0.0.1:7777/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF
+load model        : open-loop, target 2000 req/s (latency measured from each slot's scheduled time)
+worker pool       : 32
+measured window   : 15.00 s
+responses         : 30000
+transport errors  : 0
+throughput        : 1999.71 req/s
+slots issued late : 4 (pool could not keep up with the target rate -- the delay is included in the latencies above, not hidden)
+latency min       : 0.297 ms
+latency mean      : 0.612 ms
+latency p50       : 0.445 ms
+latency p90       : 0.737 ms
+latency p95       : 2.310 ms
+latency p99       : 2.917 ms
+latency p99.9     : 4.196 ms
+latency max       : 10.394 ms
+status codes      : 200=30000

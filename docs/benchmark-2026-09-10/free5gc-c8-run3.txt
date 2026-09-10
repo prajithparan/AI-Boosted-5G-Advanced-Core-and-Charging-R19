@@ -1,0 +1,19 @@
+sbi-loadgen: GET https://NRF:8000/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF concurrency=8 warmup=2s duration=15s
+
+=== sbi-loadgen results ===
+target            : GET https://NRF:8000/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF
+load model        : closed-loop (subject to coordinated omission)
+concurrency       : 8
+measured window   : 15.00 s
+responses         : 53282
+transport errors  : 0
+throughput        : 3551.48 req/s
+latency min       : 0.874 ms
+latency mean      : 2.250 ms
+latency p50       : 2.111 ms
+latency p90       : 3.184 ms
+latency p95       : 3.617 ms
+latency p99       : 4.688 ms
+latency p99.9     : 6.662 ms
+latency max       : 19.087 ms
+status codes      : 200=53282

@@ -1,0 +1,19 @@
+sbi-loadgen: GET https://127.0.0.1:7777/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF concurrency=8 warmup=2s duration=15s
+
+=== sbi-loadgen results ===
+target            : GET https://127.0.0.1:7777/nnrf-disc/v1/nf-instances?target-nf-type=UDM&requester-nf-type=AMF
+load model        : closed-loop (subject to coordinated omission)
+concurrency       : 8
+measured window   : 15.00 s
+responses         : 153259
+transport errors  : 2 (first: Failed sending data to the peer)
+throughput        : 10215.82 req/s
+latency min       : 0.244 ms
+latency mean      : 0.782 ms
+latency p50       : 0.571 ms
+latency p90       : 1.283 ms
+latency p95       : 1.830 ms
+latency p99       : 4.028 ms
+latency p99.9     : 5.505 ms
+latency max       : 18.952 ms
+status codes      : 200=153259
