@@ -1,15 +1,27 @@
-# 5G Advanced Core and Charging R-19
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
+    <img src="docs/assets/title.svg"
+         alt="AI-Boosted 5G-Advanced Core and Charging — Release 19" width="920">
+  </picture>
+</p>
 
 <p align="center">
   <img src="docs/assets/motto.svg" alt="Built by AI. Built for AI. Bound by the spec."
        width="820">
 </p>
 
-<p align="center"><sub>The third clause governs the first two. The model advises; a
-deterministic, spec-grounded path decides.</sub></p>
+<h3 align="center">
+  <strong>The third clause governs the first two.<br>
+  The model advises; a deterministic, spec-grounded path decides.</strong>
+</h3>
 
 A modular, standards-faithful 5G Core (5GC) implementation in modern C++, targeting 3GPP
-**Release 19 (5G-Advanced)**. Every Network Function's northbound API is meant to be **generated**
+**Release 19 (5G-Advanced)**. Release 19 is what 3GPP itself brands *5G-Advanced*; 6G has no
+stage-3 specification yet and nothing here implements it, so it is deliberately absent from
+the title. **When Release 20 lands and 3GPP defines 6G, the intent is to carry this
+architecture forward and revisit the name then** — a statement of direction, not a
+capability claim. Every Network Function's northbound API is meant to be **generated**
 from the official 3GPP OpenAPI YAML — never hand-written — with a TM Forum SID-aligned
 charging/BSS domain, a JSON-schema-driven operator GUI, and AI/ML pipelines wired into NWDAF.
 
@@ -22,14 +34,14 @@ architectural choice made (and rejected) along the way.
 [![CI](https://github.com/prajithparan/5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-## Source of truth
+<h2 align="center">Source of truth</h2>
 
 3GPP OpenAPI YAML (REL-19, vendored under [`specs/`](specs/)) is the only source for API shapes,
 paths, schemas, and enums used anywhere in this repo. Nothing here hand-writes a DTO that the YAML
 can generate, and nothing invents a TS number, reference point, or field name that isn't in the
 spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 
-## Status
+<h2 align="center">Status</h2>
 
 | Phase | What | Status |
 |---|---|---|
@@ -90,7 +102,7 @@ UDR has an HPA; moving the other NFs' state out of process is scheduled with **P
 ranked list of what would still block a production deployment, is in
 [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md).
 
-### Commercial products the CHF/BSS model supports today
+<h3 align="center">Commercial products the CHF/BSS model supports today</h3>
 
 Product and tariff definitions are **TMF620 catalog data, not code** (principle P7): CHF's rating
 engine reads `ratingGroup`, `validityTime`, `quotaHoldingTime` and the volume/time/unit quota
@@ -139,7 +151,7 @@ problem rather than a re-architecture.
 
 Full phase plan: [`PROMPT.md`](PROMPT.md).
 
-### AI capabilities
+<h3 align="center">AI capabilities</h3>
 
 One AI feature is built and running in the charging path. Everything else on this list is not
 built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
@@ -165,7 +177,7 @@ bounded multiplier on a deterministic decision, and log every advisory with the 
 That shape is what additional models plug into. Calling the system "AI-powered" today would be
 overstating a single clamped regressor behind a default-off switch.
 
-## Capability-completeness gap-closure
+<h2 align="center">Capability-completeness gap-closure</h2>
 
 Alongside the phase plan, an ongoing effort closes real gaps found by comparing this project
 against free5GC's and open5GS's own actual source (not just their docs) — every change is real,
@@ -327,7 +339,7 @@ ADR-0238's step (1), mapping measurement points onto TS 28.552 counter families,
 because neither TS 28.552 nor TS 28.554 is vendored in `specs/`, and step (4) needs step (1)
 first.
 
-## Repository layout
+<h2 align="center">Repository layout</h2>
 
 ```
 libs/sbi-core/     Shared SBI infrastructure: HTTP/2 server+client, OAuth2 client-credentials,
@@ -362,7 +374,7 @@ tests/             Integration and conformance tests.
 docs/              DECISIONS.md (ADR log) and TRACEABILITY.md (procedure -> TS clause -> file -> test).
 ```
 
-## Building
+<h2 align="center">Building</h2>
 
 Requires CMake 3.28+, Ninja, a C++20/23 compiler (developed against GCC 13 and Clang 18), and
 [vcpkg](https://github.com/microsoft/vcpkg) in manifest mode.
@@ -382,13 +394,13 @@ Sanitizer builds: add `-D5GC_ENABLE_ASAN=ON` or `-D5GC_ENABLE_TSAN=ON` at config
 exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-## Contributing / working style
+<h2 align="center">Contributing / working style</h2>
 
 This project is built in small, reviewable increments — one NF or subsystem at a time, with the
 TS 23.502 procedure list for each NF shown and approved before implementation. Every stub,
 simplification, or non-conformant shortcut is called out explicitly rather than left for review to
 discover. See [`CLAUDE.md`](CLAUDE.md) for the full engineering rules and mandated tech stack.
 
-## License
+<h2 align="center">License</h2>
 
 Apache License 2.0 — see [`LICENSE`](LICENSE).

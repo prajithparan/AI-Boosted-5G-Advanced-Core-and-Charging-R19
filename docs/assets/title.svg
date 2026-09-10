@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 68" width="1100" height="68"
+     role="img" aria-label="AI-Boosted 5G-Advanced Core and Charging — Release 19">
+  <title>AI-Boosted 5G-Advanced Core and Charging — Release 19</title>
+  <!-- 42px against GitHub's ~32px default h1: the requested ~30% increase. Transparent ground and
+       a currentColor-independent palette so it stays legible on both GitHub themes. -->
+  <style>
+    .t {
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -0.8px;
+    }
+  </style>
+  <text class="t" x="550" y="48" text-anchor="middle">
+    <tspan fill="#0EA5E9">AI-Boosted</tspan><tspan fill="#64748B"> </tspan><tspan fill="#334155">5G-Advanced Core and Charging</tspan><tspan fill="#64748B"> — Release 19</tspan>
+  </text>
+</svg>
