@@ -1,0 +1,23 @@
+{
+  "_comment": "ADR-0331. Agent scopes are operator configuration, not code: adding an agent or narrowing a remit must not require a rebuild. An agent with no `tools` array can call nothing -- a misconfigured agent does nothing rather than everything.",
+  "pii_audit_database_url": "postgresql://udr:udr@127.0.0.1:5437/mcp_audit",
+  "balance_management_base_url": "https://127.0.0.1:8083",
+  "chf_base_url": "https://127.0.0.1:7784",
+  "product_catalog_base_url": "https://127.0.0.1:8081",
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "agents": {
+    "customer-agent": {
+      "_comment": "Least privilege: its own subscriber's balance, charges and charge explanations. No catalog-wide enumeration, no NF inventory. `pinnedSubject` is set per session by the launcher; empty here means unpinned, which is why this agent must never be run unpinned in production.",
+      "tools": ["get_balance", "get_recent_charges", "explain_charge"],
+      "pinnedSubject": ""
+    },
+    "revenue-agent": {
+      "_comment": "Operator-domain only. Deliberately has NO subscriber-level tool: revenue questions are answered from aggregates, and giving it PII access would be scope it does not need.",
+      "tools": ["get_offering"]
+    },
+    "ops-agent": {
+      "_comment": "The half of a technical/ops agent that is not blocked on NWDAF: live NF inventory and catalog. It has no subscriber tools at all -- an ops agent has no business reading a customer's bill.",
+      "tools": ["list_nf_instances", "get_offering"]
+    }
+  }
+}

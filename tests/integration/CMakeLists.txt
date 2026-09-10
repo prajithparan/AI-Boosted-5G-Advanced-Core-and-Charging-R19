@@ -1,3 +1,4 @@
+find_package(libpqxx CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
 # ADR-0283: the CDR retention test compiles CHF's own CdrWriter (see below), which talks to
 # Doris over the MySQL protocol -- same package nfs/chf/CMakeLists.txt uses.
@@ -53,6 +54,7 @@ add_executable(integration_tests
     test_proportional_debit.cpp
     test_charging_scope.cpp
     test_unit_pooling.cpp
+    test_mcp_pii_governance.cpp
     test_balance_shared_bucket.cpp
     test_cdr_billing_chain.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/billing_items.cpp
@@ -66,6 +68,8 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/proportional_debit.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/charging_scope.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/unit_pooling.cpp
+    ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/agent_scope.cpp
+    ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/pii_audit.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     ngap_test_gnb.cpp
     ue_nas_driver.cpp
@@ -88,8 +92,9 @@ add_executable(integration_tests
 # NGAP transfers to drive SMF's N2SmInfoType branches. Asserting on bytes SMF returns is not
 # enough for those -- the branches only run on a transfer that actually decodes, so the test
 # has to be able to encode one.
-target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src)
-target_link_libraries(integration_tests PRIVATE unofficial::libmariadb ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
+target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src
+                                                    ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
+target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
 add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
