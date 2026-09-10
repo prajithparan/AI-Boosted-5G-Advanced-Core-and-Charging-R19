@@ -2,22 +2,20 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
     <img src="docs/assets/title.svg"
-         alt="AI-Boosted 5G-Advanced Core and Charging — Release 19" width="920">
+         alt="AI-Boosted 5G-Advanced Core and Charging — R19" width="920">
   </picture>
 </p>
 
 <p align="center">
-  <img src="docs/assets/motto.svg" alt="Built by AI. Built for AI. Bound by the spec."
-       width="820">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/motto-dark.svg">
+    <img src="docs/assets/motto.svg" alt="Built by AI. Built for AI. Bound by the spec."
+         width="760">
+  </picture>
 </p>
 
-<h3 align="center">
-  <strong>The third clause governs the first two.<br>
-  The model advises; a deterministic, spec-grounded path decides.</strong>
-</h3>
-
 A modular, standards-faithful 5G Core (5GC) implementation in modern C++, targeting 3GPP
-**Release 19 (5G-Advanced)**. Release 19 is what 3GPP itself brands *5G-Advanced*; 6G has no
+**R19 (5G-Advanced)**. R19 is what 3GPP itself brands *5G-Advanced*; 6G has no
 stage-3 specification yet and nothing here implements it, so it is deliberately absent from
 the title. **When Release 20 lands and 3GPP defines 6G, the intent is to carry this
 architecture forward and revisit the name then** — a statement of direction, not a

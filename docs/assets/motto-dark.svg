@@ -10,6 +10,6 @@
          font-size: 34px; font-weight: 700; letter-spacing: -0.3px; }
   </style>
   <text class="m" x="410" y="42" text-anchor="middle">
-    <tspan fill="#0E7490">Built by AI.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#1D4ED8">Built for AI.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#0F172A">Bound by the spec.</tspan>
+    <tspan fill="#22D3EE">Built by AI.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#60A5FA">Built for AI.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#E2E8F0">Bound by the spec.</tspan>
   </text>
 </svg>
