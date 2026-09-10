@@ -55,6 +55,7 @@ add_executable(integration_tests
     test_charging_scope.cpp
     test_unit_pooling.cpp
     test_mcp_pii_governance.cpp
+    test_subscriber_lifecycle.cpp
     test_balance_shared_bucket.cpp
     test_cdr_billing_chain.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/billing_items.cpp

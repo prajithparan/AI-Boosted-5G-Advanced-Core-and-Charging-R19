@@ -1,6 +1,7 @@
 #include "store.hpp"
 
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 namespace subscriber_management {
 
@@ -430,6 +431,35 @@ std::optional<Subscriber> SubscriberStore::get_by_supi(const std::string& supi) 
         return std::nullopt;
     }
     return row_to_subscriber(result.front());
+}
+
+bool SubscriberStore::record_lifecycle_transition(const std::string& subscriber_id,
+                                                  const std::string& to_status,
+                                                  const std::string& reason) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    try {
+        pqxx::work txn(conn_);
+        // Read the current status inside the transaction: taking it from the caller would let a
+        // stale value be written as the `from` side of a transition that never happened.
+        const auto rows =
+            txn.exec("SELECT status FROM subscriber WHERE id = $1", pqxx::params{subscriber_id});
+        if (rows.empty()) {
+            return false;
+        }
+        const auto from_status = rows[0][0].as<std::string>("");
+        txn.exec("UPDATE subscriber SET status = $1, updated_at = now() WHERE id = $2",
+                 pqxx::params{to_status, subscriber_id});
+        txn.exec("INSERT INTO subscriber_lifecycle_event (subscriber_id, from_status, to_status, "
+                 "reason) VALUES ($1,$2,$3,$4)",
+                 pqxx::params{subscriber_id, from_status, to_status, reason});
+        txn.commit();
+        return true;
+    } catch (const std::exception& e) {
+        spdlog::warn("subscriber-management: lifecycle transition for {} failed: {}",
+                     subscriber_id,
+                     e.what());
+        return false;
+    }
 }
 
 std::vector<Subscriber> SubscriberStore::list() {

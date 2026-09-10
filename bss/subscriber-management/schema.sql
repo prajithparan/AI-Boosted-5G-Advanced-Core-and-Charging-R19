@@ -130,3 +130,38 @@ CREATE TABLE IF NOT EXISTS subscriber (
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ADR-0335: subscription lifecycle, because churn is currently unobservable.
+--
+-- The `subscriber` table above records `created_at` and `updated_at` and nothing else about a
+-- subscriber's life. A subscriber who leaves is either still present or deleted, and in neither
+-- case is there a record that they churned, when, or why. That makes churn-propensity modelling
+-- impossible -- not hard, impossible: there is no label to train against.
+--
+-- This is therefore NOT a model and NOT an agent. It is the data-collection prerequisite that has
+-- to run for a while before either is possible, which is exactly why it is being started now
+-- rather than discovered later when someone asks for churn prediction and finds a year of history
+-- that was never recorded.
+
+ALTER TABLE subscriber ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+CREATE TABLE IF NOT EXISTS subscriber_lifecycle_event (
+    id             BIGSERIAL PRIMARY KEY,
+    subscriber_id  TEXT NOT NULL REFERENCES subscriber(id),
+    -- Both sides of the transition. Knowing a subscriber is 'terminated' is far less useful than
+    -- knowing they went suspended -> terminated rather than active -> terminated: the first is a
+    -- collections outcome, the second is a customer walking away, and a churn model that cannot
+    -- tell them apart learns the wrong thing.
+    from_status    TEXT,
+    to_status      TEXT NOT NULL,
+    -- Free text on purpose. No specification enumerates churn reasons and inventing a closed set
+    -- here would force every future reason into a category chosen before anyone had seen the data.
+    reason         TEXT,
+    occurred_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS subscriber_lifecycle_subscriber_idx
+    ON subscriber_lifecycle_event (subscriber_id, occurred_at DESC);
+-- The query a churn trainer actually runs: "who terminated, and when".
+CREATE INDEX IF NOT EXISTS subscriber_lifecycle_to_status_idx
+    ON subscriber_lifecycle_event (to_status, occurred_at DESC);

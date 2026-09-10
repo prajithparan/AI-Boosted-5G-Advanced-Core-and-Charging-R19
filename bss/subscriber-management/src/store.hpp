@@ -103,6 +103,23 @@ public:
     std::optional<Subscriber> get_by_supi(const std::string& supi);
     std::vector<Subscriber> list();
 
+    // ADR-0335: record a lifecycle transition, and the status change with it, in ONE transaction.
+    //
+    // Churn is currently unobservable here -- `subscriber` records created_at/updated_at and
+    // nothing about a subscriber leaving. This is the collection prerequisite for any future
+    // churn model: without a labelled "who left, when, and from what state" history there is
+    // nothing to train against, and that history can only be gathered forward in time.
+    //
+    // Atomic on purpose: a status changed without its event, or an event without the status
+    // change, produces a history that disagrees with the record it describes -- and a churn model
+    // trained on it would learn from the disagreement.
+    //
+    // Returns false if there is no such subscriber. `from_status` is read inside the transaction
+    // rather than supplied by the caller, so it cannot be misreported.
+    bool record_lifecycle_transition(const std::string& subscriber_id,
+                                     const std::string& to_status,
+                                     const std::string& reason);
+
 private:
     std::string resource_url_;
     std::mutex mutex_;
