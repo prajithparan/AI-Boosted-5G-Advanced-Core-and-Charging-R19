@@ -1383,6 +1383,117 @@ perform_n40_charging_data_update(sbi_core::http2::Client& chf_client,
 // needs to be modified" convention (Measurement Method/Reporting Triggers are omitted: unchanged
 // since Create). Header SEID is `up_seid` (the UP function's own F-SEID for this session, per this
 // file's own established addressing-rule comment), not `cp_seid`.
+// ADR-0328: the authSessAmbr PCF decided, as a pair of raw 3GPP BitRate strings.
+//
+// Establishment already did exactly this inline to build the session QER. Enforcement of a LATER
+// decision has to derive the rate the same way or the two paths can disagree about what PCF asked
+// for, so the logic lives here once and both call it. Returns nullopt/nullopt when the decision
+// carries no session rule or the rule carries no AMBR -- an absent AMBR is not a request to
+// throttle to zero.
+struct AuthSessAmbr {
+    std::optional<std::string> uplink;
+    std::optional<std::string> downlink;
+};
+
+AuthSessAmbr auth_sess_ambr_from(const sbi_gen::SmPolicyDecision& decision) {
+    AuthSessAmbr out;
+    if (!decision.sessRules.has_value() || !decision.sessRules->is_object() ||
+        decision.sessRules->empty()) {
+        return out;
+    }
+    try {
+        const auto rule = decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
+        if (rule.authSessAmbr.has_value()) {
+            out.uplink = rule.authSessAmbr->uplink;
+            out.downlink = rule.authSessAmbr->downlink;
+        }
+    } catch (const json::exception&) {
+        // Malformed sessRules: left absent, so the caller sends nothing rather than enforcing a
+        // rate it had to guess at.
+    }
+    return out;
+}
+
+// ADR-0328: re-authorise the session QER on the user plane after PCF changes its mind.
+//
+// TS 29.244 Session Modification Request carries Update QER; the QER id is the same kQerId the
+// establishment path installs, so this re-rates the session that already exists rather than
+// adding a second, competing rate limit. `create_instead` sends Create QER for the case where
+// establishment installed none (PCF's original decision carried no parsable AMBR): updating a QER
+// that was never created would be rejected by UPF, and silently doing nothing would leave a
+// subscriber who hit their spending limit running at full rate.
+bool perform_n4_session_modification_update_qer(smf::PfcpPeer& pfcp_peer,
+                                                const std::string& upf_ip,
+                                                std::uint64_t up_seid,
+                                                std::uint32_t qer_id,
+                                                const pfcp_core::Mbr& mbr,
+                                                bool create_instead) {
+    const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
+                                                      pfcp_core::kPfcpPort);
+
+    std::vector<std::uint8_t> qer;
+    pfcp_core::encode_ie(qer,
+                         static_cast<std::uint16_t>(pfcp_core::IeType::QerId),
+                         pfcp_core::encode_qer_id(qer_id));
+    // Gate stays OPEN/OPEN for the same reason establishment documents: this QER applies a RATE
+    // limit. Closing the gate would drop the session's packets entirely, which is a different
+    // policy decision that PCF expresses differently, and inferring it from an AMBR change would
+    // be inventing enforcement semantics.
+    pfcp_core::GateStatus gate{};
+    pfcp_core::encode_ie(qer,
+                         static_cast<std::uint16_t>(pfcp_core::IeType::GateStatus),
+                         pfcp_core::encode_gate_status(gate));
+    pfcp_core::encode_ie(
+        qer, static_cast<std::uint16_t>(pfcp_core::IeType::Mbr), pfcp_core::encode_mbr(mbr));
+
+    std::vector<std::uint8_t> ies;
+    pfcp_core::encode_ie(ies,
+                         static_cast<std::uint16_t>(create_instead ? pfcp_core::IeType::CreateQer
+                                                                   : pfcp_core::IeType::UpdateQer),
+                         qer);
+
+    pfcp_core::Header req_header;
+    req_header.has_seid = true;
+    req_header.seid = up_seid;
+    req_header.message_type = pfcp_core::MessageType::SessionModificationRequest;
+    req_header.sequence_number = pfcp_peer.allocate_sequence_number();
+
+    auto pdu = pfcp_core::encode_header(req_header, static_cast<std::uint16_t>(ies.size()));
+    pdu.insert(pdu.end(), ies.begin(), ies.end());
+
+    const auto resp_ie_bytes = pfcp_peer.send_request_and_await_response(
+        upf_endpoint,
+        pdu,
+        pfcp_core::MessageType::SessionModificationResponse,
+        req_header.sequence_number,
+        "Session Modification");
+    if (!resp_ie_bytes.has_value()) {
+        return false;
+    }
+    const auto resp_ies = pfcp_core::decode_ies(*resp_ie_bytes);
+    const auto* cause_ie =
+        resp_ies.has_value()
+            ? pfcp_core::find_ie(*resp_ies, static_cast<std::uint16_t>(pfcp_core::IeType::Cause))
+            : nullptr;
+    const auto cause =
+        cause_ie != nullptr ? pfcp_core::decode_cause(cause_ie->value) : std::nullopt;
+    if (!cause.has_value() || *cause != pfcp_core::Cause::RequestAccepted) {
+        spdlog::warn("smf: UPF rejected N4 Session Modification for QER {} (UP F-SEID={:#x}, "
+                     "cause={})",
+                     qer_id,
+                     up_seid,
+                     cause.has_value() ? static_cast<int>(*cause) : -1);
+        return false;
+    }
+    spdlog::info("smf: UPF accepted QER {} re-authorisation (UP F-SEID={:#x}) -- ul={} kbps "
+                 "dl={} kbps",
+                 qer_id,
+                 up_seid,
+                 mbr.ul_kbps,
+                 mbr.dl_kbps);
+    return true;
+}
+
 bool perform_n4_session_modification_update_urr(smf::PfcpPeer& pfcp_peer,
                                                 const std::string& upf_ip,
                                                 std::uint64_t up_seid,
@@ -2074,6 +2185,15 @@ int main() {
     auto pcf_policy_update_counter = meter->CreateUInt64Counter(
         "smf_pcf_policy_updates_total",
         "SM policy decisions pushed by PCF to SMF's notificationUri (N28/Sy chain)");
+    // ADR-0328: deliberately separate from the counter above. "PCF pushed a decision" and "the
+    // user plane was actually re-authorised" are different facts, and a decision that arrived but
+    // could not be enforced is exactly the case an operator needs to see -- a single counter would
+    // hide it.
+    auto pcf_policy_enforced_counter = meter->CreateUInt64Counter(
+        "smf_pcf_policy_enforced_total",
+        "SM policy decisions from PCF for which UPF accepted an N4 QER re-authorisation. Counts "
+        "accepted PFCP modifications, NOT confirmed packet-level rate limiting -- a UPF without an "
+        "eBPF/XDP datapath accepts the request and enforces nothing.");
     auto pdu_session_creation_req_counter = meter->CreateUInt64Counter(
         "smf_sm_pdu_session_creation_req_total",
         "TS 28.552 5.3.1.3 SM.PduSessionCreationReq -- PDU sessions requested to be created");
@@ -2365,22 +2485,11 @@ int main() {
                 }
             }
 
-            std::optional<std::string> policy_ambr_ul;
-            std::optional<std::string> policy_ambr_dl;
-            if (decision.sessRules.has_value() && decision.sessRules->is_object() &&
-                !decision.sessRules->empty()) {
-                try {
-                    const auto rule =
-                        decision.sessRules->begin().value().get<sbi_gen::SessionRule>();
-                    if (rule.authSessAmbr.has_value()) {
-                        policy_ambr_ul = rule.authSessAmbr->uplink;
-                        policy_ambr_dl = rule.authSessAmbr->downlink;
-                    }
-                } catch (const json::exception&) {
-                    // Malformed sessRules -- left absent, so no QER is sent and the NAS path falls
-                    // back to its own documented defaults, exactly as before.
-                }
-            }
+            // ADR-0328: shared with the pcf-notify enforcement path, so a rate decided at
+            // establishment and a rate decided later are derived by identical code.
+            const auto establishment_ambr = auth_sess_ambr_from(decision);
+            std::optional<std::string> policy_ambr_ul = establishment_ambr.uplink;
+            std::optional<std::string> policy_ambr_dl = establishment_ambr.downlink;
 
             if (const auto upf_ip = upf_endpoint_store.get(); upf_ip.has_value()) {
                 const auto n4_result =
@@ -2410,6 +2519,16 @@ int main() {
                     if (auto stored = sm_contexts.get(sm_context_ref); stored.has_value()) {
                         (*stored)["upSeid"] = n4_result->up_seid;
                         (*stored)["upfIp"] = *upf_ip;
+                        // ADR-0328: whether establishment actually installed the session QER.
+                        // It does so only when PCF's authSessAmbr parsed, so a later
+                        // re-authorisation has to know which of Update QER / Create QER is the
+                        // valid message -- an Update against a QER that was never created is
+                        // rejected by UPF.
+                        (*stored)["qerInstalled"] =
+                            (policy_ambr_ul.has_value() &&
+                             smf::ambr_to_kbps(*policy_ambr_ul).has_value()) ||
+                            (policy_ambr_dl.has_value() &&
+                             smf::ambr_to_kbps(*policy_ambr_dl).has_value());
                         if (n4_result->ul_teid.has_value()) {
                             (*stored)["ulTeid"] = *n4_result->ul_teid;
                         }
@@ -2690,14 +2809,20 @@ int main() {
     // change PCF decided, including one driven by a CHF spending-limit status change over N28,
     // had nowhere to land. This is that receiver.
     //
-    // What it does NOT do, deliberately: invent enforcement semantics. The decision PCF sends is
-    // recorded against the SM context and logged; translating a specific decision into a PFCP
-    // re-authorisation is a separate increment with its own N4 work, and is named in ADR-0286
-    // rather than half-done here.
+    // ADR-0328 makes this enforce, which ADR-0286 explicitly deferred. A changed `authSessAmbr`
+    // is re-authorised onto the session QER over N4, so a CHF spending-limit status change now
+    // actually rate-limits the subscriber's traffic instead of only being recorded.
+    //
+    // What it still does NOT do: infer a gate closure. `TrafficControlData.flowStatus` is
+    // per-PCC-rule and this SMF installs a single session-level QER, so mapping one onto the other
+    // would assert that blocking one flow blocks the session -- an enforcement semantic the spec
+    // does not state. Fully barring a subscriber is a PDU session release, a different procedure.
+    // Named here rather than approximated.
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify",
-        [&sm_contexts, &pcf_policy_update_counter](const sbi_core::http2::Request& req) {
+        [&sm_contexts, &pcf_policy_update_counter, &pcf_policy_enforced_counter, &pfcp_peer](
+            const sbi_core::http2::Request& req) {
             // No bearer check: this is a notification endpoint PCF calls back on a URI SMF itself
             // supplied, matching how every other callback receiver in this project is reached.
             const auto ref = req.path_params.at("smContextRef");
@@ -2719,11 +2844,68 @@ int main() {
                 // establishment: an operator debugging a live session needs to see both what was
                 // decided originally and what changed it.
                 updated["pcfPolicyUpdate"] = json(*body->smPolicyDecision);
-                sm_contexts.update(ref, updated);
                 pcf_policy_update_counter->Add(1);
-                spdlog::info("smf: PCF pushed an updated SM policy decision for smContextRef {} "
-                             "-- recorded against the session",
-                             ref);
+
+                // ADR-0328: enforce the new rate on the user plane.
+                const auto ambr = auth_sess_ambr_from(*body->smPolicyDecision);
+                const auto ul_kbps =
+                    ambr.uplink.has_value() ? smf::ambr_to_kbps(*ambr.uplink) : std::nullopt;
+                const auto dl_kbps =
+                    ambr.downlink.has_value() ? smf::ambr_to_kbps(*ambr.downlink) : std::nullopt;
+
+                if (!ul_kbps.has_value() && !dl_kbps.has_value()) {
+                    // Either no AMBR at all, or one this build cannot parse. Both mean the same
+                    // thing here: nothing is sent to UPF, and the session keeps the rate it had.
+                    // Enforcing a guessed rate would be worse than enforcing none.
+                    spdlog::info("smf: PCF's updated decision for smContextRef {} carries no "
+                                 "usable authSessAmbr (ul='{}' dl='{}') -- recorded, session rate "
+                                 "UNCHANGED",
+                                 ref,
+                                 ambr.uplink.value_or("<none>"),
+                                 ambr.downlink.value_or("<none>"));
+                } else if (!updated.contains("upSeid") || !updated.contains("upfIp")) {
+                    spdlog::warn("smf: PCF's updated decision for smContextRef {} cannot be "
+                                 "enforced -- no N4 session recorded for it, so the rate change is "
+                                 "stored but NOT applied",
+                                 ref);
+                } else {
+                    pfcp_core::Mbr mbr{};
+                    mbr.ul_kbps = ul_kbps.value_or(0);
+                    mbr.dl_kbps = dl_kbps.value_or(0);
+                    const bool create_instead = !updated.value("qerInstalled", false);
+                    const bool applied = perform_n4_session_modification_update_qer(
+                        pfcp_peer,
+                        updated.at("upfIp").get<std::string>(),
+                        updated.at("upSeid").get<std::uint64_t>(),
+                        kQerId,
+                        mbr,
+                        create_instead);
+                    if (applied) {
+                        updated["qerInstalled"] = true;
+                        // What was actually pushed to the user plane, which is not always what
+                        // PCF asked for -- an operator reading the context needs the enforced
+                        // value, not just the requested one.
+                        updated["enforcedAmbrKbps"] =
+                            json{{"ul", mbr.ul_kbps}, {"dl", mbr.dl_kbps}};
+                        pcf_policy_enforced_counter->Add(1);
+                        // Deliberately "UPF accepted", not "traffic is now limited". SMF cannot
+                        // know whether UPF has a datapath to apply the QER to -- on a host with no
+                        // eBPF/XDP privileges UPF accepts the re-authorisation and says plainly in
+                        // its own log that nothing is rate-limited. Claiming enforcement here
+                        // would put that gap behind a reassuring SMF log line.
+                        spdlog::info("smf: UPF accepted the re-authorised rate for smContextRef "
+                                     "{} -- ul={} kbps dl={} kbps",
+                                     ref,
+                                     mbr.ul_kbps,
+                                     mbr.dl_kbps);
+                    } else {
+                        spdlog::warn("smf: UPF did not accept the rate change for smContextRef {} "
+                                     "-- decision recorded, user plane still at its previous rate",
+                                     ref);
+                    }
+                }
+
+                sm_contexts.update(ref, updated);
             } else {
                 spdlog::info("smf: PCF notification for smContextRef {} carried no "
                              "smPolicyDecision -- nothing to apply",

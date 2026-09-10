@@ -151,6 +151,12 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
     // failed on its third run, with "No tracked spending-limit subscription".
     nf_test::SpawnedProcess udr(UDR_PATH);
     ASSERT_GT(udr.pid(), 0);
+    // ADR-0328: UPF is what makes this test about ENFORCEMENT rather than only delivery. Without
+    // it the SM context has no N4 session, so SMF records the decision and correctly declines to
+    // apply it -- which is the state ADR-0286 left behind and the state this test now proves is
+    // gone. Spawned before SMF so the PFCP association is up when SMF establishes the session.
+    nf_test::SpawnedProcess upf(UPF_PATH);
+    ASSERT_GT(upf.pid(), 0);
     nf_test::SpawnedProcess pcf(PCF_PATH);
     ASSERT_GT(pcf.pid(), 0);
     nf_test::SpawnedProcess smf(SMF_PATH);
@@ -202,8 +208,21 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
 
     // A real SM context, which makes SMF create a real SM Policy Association with PCF -- that is
     // what gives PCF the notificationUri this whole test is about.
+    //
+    // ADR-0328: retried until the context has a REAL N4 session, because enforcement is the point
+    // now. SMF discovers UPF through NRF on a 2s retry cadence and skips N4 establishment until
+    // that association is up, while still answering 201 -- so a single unlucky-but-successful
+    // creation yields a session with no `upSeid`, and enforcement correctly declines to apply
+    // anything. That is exactly how this test failed once the enforcement assertion was added:
+    // "no UPF Sx Association established yet, skipping N4 Session Establishment".
+    //
+    // Each attempt creates one more SM Policy at PCF, and PCF allocates "smpolicy-N"
+    // sequentially, so the policy id is COUNTED rather than assumed to be smpolicy-1. Counting is
+    // deterministic; assuming is what made an earlier version of this test depend on winning a
+    // race it did not know it was in.
     std::string sm_context_ref;
-    {
+    int sm_policies_created = 0;
+    for (int attempt = 0; attempt < 40 && sm_context_ref.empty(); ++attempt) {
         sbi_core::multipart::Part part;
         part.content_type = "application/json";
         part.body =
@@ -213,7 +232,7 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
                 {"anType", "3GPP_ACCESS"},
                 {"smContextStatusUri", "https://example.com/sm-status"},
                 {"supi", supi},
-                {"pduSessionId", 7},
+                {"pduSessionId", 7 + attempt},
                 {"dnn", "internet"},
                 {"sNssai", json{{"sst", 1}, {"sd", "000001"}}},
             }
@@ -227,23 +246,45 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
         req.headers.emplace("authorization", "Bearer " + smf_token);
         req.body = encoded.body;
         auto resp = client.send(req);
-        ASSERT_TRUE(resp.has_value());
-        ASSERT_EQ(resp->status, 201) << resp->body;
+        if (!resp.has_value() || resp->status != 201) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            continue;
+        }
+        ++sm_policies_created;
         const auto loc = resp->headers.find("location");
         ASSERT_NE(loc, resp->headers.end());
-        sm_context_ref = loc->second.substr(loc->second.rfind('/') + 1);
-        ASSERT_FALSE(sm_context_ref.empty());
+        const std::string ref = loc->second.substr(loc->second.rfind('/') + 1);
+        ASSERT_FALSE(ref.empty());
+
+        // HANDOVER_REQUIRED answers 200 only once a real UPF N3 F-TEID is on record, so it is a
+        // precise probe for "this context has a real N4 session" -- the same readiness check
+        // test_smf_n2sminfo_dispatch.cpp uses, rather than a sleep.
+        sbi_core::http2::ClientRequest probe;
+        probe.method = "POST";
+        probe.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + ref + "/modify";
+        probe.headers.emplace("content-type", "application/json");
+        probe.headers.emplace("authorization", "Bearer " + smf_token);
+        probe.body = json{{"n2SmInfoType", "HANDOVER_REQUIRED"}}.dump();
+        if (auto probe_resp = client.send(probe);
+            probe_resp.has_value() && probe_resp->status == 200) {
+            sm_context_ref = ref;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
+    ASSERT_FALSE(sm_context_ref.empty())
+        << "SMF never reached a state with a real UPF N4 session, so enforcement could not be "
+           "exercised";
 
     // Find the SM policy PCF created for it. PCF assigns its own id, so ask PCF rather than guess.
     const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol", "PCF");
     ASSERT_FALSE(pcf_token.empty());
 
-    // PCF allocates "smpolicy-N" sequentially (pcf/src/stores.cpp), and this test creates the
-    // first SM policy in a freshly spawned PCF's life. Not assumed silently: a wrong id makes the
-    // status push 404 and the test says exactly that -- which is how the first two runs of this
-    // test failed, once on the route path and once on this id.
-    const std::string sm_policy_id = "smpolicy-1";
+    // PCF allocates "smpolicy-N" sequentially (pcf/src/stores.cpp) and SMF creates exactly one
+    // SM Policy per successful CreateSMContext, so the policy belonging to the context above is
+    // the Nth -- where N is the number of contexts this test actually created, not 1. A wrong id
+    // makes the status push 404 and the test says exactly that.
+    const std::string sm_policy_id = "smpolicy-" + std::to_string(sm_policies_created);
 
     // The status change CHF would push. Same request shape, sent to PCF's real callback.
     {
@@ -292,4 +333,19 @@ TEST(N28SyEndToEnd, SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession) {
     EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_pcf_policy_updates_total"), 1)
         << "SMF never received the policy update -- the N28 chain stops at PCF, which is exactly "
            "the gap this test exists to prevent regressing";
+
+    // ADR-0328: the half ADR-0286 deferred. Receiving the decision and acting on it are different
+    // facts, which is why these are two counters rather than one -- `updates_total` above can be 1
+    // while this is 0, and that combination is precisely the "recorded but never enforced" state
+    // the directive was about.
+    //
+    // This counter only advances after a real PFCP Session Modification carrying the re-authorised
+    // QER has been answered RequestAccepted by a real UPF process. config/pcf.json's operator-owned
+    // action for this counter's "terminate" status is authSessAmbr 1 Kbps up and down, so what is
+    // being proved is that hitting a CHF spending limit actually throttles the subscriber's
+    // session on the user plane.
+    EXPECT_EQ(scrape_metric_value("127.0.0.1", 9466, "smf_pcf_policy_enforced_total"), 1)
+        << "SMF received PCF's decision but never re-authorised it onto the user plane -- the "
+           "subscriber hit their spending limit and is still running at full rate, which is the "
+           "exact gap ADR-0286 named and ADR-0328 closes";
 }

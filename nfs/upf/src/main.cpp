@@ -1255,12 +1255,94 @@ build_session_modification_response_ies(const std::vector<std::uint8_t>& request
                     std::min<std::uint64_t>(mbr->ul_kbps, 0xFFFFFFFFULL));
             }
         }
-        if (qer_id_ie == nullptr || datapath == nullptr ||
-            !datapath->update_qer(*teid, new_ul_gate_closed, new_dl_gate_closed, new_mbr_ul_kbps)) {
-            spdlog::warn("upf: failed to apply Update QER for TEID {:#x}", *teid);
+        if (qer_id_ie == nullptr) {
+            spdlog::warn("upf: Update QER for TEID {:#x} has no QER ID -- rejected", *teid);
+            failed = true;
+        } else if (datapath == nullptr) {
+            // ADR-0328: no eBPF/XDP datapath on this host (the startup warning above says so).
+            // Establishment already treats that as a degrade to control-plane-only operation --
+            // it installs the session and skips register_qer without failing -- so rejecting a
+            // MODIFICATION for the same environmental reason was incoherent: UPF would accept a
+            // session it then refused to modify. The request is well-formed and the control plane
+            // accepts it; what is missing is a datapath to apply it to, which is not a property of
+            // the request.
+            //
+            // Logged at warning, not info, because the CP peer will read this acceptance as "the
+            // rate changed" and on this host it did not.
+            spdlog::warn("upf: accepted Update QER for TEID {:#x} but NO datapath exists to "
+                         "enforce it -- control plane only, traffic is NOT rate-limited",
+                         *teid);
+        } else if (!datapath->update_qer(
+                       *teid, new_ul_gate_closed, new_dl_gate_closed, new_mbr_ul_kbps)) {
+            spdlog::warn("upf: failed to apply Update QER for TEID {:#x} -- no QER registered for "
+                         "it, or the BPF map update failed",
+                         *teid);
             failed = true;
         } else {
             spdlog::info("upf: applied Update QER for TEID {:#x}", *teid);
+        }
+    }
+
+    // ADR-0328: real Create QER in a Session MODIFICATION (TS 29.244 Table 7.5.4.2-1 lists Create
+    // QER there, not only in Establishment).
+    //
+    // This was missing, and the way it was missing is the point: an unhandled Create QER fell
+    // through every branch above without setting `failed`, so UPF answered RequestAccepted and the
+    // CP saw a successful modification while nothing had been registered on the datapath. SMF's
+    // ADR-0328 enforcement path needs exactly this message -- it sends Create QER when a session
+    // was established without one (PCF's original decision carried no parsable AMBR) -- so without
+    // this branch SMF would have counted a subscriber as throttled who was still running at full
+    // rate. An accepted request that does nothing is worse than a rejected one.
+    const auto* create_qer_ie =
+        ies.has_value()
+            ? pfcp_core::find_ie(*ies, static_cast<std::uint16_t>(pfcp_core::IeType::CreateQer))
+            : nullptr;
+    if (create_qer_ie != nullptr) {
+        const auto create_qer_ies = pfcp_core::decode_ies(create_qer_ie->value);
+        const auto* qer_id_ie =
+            create_qer_ies.has_value()
+                ? pfcp_core::find_ie(*create_qer_ies,
+                                     static_cast<std::uint16_t>(pfcp_core::IeType::QerId))
+                : nullptr;
+        const auto* gate_status_ie =
+            create_qer_ies.has_value()
+                ? pfcp_core::find_ie(*create_qer_ies,
+                                     static_cast<std::uint16_t>(pfcp_core::IeType::GateStatus))
+                : nullptr;
+        const auto* mbr_ie =
+            create_qer_ies.has_value()
+                ? pfcp_core::find_ie(*create_qer_ies,
+                                     static_cast<std::uint16_t>(pfcp_core::IeType::Mbr))
+                : nullptr;
+        // Gate Status is Mandatory in a Create QER, same as the Establishment path requires.
+        const auto gate = gate_status_ie != nullptr
+                              ? pfcp_core::decode_gate_status(gate_status_ie->value)
+                              : std::nullopt;
+        std::uint32_t new_mbr_ul_kbps = 0;
+        if (mbr_ie != nullptr) {
+            if (const auto mbr = pfcp_core::decode_mbr(mbr_ie->value); mbr.has_value()) {
+                new_mbr_ul_kbps = static_cast<std::uint32_t>(
+                    std::min<std::uint64_t>(mbr->ul_kbps, 0xFFFFFFFFULL));
+            }
+        }
+        if (qer_id_ie == nullptr || !gate.has_value()) {
+            spdlog::warn("upf: Create QER for TEID {:#x} is missing its Mandatory QER ID or Gate "
+                         "Status -- rejected",
+                         *teid);
+            failed = true;
+        } else if (datapath == nullptr) {
+            // Same reasoning as Update QER above: well-formed request, no datapath to apply it to.
+            spdlog::warn("upf: accepted Create QER for TEID {:#x} but NO datapath exists to "
+                         "enforce it -- control plane only, traffic is NOT rate-limited",
+                         *teid);
+        } else {
+            datapath->register_qer(*teid, gate->ul_closed, gate->dl_closed, new_mbr_ul_kbps);
+            spdlog::info("upf: applied Create QER for TEID {:#x}: ul_gate={} dl_gate={} "
+                         "mbr_ul_kbps={}",
+                         *teid,
+                         gate->ul_closed ? "CLOSED" : "OPEN",
+                         gate->dl_closed ? "CLOSED" : "OPEN",
+                         new_mbr_ul_kbps);
         }
     }
 
