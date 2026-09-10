@@ -4,6 +4,11 @@
 
 #include <spdlog/spdlog.h>
 
+#include <ctime>
+
+#include "cdr.hpp"
+#include "rating_decision_store.hpp"
+
 namespace mcp {
 namespace {
 
@@ -105,48 +110,82 @@ std::vector<Tool> build_tool_registry() {
         .returns_pii = true,
         .subject_arg = "subscriberId",
         .invoke = [](const json& args, ToolContext& ctx) {
-            auto r = backend_get(ctx,
-                                 cfg_str(ctx, "chf_base_url") +
-                                     "/nchf-convergedcharging/v3/rating-decisions/" +
-                                     arg_str(args, "chargingDataRef"),
-                                 "rating decision");
-            if (r.ok) {
-                r.field_classes = {"subscriber_id", "tariff", "rated_amount", "ai_advisory"};
+            ToolResult r;
+            if (ctx.rating_decisions == nullptr) {
+                r.error = "rating-decision store not configured";
+                return r;
             }
+            const auto ref = arg_str(args, "chargingDataRef");
+            const auto decisions = ctx.rating_decisions->find_by_charging_data_ref(ref);
+            if (decisions.empty()) {
+                // Explicitly NOT an empty success. "No decision was recorded for this
+                // reference" and "this charge had no reason" are different statements, and an
+                // agent handed an empty object would be free to narrate the second.
+                r.error = "no rating decision recorded for " + ref;
+                return r;
+            }
+            r.ok = true;
+            r.content = json{{"chargingDataRef", ref}, {"decisions", decisions}};
+            r.field_classes = {"subscriber_id", "tariff", "rated_amount", "ai_advisory"};
             return r;
         }});
 
     // ---- PII: recent usage ------------------------------------------------------------------
     tools.push_back(Tool{
         .name = "get_recent_charges",
-        .description = "Recent charging records for one subscriber, most recent first.",
+        .description = "Recent completed charging records for one subscriber, most recent first.",
         .input_schema = json{{"type", "object"},
                              {"properties",
                               json{{"subscriberId", json{{"type", "string"}}},
-                                   {"limit",
+                                   {"lookbackDays",
                                     json{{"type", "integer"},
                                          {"minimum", 1},
-                                         {"maximum", 100},
-                                         {"default", 10}}}}},
+                                         {"maximum", 365},
+                                         {"default", 30}}}}},
                              {"required", json::array({"subscriberId"})}},
         .returns_pii = true,
         .subject_arg = "subscriberId",
         .invoke = [](const json& args, ToolContext& ctx) {
-            const int limit = args.contains("limit") && args.at("limit").is_number_integer()
-                                  ? std::min(100, std::max(1, args.at("limit").get<int>()))
-                                  : 10;
-            auto r = backend_get(
-                ctx,
-                cfg_str(ctx, "chf_base_url") + "/nchf-convergedcharging/v3/cdrs?subscriberId=" +
-                    arg_str(args, "subscriberId") + "&limit=" + std::to_string(limit),
-                "charging records");
-            if (r.ok) {
-                r.field_classes = {"subscriber_id", "usage_volume", "spend", "serving_plmn"};
-                // The CDR carries a roaming PLMN, which is location-adjacent: it says which
-                // country a subscriber was in. Withheld here and recorded as withheld, since
-                // a balance question never needs it.
-                r.withheld_classes = {"precise_location"};
+            ToolResult r;
+            if (ctx.cdrs == nullptr) {
+                r.error = "CDR store not configured";
+                return r;
             }
+            const int days =
+                args.contains("lookbackDays") && args.at("lookbackDays").is_number_integer()
+                    ? std::min(365, std::max(1, args.at("lookbackDays").get<int>()))
+                    : 30;
+            const auto now = std::time(nullptr);
+            const auto from = now - static_cast<std::time_t>(days) * 86400;
+            auto fmt = [](std::time_t t) {
+                std::tm tm{};
+                char buf[32];
+                std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", gmtime_r(&t, &tm));
+                return std::string(buf);
+            };
+            chf::CdrWriter::CdrQuery q;
+            q.period_start = fmt(from);
+            q.period_end = fmt(now + 1);
+            q.subscriber_identifier = arg_str(args, "subscriberId");
+            const auto rows = ctx.cdrs->query(q);
+            json out = json::array();
+            for (const auto& c : rows) {
+                // Deliberately narrow. serving_plmn is location-adjacent -- it says which
+                // country the subscriber was in -- and a "what did I spend" question never
+                // needs it, so it is withheld and RECORDED as withheld.
+                out.push_back(json{{"chargingDataRef", c.charging_data_ref},
+                                   {"ratingGroup", c.rating_group},
+                                   {"usedTotalVolume", c.used_total_volume},
+                                   {"reservedCost", c.reserved_cost},
+                                   {"currency", c.reserved_cost_currency},
+                                   {"isRoaming", c.is_roaming}});
+            }
+            r.ok = true;
+            r.content = json{{"subscriberId", arg_str(args, "subscriberId")},
+                             {"lookbackDays", days},
+                             {"charges", out}};
+            r.field_classes = {"subscriber_id", "usage_volume", "spend", "roaming_flag"};
+            r.withheld_classes = {"serving_plmn", "precise_location"};
             return r;
         }});
 

@@ -7,6 +7,7 @@
 #include <optional>
 #include <pqxx/pqxx>
 #include <string>
+#include <vector>
 
 // Private to nfs/chf -- not shared with any other NF, per CLAUDE.md's "no NF includes another NF's
 // private headers" rule.
@@ -54,6 +55,15 @@ public:
     // per-connection thread) shares this same instance with CHF's HTTP io_context thread, same
     // real concurrency-model change disclosed on CdrWriter::write.
     void record(const RatingDecisionRecord& decision);
+
+    // ADR-0332: read back the decisions behind one ChargingDataRef, so a charge can be
+    // EXPLAINED rather than merely recorded. Returns one entry per rating group that was rated
+    // for that reference, newest first.
+    //
+    // Looked up through `input_snapshot->>'chargingDataRef'` because that is where the reference
+    // actually lives -- `usage_record_id` was reserved for a UsageRecord table that does not
+    // exist (see schema.postgres.sql's own note), so keying on it would find nothing.
+    std::vector<nlohmann::json> find_by_charging_data_ref(const std::string& charging_data_ref);
 
     bool is_connected() const { return client_ != nullptr; }
 

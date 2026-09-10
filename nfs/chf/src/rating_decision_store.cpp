@@ -14,6 +14,53 @@ RatingDecisionStore::RatingDecisionStore(const std::string& conninfo) {
     }
 }
 
+std::vector<nlohmann::json>
+RatingDecisionStore::find_by_charging_data_ref(const std::string& charging_data_ref) {
+    std::vector<nlohmann::json> out;
+    if (client_ == nullptr) {
+        return out;
+    }
+    try {
+        pqxx::work txn(*client_);
+        // ai_advisory is returned as-is: when a model influenced the grant, the explanation must
+        // say so and show which bound applied. Hiding it would make an AI-adjusted charge
+        // indistinguishable from a purely deterministic one.
+        const auto rows =
+            txn.exec("SELECT id, tariff_id, tariff_version, rating_group, rated_amount, currency, "
+                     "rule_fired_id, ai_advisory::text AS ai_advisory, input_snapshot::text AS "
+                     "input_snapshot, decided_at::text AS decided_at "
+                     "FROM rating_decision WHERE input_snapshot->>'chargingDataRef' = $1 "
+                     "ORDER BY decided_at DESC",
+                     pqxx::params{charging_data_ref});
+        for (const auto& r : rows) {
+            nlohmann::json entry;
+            entry["id"] = r["id"].as<std::string>("");
+            entry["tariffId"] = r["tariff_id"].as<std::string>("");
+            entry["tariffVersion"] = r["tariff_version"].as<std::string>("");
+            entry["ratingGroup"] = r["rating_group"].as<long>(0);
+            entry["ratedAmount"] = r["rated_amount"].as<double>(0.0);
+            entry["currency"] = r["currency"].as<std::string>("");
+            entry["ruleFiredId"] = r["rule_fired_id"].as<std::string>("");
+            entry["decidedAt"] = r["decided_at"].as<std::string>("");
+            for (const char* col : {"ai_advisory", "input_snapshot"}) {
+                const auto raw = r[col].as<std::string>("");
+                if (!raw.empty()) {
+                    try {
+                        entry[col] = nlohmann::json::parse(raw);
+                    } catch (const std::exception&) {
+                        // A malformed stored document is reported as absent rather than crashing
+                        // an explanation request; the rest of the decision is still useful.
+                    }
+                }
+            }
+            out.push_back(std::move(entry));
+        }
+    } catch (const std::exception& e) {
+        spdlog::warn("chf: rating-decision lookup for {} failed: {}", charging_data_ref, e.what());
+    }
+    return out;
+}
+
 void RatingDecisionStore::record(const RatingDecisionRecord& decision) {
     if (!client_) {
         spdlog::warn(

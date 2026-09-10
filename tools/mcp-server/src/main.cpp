@@ -31,6 +31,9 @@
 #include <string>
 
 #include "agent_scope.hpp"
+#include "cdr.hpp"
+#include "rating_decision_store.hpp"
+
 #include "nf_config/nf_config.hpp"
 #include "pii_audit.hpp"
 #include "tools.hpp"
@@ -103,7 +106,33 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     sbi_core::http2::Client client(std::move(tls));
-    mcp::ToolContext ctx{.client = &client, .config = config};
+
+    // ADR-0332: read-only access to the two project-owned stores that have no specified API.
+    // Constructed here, once, so a per-call connection cost is not paid on every question an
+    // agent asks.
+    chf::RatingDecisionStore rating_decisions(nf_config::require<std::string>(
+        config, "rating_database_url", "MCP_RATING_DATABASE_URL"));
+    chf::DorisOptions doris{
+        .host = nf_config::require<std::string>(config, "cdr_host", "MCP_CDR_HOST"),
+        .port = static_cast<std::uint16_t>(
+            nf_config::require<int>(config, "cdr_port", "MCP_CDR_PORT")),
+        .user = nf_config::require<std::string>(config, "cdr_user", "MCP_CDR_USER"),
+        .password = nf_config::require<std::string>(config, "cdr_password", "MCP_CDR_PASSWORD"),
+        .database = nf_config::require<std::string>(config, "cdr_database", "MCP_CDR_DATABASE"),
+    };
+    chf::CdrWriter cdrs(doris);
+    if (!rating_decisions.is_connected()) {
+        // Not fatal, unlike the audit store: explain_charge degrades to a clear "no decision
+        // recorded" error, which is a true statement. The audit is different because its absence
+        // would let PII flow unlogged.
+        spdlog::warn("mcp: rating-decision store unavailable -- explain_charge will report that "
+                     "no decision could be read rather than inventing one");
+    }
+
+    mcp::ToolContext ctx{.client = &client,
+                         .rating_decisions = &rating_decisions,
+                         .cdrs = &cdrs,
+                         .config = config};
 
     spdlog::info("mcp: ready, {} read-only tools, audit connected", tools.size());
 

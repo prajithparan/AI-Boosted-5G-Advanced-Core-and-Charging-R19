@@ -24,6 +24,11 @@ namespace sbi_core::http2 {
 class Client;
 }
 
+namespace chf {
+class RatingDecisionStore;
+class CdrWriter;
+} // namespace chf
+
 namespace mcp {
 
 class PiiAuditStore;
@@ -41,6 +46,14 @@ struct ToolResult {
 
 struct ToolContext {
     sbi_core::http2::Client* client = nullptr;
+    // ADR-0332: two tools read project-owned stores DIRECTLY rather than over HTTP, because no
+    // specification defines an API for them. TS 32.291 has no "read the rating decision behind a
+    // charge" operation and no CDR query operation, so exposing one under
+    // /nchf-convergedcharging/v3/ would be inventing a 3GPP path -- the exact failure ADR-0325
+    // was written about. Reusing CHF's own store code (rather than re-implementing the queries
+    // here) also means these reads cannot drift from the tested ones.
+    chf::RatingDecisionStore* rating_decisions = nullptr;
+    chf::CdrWriter* cdrs = nullptr;
     nlohmann::json config;
 };
 
