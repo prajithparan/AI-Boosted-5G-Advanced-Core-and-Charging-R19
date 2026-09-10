@@ -75,7 +75,7 @@ lab-grade scope — see ADR-0009 in `docs/DECISIONS.md`).
 - **Deployment**: Docker + Compose (lab), Helm charts (k8s), all
   reproducible from a single `make lab-up`.
 
-## Scope: Network Functions (Release 19)
+## Scope: Network Functions (R19)
 
 - **Tier 1** (must, Phase 2-3): NRF, AMF, SMF, UPF, PCF, UDM, UDR, AUSF,
   NSSF, NEF, SCP, BSF, CHF.

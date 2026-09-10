@@ -1,7 +1,7 @@
 {
   "name": "5gc-r19",
   "version": "0.1.0",
-  "description": "5G Advanced Core and Charging R-19 -- production-grade, spec-traceable 3GPP Release 19 service-based core network ecosystem",
+  "description": "AI-Boosted 5G-Advanced Core and Charging - R19 -- production-grade, spec-traceable 3GPP R19 service-based core network ecosystem",
   "license": "Apache-2.0",
   "builtin-baseline": "f1d4bbc72f183441403ba5107cb19d75a5abc2a2",
   "dependencies": [
