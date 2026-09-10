@@ -70,6 +70,7 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/unit_pooling.cpp
     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/agent_scope.cpp
     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/pii_audit.cpp
+    ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/analytics.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     ngap_test_gnb.cpp
     ue_nas_driver.cpp

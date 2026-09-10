@@ -16,6 +16,7 @@ add_executable(mcp-server
     src/pii_audit.cpp
     src/agent_scope.cpp
     src/tools.cpp
+    src/analytics.cpp
 )
 target_link_libraries(mcp-server PRIVATE sbi_core nf_config libpqxx::pqxx unofficial::libmariadb tcap_core tbcd_core)
 target_include_directories(mcp-server PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src)

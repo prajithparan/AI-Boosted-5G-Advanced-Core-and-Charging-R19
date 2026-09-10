@@ -13,6 +13,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cmath>
+
 #include "agent_scope.hpp"
 #include "pii_audit.hpp"
 
@@ -102,4 +104,101 @@ TEST(McpAgentScope, ALauncherPinOverridesConfigAndCannotCreateAnAgent) {
     // and the failure would only show up as confusing denials later.
     EXPECT_FALSE(scopes.pin_subject("customre-agent", "imsi-999700000000999"));
     EXPECT_FALSE(scopes.is_known("customre-agent"));
+}
+
+// --- ADR-0334: forecasting and anomaly detection ------------------------------------------------
+//
+// These test the REFUSAL cases first, because that is where an analytics tool does damage: a
+// forecast presented with false confidence is worse than no forecast, and an alert that fires on
+// noise trains an operator to ignore it.
+
+#include "analytics.hpp"
+
+namespace {
+
+mcp::UsagePoint point(std::int64_t at, double used, double spend) {
+    return mcp::UsagePoint{.at_unix_sec = at, .used_octets = used, .spend = spend};
+}
+
+} // namespace
+
+TEST(McpForecast, RefusesRatherThanGuessingWithoutEnoughHistory) {
+    const auto f = mcp::forecast_exhaustion({point(1000, 5.0, 1.0)}, 100.0);
+    EXPECT_FALSE(f.computable);
+    EXPECT_FALSE(f.reason.empty()) << "a refusal must say why, or an agent cannot explain it";
+    EXPECT_DOUBLE_EQ(f.hours_remaining, 0.0);
+}
+
+TEST(McpForecast, RecordsSpanningNoTimeDoNotProduceAZeroHourEmergency) {
+    // Every record at the same instant: there is no elapsed time to divide by. Reporting
+    // "0 hours remaining" here would be a fabricated emergency, and an agent would relay it.
+    const auto f = mcp::forecast_exhaustion(
+        {point(1000, 5.0, 1.0), point(1000, 5.0, 1.0), point(1000, 5.0, 1.0)}, 100.0);
+    EXPECT_FALSE(f.computable);
+    EXPECT_NE(f.reason.find("elapsed time"), std::string::npos);
+}
+
+TEST(McpForecast, ProjectsAtTheObservedRate) {
+    // 3600 octets over exactly one hour = 3600 octets/hour; 7200 remaining = 2 hours.
+    const auto f =
+        mcp::forecast_exhaustion({point(0, 1800.0, 1.0), point(3600, 1800.0, 1.0)}, 7200.0);
+    ASSERT_TRUE(f.computable) << f.reason;
+    EXPECT_DOUBLE_EQ(f.burn_octets_per_hour, 3600.0);
+    EXPECT_DOUBLE_EQ(f.hours_remaining, 2.0);
+    EXPECT_EQ(f.samples, 2u);
+}
+
+TEST(McpForecast, AnAlreadyExhaustedAllowanceIsAnAnswerNotAnError) {
+    const auto f = mcp::forecast_exhaustion({point(0, 1800.0, 1.0), point(3600, 1800.0, 1.0)}, 0.0);
+    EXPECT_TRUE(f.computable);
+    EXPECT_DOUBLE_EQ(f.hours_remaining, 0.0);
+}
+
+TEST(McpAnomaly, RefusesWithoutEnoughBaseline) {
+    const auto a = mcp::detect_spend_anomaly({point(0, 1.0, 1.0), point(1, 1.0, 1.0)}, 3.0);
+    EXPECT_FALSE(a.computable);
+    EXPECT_FALSE(a.reason.empty());
+}
+
+TEST(McpAnomaly, FlagsARealSpikeAgainstTheSubscribersOwnHistory) {
+    // Four quiet windows then a large one. The baseline deliberately EXCLUDES the window under
+    // test -- including it would drag the mean toward the spike and hide it.
+    const auto a = mcp::detect_spend_anomaly({point(0, 0, 1.0),
+                                              point(100, 0, 1.1),
+                                              point(200, 0, 0.9),
+                                              point(300, 0, 1.0),
+                                              point(400, 0, 50.0)},
+                                             3.0);
+    ASSERT_TRUE(a.computable) << a.reason;
+    EXPECT_TRUE(a.is_anomalous);
+    EXPECT_GT(a.z_score, 3.0);
+    EXPECT_EQ(a.baseline_samples, 4u);
+}
+
+TEST(McpAnomaly, DoesNotFlagSpendingLessThanUsual) {
+    // One-sided by design: spending far less than usual is not bill shock, and alerting on it
+    // would train an operator to ignore the alert that matters.
+    const auto a = mcp::detect_spend_anomaly({point(0, 0, 50.0),
+                                              point(100, 0, 49.0),
+                                              point(200, 0, 51.0),
+                                              point(300, 0, 50.0),
+                                              point(400, 0, 0.5)},
+                                             3.0);
+    ASSERT_TRUE(a.computable) << a.reason;
+    EXPECT_FALSE(a.is_anomalous);
+    EXPECT_LT(a.z_score, 0.0);
+}
+
+TEST(McpAnomaly, AFlatBaselineDoesNotProduceAnInfiniteScore) {
+    // stddev is zero, so a z-score is undefined. Reporting infinity would be nonsense that an
+    // agent would happily relay as certainty.
+    const auto a = mcp::detect_spend_anomaly({point(0, 0, 2.0),
+                                              point(100, 0, 2.0),
+                                              point(200, 0, 2.0),
+                                              point(300, 0, 2.0),
+                                              point(400, 0, 9.0)},
+                                             3.0);
+    ASSERT_TRUE(a.computable);
+    EXPECT_TRUE(a.is_anomalous);
+    EXPECT_TRUE(std::isfinite(a.z_score));
 }

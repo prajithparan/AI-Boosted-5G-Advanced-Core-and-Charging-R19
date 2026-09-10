@@ -6,6 +6,7 @@
 
 #include <ctime>
 
+#include "analytics.hpp"
 #include "cdr.hpp"
 #include "rating_decision_store.hpp"
 
@@ -60,6 +61,39 @@ std::string arg_str(const json& args, const char* key) {
                                                           : std::string{};
 }
 
+} // namespace
+
+namespace {
+// Shared by both analytics tools: the subscriber's own recorded usage over a window, newest last.
+std::vector<mcp::UsagePoint>
+usage_points(ToolContext& ctx, const std::string& subscriber, int days) {
+    std::vector<mcp::UsagePoint> points;
+    if (ctx.cdrs == nullptr) {
+        return points;
+    }
+    const auto now = std::time(nullptr);
+    const auto from = now - static_cast<std::time_t>(days) * 86400;
+    auto fmt = [](std::time_t t) {
+        std::tm tm{};
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", gmtime_r(&t, &tm));
+        return std::string(buf);
+    };
+    chf::CdrWriter::CdrQuery q;
+    q.period_start = fmt(from);
+    q.period_end = fmt(now + 1);
+    q.subscriber_identifier = subscriber;
+    for (const auto& c : ctx.cdrs->query(q)) {
+        // Both fields are optional on a CdrRecord. An absent value means "not measured", which
+        // contributes nothing to a rate or a baseline -- treating it as zero is correct here and
+        // is NOT the same as inventing a zero-usage session.
+        points.push_back(
+            mcp::UsagePoint{.at_unix_sec = static_cast<std::int64_t>(c.invocation_time_stamp),
+                            .used_octets = static_cast<double>(c.used_total_volume.value_or(0)),
+                            .spend = c.reserved_cost.value_or(0.0)});
+    }
+    return points;
+}
 } // namespace
 
 std::vector<Tool> build_tool_registry() {
@@ -186,6 +220,96 @@ std::vector<Tool> build_tool_registry() {
                              {"charges", out}};
             r.field_classes = {"subscriber_id", "usage_volume", "spend", "roaming_flag"};
             r.withheld_classes = {"serving_plmn", "precise_location"};
+            return r;
+        }});
+
+    // ---- PII: quota-exhaustion forecast (ADR-0334) ------------------------------------------
+    tools.push_back(Tool{
+        .name = "forecast_quota_exhaustion",
+        .description = "Projects when this subscriber's remaining allowance runs out, from their "
+                       "own observed burn rate. Reports the basis and sample count; says so "
+                       "plainly when there is not enough history rather than guessing.",
+        .input_schema =
+            json{
+                {"type", "object"},
+                {"properties",
+                 json{
+                     {"subscriberId", json{{"type", "string"}}},
+                     {"remainingOctets", json{{"type", "number"}}},
+                     {"lookbackDays",
+                      json{{"type", "integer"}, {"minimum", 1}, {"maximum", 90}, {"default", 7}}}}},
+                {"required", json::array({"subscriberId", "remainingOctets"})}},
+        .returns_pii = true,
+        .subject_arg = "subscriberId",
+        .invoke = [](const json& args, ToolContext& ctx) {
+            ToolResult r;
+            const int days =
+                args.contains("lookbackDays") && args.at("lookbackDays").is_number_integer()
+                    ? std::min(90, std::max(1, args.at("lookbackDays").get<int>()))
+                    : 7;
+            const double remaining =
+                args.contains("remainingOctets") && args.at("remainingOctets").is_number()
+                    ? args.at("remainingOctets").get<double>()
+                    : 0.0;
+            const auto points = usage_points(ctx, arg_str(args, "subscriberId"), days);
+            const auto f = mcp::forecast_exhaustion(points, remaining);
+            r.ok = true;
+            r.content =
+                json{{"computable", f.computable},
+                     {"reason", f.reason},
+                     {"basis", "observed burn rate over this subscriber's own CDRs"},
+                     {"samples", f.samples},
+                     {"observedSpanSeconds", f.observed_span_sec},
+                     {"burnOctetsPerHour", f.burn_octets_per_hour},
+                     {"remainingOctets", f.remaining_octets},
+                     {"hoursRemaining", f.computable ? json(f.hours_remaining) : json(nullptr)},
+                     {"lookbackDays", days}};
+            r.field_classes = {"subscriber_id", "usage_volume", "balance"};
+            return r;
+        }});
+
+    // ---- PII: spend anomaly (ADR-0334) ------------------------------------------------------
+    tools.push_back(Tool{
+        .name = "detect_spend_anomaly",
+        .description = "Compares this subscriber's most recent spend against their OWN earlier "
+                       "history. Per-subscriber baseline, so no population model and no shared "
+                       "bias. One-sided: only unusually HIGH spend is flagged.",
+        .input_schema =
+            json{
+                {"type", "object"},
+                {"properties",
+                 json{{"subscriberId", json{{"type", "string"}}},
+                      {"lookbackDays",
+                       json{{"type", "integer"}, {"minimum", 1}, {"maximum", 90}, {"default", 30}}},
+                      {"zThreshold", json{{"type", "number"}, {"default", 3.0}}}}},
+                {"required", json::array({"subscriberId"})}},
+        .returns_pii = true,
+        .subject_arg = "subscriberId",
+        .invoke = [](const json& args, ToolContext& ctx) {
+            ToolResult r;
+            const int days =
+                args.contains("lookbackDays") && args.at("lookbackDays").is_number_integer()
+                    ? std::min(90, std::max(1, args.at("lookbackDays").get<int>()))
+                    : 30;
+            // The sensitivity is the operator's commercial choice, not this code's: what
+            // counts as bill shock differs by market and by tariff.
+            const double z = args.contains("zThreshold") && args.at("zThreshold").is_number()
+                                 ? args.at("zThreshold").get<double>()
+                                 : 3.0;
+            const auto points = usage_points(ctx, arg_str(args, "subscriberId"), days);
+            const auto a = mcp::detect_spend_anomaly(points, z);
+            r.ok = true;
+            r.content = json{{"computable", a.computable},
+                             {"reason", a.reason},
+                             {"basis", "this subscriber's own spend history"},
+                             {"isAnomalous", a.is_anomalous},
+                             {"recentSpend", a.recent_spend},
+                             {"baselineMean", a.baseline_mean},
+                             {"baselineStdDev", a.baseline_stddev},
+                             {"zScore", a.z_score},
+                             {"zThreshold", z},
+                             {"baselineSamples", a.baseline_samples}};
+            r.field_classes = {"subscriber_id", "spend"};
             return r;
         }});
 
