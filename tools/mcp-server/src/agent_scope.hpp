@@ -41,6 +41,18 @@ public:
     std::string pinned_subject(const std::string& agent_id) const;
     std::unordered_set<std::string> tools_for(const std::string& agent_id) const;
 
+    // ADR-0333: pin an agent to one subscriber at launch time.
+    //
+    // This is the property that makes a customer agent safe to point at a live subscriber base:
+    // the subject comes from the LAUNCHER -- a trusted caller that already knows which customer
+    // the session is about -- and never from the agent or from the model driving it. An agent
+    // that could choose its own subject could enumerate every subscriber using the same tool it
+    // legitimately uses for one.
+    //
+    // Returns false for an unknown agent, so a typo in a launcher cannot create an unpinned
+    // identity by accident.
+    bool pin_subject(const std::string& agent_id, const std::string& subject);
+
 private:
     std::unordered_map<std::string, AgentScope> agents_;
 };

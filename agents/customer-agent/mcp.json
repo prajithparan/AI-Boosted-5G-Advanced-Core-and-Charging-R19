@@ -1,0 +1,9 @@
+{
+  "_comment": "MCP host configuration for the customer agent. Point any MCP-capable host at this. The subscriber id in `args` is per-session and must be supplied by the system that already knows which customer the conversation is about -- never by the model.",
+  "mcpServers": {
+    "5gc-customer": {
+      "command": "agents/customer-agent/launch.sh",
+      "args": ["imsi-999700000000001"]
+    }
+  }
+}

@@ -88,3 +88,18 @@ TEST(McpPiiAudit, OutcomeNamesAreStableBecauseTheSchemaConstrainsThem) {
     EXPECT_STREQ(mcp::to_string(mcp::AccessOutcome::DeniedScope), "denied_scope");
     EXPECT_STREQ(mcp::to_string(mcp::AccessOutcome::DeniedPolicy), "denied_policy");
 }
+
+TEST(McpAgentScope, ALauncherPinOverridesConfigAndCannotCreateAnAgent) {
+    // ADR-0333: the pin comes from the launcher, which already knows whose session this is. The
+    // agent never chooses its own subject -- an agent that could would be able to enumerate the
+    // subscriber base with the same tool it legitimately uses for one customer.
+    auto scopes = mcp::AgentScopeRegistry::from_config(scope_config());
+    EXPECT_TRUE(scopes.pin_subject("customer-agent", "imsi-999700000000999"));
+    EXPECT_EQ(scopes.pinned_subject("customer-agent"), "imsi-999700000000999");
+
+    // Pinning an agent that does not exist must fail rather than quietly creating one: a typo in
+    // a launcher script would otherwise mint a new identity with no tool scope but a real pin,
+    // and the failure would only show up as confusing denials later.
+    EXPECT_FALSE(scopes.pin_subject("customre-agent", "imsi-999700000000999"));
+    EXPECT_FALSE(scopes.is_known("customre-agent"));
+}

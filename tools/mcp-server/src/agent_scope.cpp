@@ -54,6 +54,17 @@ std::string AgentScopeRegistry::pinned_subject(const std::string& agent_id) cons
     return it == agents_.end() ? std::string{} : it->second.pinned_subject;
 }
 
+bool AgentScopeRegistry::pin_subject(const std::string& agent_id, const std::string& subject) {
+    const auto it = agents_.find(agent_id);
+    if (it == agents_.end()) {
+        spdlog::warn("mcp: cannot pin unknown agent '{}'", agent_id);
+        return false;
+    }
+    it->second.pinned_subject = subject;
+    spdlog::info("mcp: agent '{}' pinned to a single subject for this session", agent_id);
+    return true;
+}
+
 std::unordered_set<std::string> AgentScopeRegistry::tools_for(const std::string& agent_id) const {
     const auto it = agents_.find(agent_id);
     return it == agents_.end() ? std::unordered_set<std::string>{} : it->second.allowed_tools;

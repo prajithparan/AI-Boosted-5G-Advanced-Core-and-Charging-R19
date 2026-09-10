@@ -27,15 +27,16 @@
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
 #include "agent_scope.hpp"
 #include "cdr.hpp"
-#include "rating_decision_store.hpp"
-
 #include "nf_config/nf_config.hpp"
 #include "pii_audit.hpp"
+#include "rating_decision_store.hpp"
 #include "tools.hpp"
 
 namespace {
@@ -97,7 +98,29 @@ int main() {
         return 1;
     }
 
-    const auto scopes = mcp::AgentScopeRegistry::from_config(config);
+    auto scopes = mcp::AgentScopeRegistry::from_config(config);
+
+    // ADR-0333: per-session subject pinning, supplied by the launcher through the environment.
+    // MCP_PIN_<AGENT_ID> with dashes as underscores, e.g. MCP_PIN_CUSTOMER_AGENT=imsi-...
+    // Applied here, at startup, so it is fixed for the life of the process: nothing the agent
+    // sends over JSON-RPC can change what it is allowed to read.
+    // Bound to a named reference first: config.value() returns a TEMPORARY, and nlohmann
+    // documents that iterating .items() over a temporary is undefined -- it threw
+    // invalid_iterator.214 at startup rather than failing at compile time.
+    static const nlohmann::json kNoAgents = nlohmann::json::object();
+    const nlohmann::json& agents_cfg = config.contains("agents") && config.at("agents").is_object()
+                                           ? config.at("agents")
+                                           : kNoAgents;
+    for (const auto& agent_entry : agents_cfg.items()) {
+        const std::string agent_id = agent_entry.key();
+        std::string env_name = "MCP_PIN_" + agent_id;
+        for (auto& ch : env_name) {
+            ch = (ch == '-') ? '_' : static_cast<char>(std::toupper(ch));
+        }
+        if (const char* pinned = std::getenv(env_name.c_str()); pinned != nullptr && *pinned != 0) {
+            scopes.pin_subject(agent_id, pinned);
+        }
+    }
     const auto tools = mcp::build_tool_registry();
 
     sbi_core::http2::TlsConfig tls{
@@ -110,12 +133,12 @@ int main() {
     // ADR-0332: read-only access to the two project-owned stores that have no specified API.
     // Constructed here, once, so a per-call connection cost is not paid on every question an
     // agent asks.
-    chf::RatingDecisionStore rating_decisions(nf_config::require<std::string>(
-        config, "rating_database_url", "MCP_RATING_DATABASE_URL"));
+    chf::RatingDecisionStore rating_decisions(
+        nf_config::require<std::string>(config, "rating_database_url", "MCP_RATING_DATABASE_URL"));
     chf::DorisOptions doris{
         .host = nf_config::require<std::string>(config, "cdr_host", "MCP_CDR_HOST"),
-        .port = static_cast<std::uint16_t>(
-            nf_config::require<int>(config, "cdr_port", "MCP_CDR_PORT")),
+        .port =
+            static_cast<std::uint16_t>(nf_config::require<int>(config, "cdr_port", "MCP_CDR_PORT")),
         .user = nf_config::require<std::string>(config, "cdr_user", "MCP_CDR_USER"),
         .password = nf_config::require<std::string>(config, "cdr_password", "MCP_CDR_PASSWORD"),
         .database = nf_config::require<std::string>(config, "cdr_database", "MCP_CDR_DATABASE"),
@@ -129,10 +152,8 @@ int main() {
                      "no decision could be read rather than inventing one");
     }
 
-    mcp::ToolContext ctx{.client = &client,
-                         .rating_decisions = &rating_decisions,
-                         .cdrs = &cdrs,
-                         .config = config};
+    mcp::ToolContext ctx{
+        .client = &client, .rating_decisions = &rating_decisions, .cdrs = &cdrs, .config = config};
 
     spdlog::info("mcp: ready, {} read-only tools, audit connected", tools.size());
 
