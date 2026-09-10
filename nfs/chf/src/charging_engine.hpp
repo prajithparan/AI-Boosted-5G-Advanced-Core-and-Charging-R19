@@ -32,6 +32,7 @@
 #include "cdr.hpp"
 #include "rating_decision_store.hpp"
 #include "stores.hpp"
+#include "unit_pooling.hpp"
 
 namespace chf {
 
@@ -73,6 +74,12 @@ struct RatingResult {
     // values to live on a TM Forum resource). std::nullopt when the matched price doesn't
     // configure that particular characteristic -- a real, valid "operator didn't set a policy for
     // this" state, not an error.
+    // ADR-0330: the operator's unit-pooling rates from this price's `unitPooling` characteristic,
+    // so a Release can draw voice or event usage against a volume allowance at the rate the
+    // product was sold under. Both zero when the price does not configure pooling, which leaves
+    // every existing offering's behaviour untouched.
+    double poolOctetsPerSecond = 0.0;
+    double poolOctetsPerServiceUnit = 0.0;
     std::optional<std::int64_t> validityTimeSec;
     std::optional<std::int64_t> quotaHoldingTimeSec;
     std::optional<std::int64_t> volumeQuotaThreshold;

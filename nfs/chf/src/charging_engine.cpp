@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <nf_config/nf_config.hpp>
 
+#include "unit_pooling.hpp"
+
 namespace chf {
 
 namespace {
@@ -209,6 +211,13 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
         }
 
         RatingResult result;
+        // ADR-0330: the operator's own exchange rate between units, if this price declares one.
+        // Parsed here, next to chargingScope, because it is the same kind of thing: a commercial
+        // term 3GPP leaves to the operator, carried as catalog data rather than decided in code.
+        const auto pooling = parse_unit_pooling(
+            find_characteristic_value(price.prodSpecCharValueUse, "unitPooling"));
+        result.poolOctetsPerSecond = pooling.octets_per_second.value_or(0.0);
+        result.poolOctetsPerServiceUnit = pooling.octets_per_service_unit.value_or(0.0);
         sbi_gen::GrantedUnit grant{};
         const auto amount = *price.unitOfMeasure->amount;
         const auto units = price.unitOfMeasure->units.value_or("");
@@ -665,6 +674,14 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                     charging_data_store.add_granted_time(
                         ref, static_cast<double>(*result.rating.grant->time));
                 }
+            }
+            // ADR-0330: pin the operator's pooling rates to this session. Recorded at reservation
+            // rather than looked up again at Release, so a tariff edited mid-session cannot be
+            // applied retroactively to traffic already carried under the old rate.
+            if (result.rating.poolOctetsPerSecond > 0.0 ||
+                result.rating.poolOctetsPerServiceUnit > 0.0) {
+                charging_data_store.set_unit_pooling(
+                    ref, result.rating.poolOctetsPerSecond, result.rating.poolOctetsPerServiceUnit);
             }
         } else if (reserve_rejected_counter != nullptr) {
             reserve_rejected_counter->Add(1);

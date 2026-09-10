@@ -78,6 +78,16 @@ public:
     // ApplyChargingReport -- which reports elapsed TIME -- proportionable at all.
     void add_granted_time(const std::string& ref, double seconds);
     double get_granted_time(const std::string& ref);
+
+    // ADR-0330: the operator's unit-pooling rates for this session, recorded at Create so Release
+    // converts usage at the rate the product was SOLD at. Re-reading the catalog at Release would
+    // apply a tariff change retroactively to traffic already carried.
+    void set_unit_pooling(const std::string& ref,
+                          double octets_per_second,
+                          double octets_per_service_unit);
+    // Returns {octets_per_second, octets_per_service_unit}; zero for either means "not pooled in
+    // that dimension", matching UnitPooling's own absent-factor convention.
+    std::pair<double, double> get_unit_pooling(const std::string& ref);
     void add_granted_volume(const std::string& ref, double octets);
     void add_granted_service_units(const std::string& ref, double units);
     double get_granted_volume(const std::string& ref);

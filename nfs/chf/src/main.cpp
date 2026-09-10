@@ -152,6 +152,7 @@
 #include "rating_decision_store.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
 #include "stores.hpp"
+#include "unit_pooling.hpp"
 
 namespace {
 
@@ -1127,6 +1128,37 @@ int main() {
                         used_time += static_cast<double>(container.time.value_or(0));
                     }
                 }
+            }
+            // ADR-0330: unit pooling. When the operator declared an exchange rate on the price
+            // this session was sold under, voice seconds and service units are converted into
+            // their octet equivalent and drawn against the single volume allowance -- which is
+            // what makes "10 GB usable as data or as minutes" one allowance rather than three
+            // separate ones that happen to share a wallet. With no rate configured this is a
+            // no-op and every dimension proportions exactly as it did before.
+            const auto [pool_per_sec, pool_per_unit] = charging_data_store.get_unit_pooling(ref);
+            if (pool_per_sec > 0.0 || pool_per_unit > 0.0) {
+                chf::UnitPooling pooling;
+                if (pool_per_sec > 0.0) {
+                    pooling.octets_per_second = pool_per_sec;
+                }
+                if (pool_per_unit > 0.0) {
+                    pooling.octets_per_service_unit = pool_per_unit;
+                }
+                const double pooled =
+                    chf::pooled_used_volume(pooling, used_volume, used_service_units, used_time);
+                spdlog::info("chf: unit pooling for {} -- {} octets used directly plus {} s and {} "
+                             "service units converted at the operator's rate = {} octets against "
+                             "the pooled allowance",
+                             ref,
+                             used_volume,
+                             used_time,
+                             used_service_units,
+                             pooled);
+                used_volume = pooled;
+                // Consumed through the pooled dimension now, so they must not ALSO proportion on
+                // their own -- that would charge the same traffic twice.
+                used_service_units = 0.0;
+                used_time = 0.0;
             }
             const auto amount_to_debit = chf::proportional_debit(reserved_total,
                                                                  granted_volume,

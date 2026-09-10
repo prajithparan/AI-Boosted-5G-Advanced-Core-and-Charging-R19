@@ -52,6 +52,7 @@ add_executable(integration_tests
     test_chf_protocol_ceilings.cpp
     test_proportional_debit.cpp
     test_charging_scope.cpp
+    test_unit_pooling.cpp
     test_balance_shared_bucket.cpp
     test_cdr_billing_chain.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/billing_items.cpp
@@ -64,6 +65,7 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/proportional_debit.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/charging_scope.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/unit_pooling.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     ngap_test_gnb.cpp
     ue_nas_driver.cpp

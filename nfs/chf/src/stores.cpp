@@ -93,6 +93,47 @@ double ChargingDataStore::get_granted_time(const std::string& ref) {
     return value ? std::stod(*value) : 0.0;
 }
 
+// ADR-0330: set, not increment. The pooling rate is a property of the product this session was
+// sold under, so a second Update carrying the same rate must not double it -- unlike the granted_*
+// fields above, which genuinely accumulate across quota re-authorisations.
+void ChargingDataStore::set_unit_pooling(const std::string& ref,
+                                         double octets_per_second,
+                                         double octets_per_service_unit) {
+    if (octets_per_second > 0.0) {
+        redis_->hset(charging_data_content_key(ref),
+                     "pool_octets_per_second",
+                     std::to_string(octets_per_second));
+    }
+    if (octets_per_service_unit > 0.0) {
+        redis_->hset(charging_data_content_key(ref),
+                     "pool_octets_per_service_unit",
+                     std::to_string(octets_per_service_unit));
+    }
+}
+
+std::pair<double, double> ChargingDataStore::get_unit_pooling(const std::string& ref) {
+    const auto key = charging_data_content_key(ref);
+    const auto per_second = redis_->hget(key, "pool_octets_per_second");
+    const auto per_unit = redis_->hget(key, "pool_octets_per_service_unit");
+    // A malformed stored value degrades to "not pooled" rather than throwing out of a Release
+    // handler: the session still finalises, just on its own dimensions as before this ADR.
+    // Generic parameter on purpose: redis++ returns its own sw::redis::Optional, which is not
+    // necessarily std::optional, so naming the type here fails to compile against the real client.
+    auto parse = [](const auto& v) -> double {
+        // sw::redis::Optional exposes operator bool / operator*, not has_value() -- same idiom
+        // get_granted_time and its neighbours in this file already use.
+        if (!v) {
+            return 0.0;
+        }
+        try {
+            return std::stod(*v);
+        } catch (const std::exception&) {
+            return 0.0;
+        }
+    };
+    return {parse(per_second), parse(per_unit)};
+}
+
 // ADR-0297. Same field/key/atomicity discipline as reserved_total above.
 void ChargingDataStore::add_granted_volume(const std::string& ref, double octets) {
     redis_->hincrbyfloat(charging_data_content_key(ref), "granted_volume", octets);
