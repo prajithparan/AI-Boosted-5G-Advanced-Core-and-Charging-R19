@@ -15,7 +15,7 @@ OURS="https://127.0.0.1:7777/nnrf-disc/v1/$QUERY"
 # root and modifies nothing on the machine. The connection still goes to 127.0.0.1, so both
 # systems are reached over the same loopback path.
 export HOSTALIASES="$SP/hostaliases"
-F5GC="https://NRF:8000/nnrf-disc/v1/$QUERY"
+F5GC="https://NRF:18000/nnrf-disc/v1/$QUERY"
 UDMID="12345678-1234-4123-8123-123456789abc"
 AMFID="00000000-0000-4000-8000-0000000000aa"
 REPEATS=3
@@ -74,12 +74,31 @@ ours_token() {
     | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'
 }
 f5gc_token() {
-  curl -sk -X POST "https://127.0.0.1:8000/oauth2/token" \
+  curl -sk -X POST "https://127.0.0.1:18000/oauth2/token" \
     -H "content-type: application/x-www-form-urlencoded" \
     -d "grant_type=client_credentials&nfInstanceId=$AMFID&nfType=AMF&scope=nnrf-disc&targetNfType=NRF" \
     | python3 -c 'import sys,json;print(json.load(sys.stdin).get("access_token",""))'
 }
 token_for() { [ "$1" = free5gc ] && f5gc_token || ours_token; }
+
+# free5GC drops every NF registration when its NRF restarts, and with oauth:true an unregistered
+# requester cannot obtain a token -- so a re-run against a restarted container measures 401s at
+# full speed rather than discovery. Re-registering is idempotent (PUT), so it is done every run
+# instead of assumed. This is not tuning either system: it is putting the same two NF profiles in
+# front of both NRFs, which the method requires.
+ensure_free5gc_registered() {
+  local udm="12345678-1234-4123-8123-123456789abc" amf="00000000-0000-4000-8000-0000000000aa"
+  for pair in "$udm:$SP/udm-profile.json" "$amf:$SP/amf-profile.json"; do
+    local id="${pair%%:*}" file="${pair#*:}"
+    [ -f "$file" ] || { echo "missing NF profile $file" >&2; exit 1; }
+    local code
+    code=$(curl -sk -o /dev/null -w '%{http_code}' -X PUT \
+      "https://127.0.0.1:18000/nnrf-nfm/v1/nf-instances/$id" \
+      -H "content-type: application/json" --data-binary @"$file")
+    case "$code" in 200|201) ;; *) echo "free5GC registration of $id failed: $code" >&2; exit 1;; esac
+  done
+}
+ensure_free5gc_registered
 
 for c in 1 8 32; do
   echo "== concurrency $c =="
