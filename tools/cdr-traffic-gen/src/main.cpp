@@ -34,6 +34,8 @@
 #include <thread>
 #include <vector>
 
+#include "profiles.hpp"
+
 namespace {
 
 using nlohmann::json;
@@ -58,6 +60,8 @@ struct Stats {
     std::atomic<std::uint64_t> released{0};
     // Usage-bearing Update CDRs: the only rows a usage model can train on.
     std::atomic<std::uint64_t> usage_reported{0};
+    std::atomic<std::uint64_t> enterprise_sessions{0};
+    std::atomic<std::uint64_t> consumer_sessions{0};
     std::atomic<std::uint64_t> failed{0};
 };
 
@@ -207,21 +211,58 @@ int main(int argc, char** argv) {
                 }
                 const auto supi_index = sub_pick(rng);
                 const auto supi = supi_for(supi_index);
-                const int rg = rg_pick(rng);
-                // Stable per-subscriber mean: a deterministic hash of the index mapped into a
-                // wide but bounded range, so the population still spans light to heavy users.
-                const auto sub_index = static_cast<std::uint64_t>(supi_index);
-                const double profile_mu =
-                    13.0 + 3.5 * static_cast<double>((sub_index * 2654435761ULL) % 1000) / 1000.0;
+                // ADR-0341: the subscriber's own profile decides volume, product, slice, DNN,
+                // RAT and roaming. Derived from the index, so every worker agrees without shared
+                // state.
+                const auto profile = cdrgen::profile_for(supi_index, opt.subscribers);
+                const auto rg = static_cast<int>(profile.rating_group);
+                const double profile_mu = profile.log_mean_volume;
                 const auto used =
                     static_cast<std::uint64_t>(std::exp(profile_mu) * session_jitter(rng));
 
+                // ADR-0341: a real PDUSessionInformation, because chargingScope matches on
+                // exactly these fields (ADR-0303/0305). Without them every session rates against
+                // an unscoped offering and the slice, DNN, UPF and roaming products are never
+                // exercised -- the dataset would contain one product wearing several names.
+                // Built field-by-field rather than with nested brace-init: nlohmann cannot
+                // disambiguate a nested {{"k", {...}}} between an object and an array of pairs,
+                // and it fails at compile time rather than producing the wrong shape.
+                json snssai = json::object();
+                snssai["sst"] = profile.slice_sst;
+                snssai["sd"] = profile.slice_sd;
+                json home_plmn = json::object();
+                home_plmn["mcc"] = profile.home_mcc;
+                home_plmn["mnc"] = profile.home_mnc;
+                json serving_plmn = json::object();
+                serving_plmn["mcc"] = profile.serving_mcc;
+                serving_plmn["mnc"] = profile.serving_mnc;
+
+                json pdu = json::object();
+                pdu["pduSessionID"] = 1 + (supi_index % 15);
+                pdu["dnnId"] = profile.dnn;
+                pdu["ratType"] = profile.rat_type;
+                pdu["chargingCharacteristics"] = profile.charging_characteristics;
+                pdu["networkSlicingInfo"] = json::object();
+                pdu["networkSlicingInfo"]["sNSSAI"] = snssai;
+                pdu["hPlmnId"] = home_plmn;
+                pdu["servingCNPlmnId"] = serving_plmn;
+
+                json pdu_charging = json::object();
+                pdu_charging["pduSessionInformation"] = pdu;
+                pdu_charging["uPFID"] = profile.upf_id;
                 json create{
                     {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
                     {"invocationTimeStamp",
                      sbi_core::format_rfc3339(std::chrono::system_clock::now())},
                     {"invocationSequenceNumber", 1},
                     {"subscriberIdentifier", supi},
+                    // TS 32.291 names this field pDUSessionChargingInformation -- capital PDU.
+                    // Sending the natural-looking "pduSessionChargingInformation" is silently
+                    // ignored by a spec-generated DTO: no error, no warning, every PDU attribute
+                    // (dnnId, sNSSAI, ratType, PLMN) simply absent. Slice and roaming scopes then
+                    // never match and the dataset contains one unscoped product wearing several
+                    // names -- which is exactly what the first profiled run produced.
+                    {"pDUSessionChargingInformation", pdu_charging},
                     {"multipleUnitUsage", json::array({json{{"ratingGroup", rg}}})},
                 };
                 auto [status, loc] = post(create_url, create);
@@ -230,6 +271,11 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 stats.created.fetch_add(1);
+                if (profile.segment == cdrgen::Segment::Enterprise) {
+                    stats.enterprise_sessions.fetch_add(1);
+                } else {
+                    stats.consumer_sessions.fetch_add(1);
+                }
                 const auto ref = loc.substr(loc.rfind('/') + 1);
 
                 // Usage is reported in UPDATEs, not only in the Release -- which is both what
@@ -248,6 +294,12 @@ int main(int argc, char** argv) {
                          sbi_core::format_rfc3339(std::chrono::system_clock::now())},
                         {"invocationSequenceNumber", 2 + u},
                         {"subscriberIdentifier", supi},
+                        // The PDU attributes must ride on EVERY request, not just Create. Each
+                        // Update re-rates, so a scope-constrained product only matches if the
+                        // slice/DNN/PLMN are present again -- and the Update CDR is the one
+                        // carrying usage, so without them the trainable rows have no grant and
+                        // `is_roaming` is false for every roaming subscriber.
+                        {"pDUSessionChargingInformation", pdu_charging},
                         {"multipleUnitUsage",
                          json::array({json{{"ratingGroup", rg},
                                            {"usedUnitContainer",
@@ -272,6 +324,7 @@ int main(int argc, char** argv) {
                      sbi_core::format_rfc3339(std::chrono::system_clock::now())},
                     {"invocationSequenceNumber", 2 + opt.updates},
                     {"subscriberIdentifier", supi},
+                    {"pDUSessionChargingInformation", pdu_charging},
                     {"multipleUnitUsage",
                      json::array({json{{"ratingGroup", rg},
                                        {"usedUnitContainer",
@@ -315,6 +368,8 @@ int main(int argc, char** argv) {
               << "released (CDRs)    : " << stats.released.load() << "\n"
               << "usage-bearing CDRs : " << stats.usage_reported.load()
               << "   <- the trainable ones\n"
+              << "consumer sessions  : " << stats.consumer_sessions.load() << "\n"
+              << "enterprise sessions: " << stats.enterprise_sessions.load() << "\n"
               << "failed             : " << stats.failed.load() << "\n"
               << "elapsed seconds    : " << elapsed << "\n"
               << "CDRs per second    : " << (elapsed > 0 ? stats.released.load() / elapsed : 0.0)
