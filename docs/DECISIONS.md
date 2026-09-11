@@ -27258,3 +27258,68 @@ bootstrap's. Comparing them as if they measured the same thing would be the erro
 ~5 sessions/sec at concurrency 8, each producing 3 usage-bearing Updates ≈ **10 trainable rows/sec**
 (~20 CDRs/sec all-operations). So **1M CDRs ≈ 14 hours**, 1M *trainable* rows ≈ 28 hours. The
 serialized `CdrWriter::write` is still the ceiling, and batching it remains the fix.
+
+## ADR-0338: opt-in CDR batching, and what it trades
+
+**Date:** 2026-09-11. **Status:** accepted.
+
+ADR-0337 measured the ceiling: ~20 CDRs/sec, *falling* as clients were added. `CdrWriter::write`
+took one mutex around one MySQL connection issuing a **single-row INSERT**, with BER encoding done
+inside the lock. Doris is an OLAP store; row-at-a-time insert is pathological for it.
+
+### The trade is stated, not buried
+
+A buffered CDR is **not durable**. A CHF that is SIGKILLed loses every unflushed row, and those are
+**billing records, not throughput**. So batching is **opt-in and defaults to off**: `batch_size = 1`
+preserves the exact durability every deployment has today — one CDR, one INSERT, on disk when
+`write()` returns.
+
+Enabling it logs a warning naming what is at risk. A flush interval bounds the exposure in *time*
+as the batch size bounds it in *rows*. The destructor flushes before closing the connection, so a
+*clean* shutdown never drops a row — losing data on the one path where it is entirely avoidable
+would be indefensible. A failed batch logs **how many rows went with it**: "a CDR write failed"
+badly understates losing 500 billing records.
+
+One shared column-list constant serves both the single-row and batched paths, so the two cannot
+drift into writing different columns.
+
+## ADR-0339: CHF could not be run twice on one host
+
+**Date:** 2026-09-11. **Status:** accepted.
+
+Batching lifts one process. The other half of the throughput problem is that the writer serializes
+*per process*, so a second CHF is what adds parallel write capacity — and forking is safe here
+because `ChargingDataRef` comes from `redis_->incr()`, an atomic shared counter, so instances
+cannot collide on refs.
+
+Except CHF could not be started twice. Three separate configurability gaps, each found only by
+hitting it:
+
+1. **`port` and `metrics_bind_address` had no env-override name.** `nf_config`'s own header states
+   that any key may be overridden by `<SERVICE>_<KEY>` at deployment time; these two simply never
+   passed one, so every instance bound the config's port and died with *"Address already in use"*.
+2. **`kDiameterPort` and `kCapPort` were hardcoded constants.** Even with SBI and metrics moved,
+   the Diameter and CAP listeners still collided. Now configurable, with the IANA-assigned 3868 and
+   2905 kept as defaults — changing a protocol port silently would be wrong.
+3. **My own first fix used `config.value()`**, which reads the file and *ignores the environment*.
+   The override silently did nothing and the instances kept dying with the identical message. Only
+   `nf_config::require` consults the environment.
+
+That third one is worth recording as its own lesson: an override that is read from the wrong
+accessor fails **exactly like no override at all**, and the error message is unchanged, so the
+obvious conclusion is "my env var is wrong" rather than "my code never looked".
+
+### Result
+
+| | |
+|---|---|
+| Before | ~20 CDRs/sec, degrading with concurrency |
+| After (batch 500 x 4 instances) | **235 CDRs/sec** |
+| 1M CDRs | ~14 hours → **~71 minutes** |
+
+Doris went from **16.5% CPU to 132%** under the same hardware. It was never resource-starved — it
+was starved of *work*, which is why adding resources would not have helped and adding a second
+writer did. Host load 8.39 on 8 cores with 8 GB still available.
+
+**Beyond this soak:** CHF being runnable more than once on a host is a precondition for the
+HA/clustering debt ADR-0049 names. It was assumed to work and did not.

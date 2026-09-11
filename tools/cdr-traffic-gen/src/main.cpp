@@ -38,7 +38,11 @@ namespace {
 using nlohmann::json;
 
 struct Options {
-    std::string chf_base = "https://127.0.0.1:7784";
+    // ADR-0339: repeatable. CHF's CDR writer serializes on one mutex and one Doris connection,
+    // so a SECOND CHF process -- not a second load thread -- is what actually adds write
+    // throughput. Safe to fork: ChargingDataRef comes from a Redis INCR, an atomic shared
+    // counter, so instances cannot collide on refs.
+    std::vector<std::string> chf_bases;
     std::string cert, key, ca;
     int subscribers = 10000;
     int sessions = 1000000;
@@ -59,7 +63,10 @@ struct Stats {
 void print_usage() {
     std::cout << R"(cdr-traffic-gen -- drives CHF's real N40 path to accumulate genuine CDRs
 
-  --chf <url>            CHF base URL (default https://127.0.0.1:7784)
+  --chf <url>            CHF base URL. REPEATABLE: give one per CHF instance and load is spread
+                         across them. Adding CHF processes is what raises write throughput;
+                         adding load threads against one CHF does not, because its CDR writer
+                         serializes on a single mutex and connection.
   --cert/--key/--ca      mTLS material (required)
   --subscribers <n>      distinct SUPIs to spread load across (default 10000)
   --sessions <n>         charging sessions to run; one CDR per Release (default 1000000)
@@ -98,7 +105,7 @@ int main(int argc, char** argv) {
             print_usage();
             return 0;
         } else if (a == "--chf") {
-            opt.chf_base = next("--chf");
+            opt.chf_bases.push_back(next("--chf"));
         } else if (a == "--cert") {
             opt.cert = next("--cert");
         } else if (a == "--key") {
@@ -121,6 +128,9 @@ int main(int argc, char** argv) {
             std::cerr << "unknown argument: " << a << "\n";
             return 2;
         }
+    }
+    if (opt.chf_bases.empty()) {
+        opt.chf_bases.push_back("https://127.0.0.1:7784");
     }
     if (opt.cert.empty() || opt.key.empty() || opt.ca.empty()) {
         std::cerr << "--cert, --key and --ca are required\n";
@@ -148,7 +158,13 @@ int main(int argc, char** argv) {
             // sessions small, a few very large.
             std::lognormal_distribution<double> volume(15.0, 1.5);
 
-            const std::string create_url = opt.chf_base + "/nchf-convergedcharging/v3/chargingdata";
+            // Each worker is pinned to one CHF instance rather than round-robining per request:
+            // a session's Create, Updates and Release must all reach the instance holding it --
+            // the session state is in shared Redis, but keeping a session on one connection avoids
+            // paying a fresh TLS handshake per hop.
+            const std::string& base =
+                opt.chf_bases[static_cast<std::size_t>(w) % opt.chf_bases.size()];
+            const std::string create_url = base + "/nchf-convergedcharging/v3/chargingdata";
 
             auto post = [&](const std::string& url,
                             const json& body) -> std::pair<int, std::string> {
@@ -216,9 +232,9 @@ int main(int argc, char** argv) {
                                                               {"quotaManagementIndicator",
                                                                "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
                     };
-                    auto [ustatus, ubody] = post(
-                        opt.chf_base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/update",
-                        update);
+                    auto [ustatus, ubody] =
+                        post(base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/update",
+                             update);
                     if (ustatus >= 200 && ustatus < 300) {
                         stats.usage_reported.fetch_add(1);
                     } else {
@@ -241,8 +257,7 @@ int main(int argc, char** argv) {
                                                            "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
                 };
                 auto [rstatus, rbody] = post(
-                    opt.chf_base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/release",
-                    release);
+                    base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/release", release);
                 if (rstatus >= 200 && rstatus < 300) {
                     stats.released.fetch_add(1);
                 } else {

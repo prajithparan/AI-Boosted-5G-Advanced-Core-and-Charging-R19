@@ -230,6 +230,21 @@ chf::DorisOptions chf_doris_options(const nlohmann::json& config) {
         nf_config::require<std::string>(config, "doris_password", "CHF_DORIS_PASSWORD");
     options.database =
         nf_config::require<std::string>(config, "doris_database", "CHF_DORIS_DATABASE");
+    // ADR-0338: opt-in CDR batching. Defaulted rather than required so existing configs keep
+    // working unchanged AND keep their current durability -- batch_size 1 means every CDR is on
+    // disk when write() returns, which is what every deployment has today.
+    options.batch_size = config.value("cdr_batch_size", 1);
+    options.flush_interval_ms = config.value("cdr_flush_interval_ms", 1000);
+    if (const char* env = std::getenv("CHF_CDR_BATCH_SIZE"); env != nullptr && *env != 0) {
+        options.batch_size = std::atoi(env);
+    }
+    if (options.batch_size > 1) {
+        spdlog::warn("chf: CDR batching ENABLED (batch={}, flush={}ms) -- buffered CDRs are NOT "
+                     "durable and are lost if this process is killed. Billing data, not just "
+                     "throughput.",
+                     options.batch_size,
+                     options.flush_interval_ms);
+    }
     return options;
 }
 
@@ -341,9 +356,15 @@ void run_nrf_lifecycle(const std::string& chf_instance_id, const std::string& nr
 
 int main() {
     const auto config = nf_config::load("chf", CONFIG_DIR);
-    const auto port = nf_config::require<unsigned short>(config, "port");
+    // ADR-0339: these two keys had no env override name, so CHF could not be run more than once
+    // on a host -- every instance bound the config's port and died with "Address already in use".
+    // nf_config's own convention is that ANY key may be overridden by <SERVICE>_<KEY> at
+    // deployment time; these were simply missing it. Horizontal instances are a real deployment
+    // need (and the CDR writer serializes per process, so a second process is what adds write
+    // throughput -- see ADR-0338).
+    const auto port = nf_config::require<unsigned short>(config, "port", "CHF_PORT");
     const auto metrics_bind_address =
-        nf_config::require<std::string>(config, "metrics_bind_address");
+        nf_config::require<std::string>(config, "metrics_bind_address", "CHF_METRICS_BIND_ADDRESS");
     const auto nrf_base_url =
         nf_config::require<std::string>(config, "nrf_base_url", "CHF_NRF_BASE_URL");
     const auto rating_database_url =
@@ -593,7 +614,17 @@ int main() {
         .key_path = CERTS_DIR "/chf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
-    chf::DiameterServer diameter_server(kDiameterPort,
+    // ADR-0339: the Diameter and CAP listeners were fixed constants, so a second CHF instance on
+    // one host died binding them even after the SBI and metrics ports became overridable. The
+    // standard 3868/2905 values remain the DEFAULT -- these are IANA-assigned protocol ports and
+    // changing them silently would be wrong -- but a lab running several instances can move them.
+    // nf_config::require, not config.value: only require() consults the environment, and an
+    // env-ignoring read was exactly why the extra instances kept dying on "Address already in
+    // use" after the SBI port was already overridable.
+    const auto diameter_port =
+        nf_config::require<unsigned short>(config, "diameter_port", "CHF_DIAMETER_PORT");
+    const auto cap_port = nf_config::require<unsigned short>(config, "cap_port", "CHF_CAP_PORT");
+    chf::DiameterServer diameter_server(diameter_port,
                                         kDiameterOriginHost,
                                         kDiameterOriginRealm,
                                         std::move(diameter_client_tls),
@@ -649,7 +680,7 @@ int main() {
         .key_path = CERTS_DIR "/chf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
-    chf::CapServer cap_server(kCapPort,
+    chf::CapServer cap_server(cap_port,
                               std::move(cap_client_tls),
                               charging_data_store,
                               cdr_writer,

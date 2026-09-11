@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <memory>
@@ -71,6 +72,14 @@ struct CdrRecord {
 // Real connection parameters for Doris's own FE MySQL-protocol query port (default 9030, real
 // port confirmed from apache/doris's own official all-in-one Docker image docs -- ADR-0192).
 struct DorisOptions {
+    // ADR-0338: rows buffered before a multi-row INSERT is issued. 1 = every write goes to Doris
+    // immediately, which is the behaviour every deployment has had until now and remains the
+    // DEFAULT. Values > 1 trade durability for throughput and must be chosen deliberately -- see
+    // CdrWriter::write's own comment for exactly what is at risk.
+    int batch_size = 1;
+    // Maximum time a buffered row may wait before being flushed regardless of batch fullness, so
+    // a quiet period cannot strand a CDR in memory indefinitely.
+    int flush_interval_ms = 1000;
     std::string host;
     std::uint16_t port = 9030;
     std::string user;
@@ -121,6 +130,11 @@ public:
     };
     std::vector<CdrRecord> query(const CdrQuery& q);
 
+    // ADR-0338: force any buffered rows out now. Called by the destructor and by the retention
+    // sweep; exposed because a caller that is about to read its own writes needs them visible.
+    // Returns the number of rows flushed.
+    std::size_t flush();
+
     // P14 (ADR-0283): retention-driven archival. Archives every `cdr` row older than
     // `retention_days` into `archive_dir` as newline-delimited JSON, then deletes ONLY the rows it
     // successfully archived.
@@ -154,6 +168,19 @@ private:
     // C-API cleanup call, same "own the raw C handle, free it in our own dtor" pattern this
     // project already uses for other C libraries.
     MYSQL* conn_ = nullptr;
+
+    // ADR-0338: batching state. `pending_` holds fully-rendered VALUES tuples, not CdrRecords --
+    // rendering (including BER encoding) happens at write() time so a flush is a string join
+    // rather than a second pass over the records, and so a record's escaping uses the connection
+    // it was written against.
+    int batch_size_ = 1;
+    std::chrono::milliseconds flush_interval_{1000};
+    std::vector<std::string> pending_;
+    std::chrono::steady_clock::time_point last_flush_ = std::chrono::steady_clock::now();
+
+    // Caller must hold mutex_. Split out because write(), flush() and the destructor all need it
+    // and only one of them may take the lock.
+    std::size_t flush_locked();
 };
 
 } // namespace chf

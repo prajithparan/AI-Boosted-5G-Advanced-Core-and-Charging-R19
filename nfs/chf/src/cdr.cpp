@@ -31,6 +31,15 @@ std::string hex_encode(const std::vector<std::uint8_t>& bytes) {
 
 // mysql_real_escape_string needs a worst-case buffer of 2*len+1 -- the real, documented libmariadb
 // contract, not a guessed size.
+// ADR-0338: one column list, used by both the single-row and batched INSERT paths so they cannot
+// drift into writing different columns.
+constexpr const char* kCdrInsertPrefix =
+    "INSERT INTO cdr (charging_data_ref, invocation_sequence_number, service_type, "
+    "operation, subscriber_identifier, nf_consumer_node_functionality, rating_group, "
+    "granted_total_volume, granted_service_specific_units, used_total_volume, "
+    "reserved_cost, reserved_cost_currency, invocation_time_stamp, serving_plmn, "
+    "is_roaming, asn1_cdr) VALUES ";
+
 std::string escape(MYSQL* conn, const std::string& value) {
     std::string out(value.size() * 2 + 1, '\0');
     const auto written = mysql_real_escape_string(
@@ -58,6 +67,12 @@ std::string sql_string_or_null(MYSQL* conn, const std::optional<std::string>& va
 } // namespace
 
 CdrWriter::CdrWriter(const DorisOptions& options) {
+    // ADR-0338: batching is opt-in. A default of 1 preserves the exact durability every existing
+    // deployment has: one CDR, one INSERT, already on disk when write() returns.
+    batch_size_ = options.batch_size > 0 ? options.batch_size : 1;
+    flush_interval_ =
+        std::chrono::milliseconds(options.flush_interval_ms > 0 ? options.flush_interval_ms : 1000);
+
     MYSQL* handle = mysql_init(nullptr);
     if (handle == nullptr) {
         spdlog::warn("chf: mysql_init failed, CDR generation disabled");
@@ -95,6 +110,14 @@ CdrWriter::CdrWriter(const DorisOptions& options) {
 }
 
 CdrWriter::~CdrWriter() {
+    // ADR-0338: flush BEFORE closing the connection. A clean shutdown that dropped buffered rows
+    // would lose billing data on the one path where losing it is entirely avoidable.
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (const auto flushed = flush_locked(); flushed > 0) {
+            spdlog::info("chf: flushed {} buffered CDR(s) on shutdown", flushed);
+        }
+    }
     if (conn_ != nullptr) {
         mysql_close(conn_);
     }
@@ -134,29 +157,84 @@ void CdrWriter::write(const CdrRecord& record) {
     std::strftime(
         ts_buf, sizeof(ts_buf), "%Y-%m-%d %H:%M:%S", gmtime_r(&record.invocation_time_stamp, &tm));
 
-    std::ostringstream sql;
-    sql << "INSERT INTO cdr (charging_data_ref, invocation_sequence_number, service_type, "
-           "operation, subscriber_identifier, nf_consumer_node_functionality, rating_group, "
-           "granted_total_volume, granted_service_specific_units, used_total_volume, "
-           "reserved_cost, reserved_cost_currency, invocation_time_stamp, serving_plmn, "
-           "is_roaming, asn1_cdr) VALUES ('"
-        << escape(conn_, record.charging_data_ref) << "', " << record.invocation_sequence_number
-        << ", '" << escape(conn_, record.service_type) << "', '" << escape(conn_, record.operation)
-        << "', '" << escape(conn_, record.subscriber_identifier) << "', '"
-        << escape(conn_, record.nf_consumer_node_functionality) << "', "
-        << sql_or_null(record.rating_group) << ", " << sql_or_null(record.granted_total_volume)
-        << ", " << sql_or_null(record.granted_service_specific_units) << ", "
-        << sql_or_null(record.used_total_volume) << ", " << sql_or_null(record.reserved_cost)
-        << ", " << sql_string_or_null(conn_, record.reserved_cost_currency) << ", '" << ts_buf
-        << "', '" << escape(conn_, record.serving_plmn) << "', "
-        << (record.is_roaming ? "TRUE" : "FALSE") << ", '" << asn1_hex << "')";
+    // ADR-0338: the column list is shared between the single-row and batched paths, so the two
+    // cannot drift into writing different columns.
+    std::ostringstream values_tuple;
+    values_tuple << "('" << escape(conn_, record.charging_data_ref) << "', "
+                 << record.invocation_sequence_number << ", '" << escape(conn_, record.service_type)
+                 << "', '" << escape(conn_, record.operation) << "', '"
+                 << escape(conn_, record.subscriber_identifier) << "', '"
+                 << escape(conn_, record.nf_consumer_node_functionality) << "', "
+                 << sql_or_null(record.rating_group) << ", "
+                 << sql_or_null(record.granted_total_volume) << ", "
+                 << sql_or_null(record.granted_service_specific_units) << ", "
+                 << sql_or_null(record.used_total_volume) << ", "
+                 << sql_or_null(record.reserved_cost) << ", "
+                 << sql_string_or_null(conn_, record.reserved_cost_currency) << ", '" << ts_buf
+                 << "', '" << escape(conn_, record.serving_plmn) << "', "
+                 << (record.is_roaming ? "TRUE" : "FALSE") << ", '" << asn1_hex << "')";
 
-    const auto query = sql.str();
-    if (mysql_real_query(conn_, query.c_str(), static_cast<unsigned long>(query.size())) != 0) {
-        spdlog::warn("chf: CDR write to Doris failed for ChargingDataRef={}: {}",
-                     record.charging_data_ref,
-                     mysql_error(conn_));
+    std::ostringstream sql;
+    sql << kCdrInsertPrefix << values_tuple.str();
+
+    if (batch_size_ <= 1) {
+        // Unbatched: exactly as before. The row is durable when write() returns.
+        const auto query = sql.str();
+        if (mysql_real_query(conn_, query.c_str(), static_cast<unsigned long>(query.size())) != 0) {
+            spdlog::warn("chf: CDR write to Doris failed for ChargingDataRef={}: {}",
+                         record.charging_data_ref,
+                         mysql_error(conn_));
+        }
+        return;
     }
+
+    // ADR-0338: BATCHED. What is being traded is explicit, because CDRs are revenue evidence:
+    // a row buffered here is NOT durable, and a CHF that is SIGKILLed loses every unflushed row.
+    // That is billing data, not throughput. It is opt-in for exactly that reason, and the flush
+    // interval bounds the exposure in time as the batch size bounds it in rows.
+    //
+    // Doris is an OLAP store: single-row INSERTs are pathologically slow, which is why the
+    // measured ceiling was ~25 CDRs/sec with every write serialized behind one connection.
+    pending_.push_back(values_tuple.str());
+    const auto now = std::chrono::steady_clock::now();
+    if (pending_.size() >= static_cast<std::size_t>(batch_size_) ||
+        now - last_flush_ >= flush_interval_) {
+        flush_locked();
+    }
+}
+
+std::size_t CdrWriter::flush() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return flush_locked();
+}
+
+std::size_t CdrWriter::flush_locked() {
+    last_flush_ = std::chrono::steady_clock::now();
+    if (pending_.empty() || conn_ == nullptr) {
+        return 0;
+    }
+    std::ostringstream batch;
+    batch << kCdrInsertPrefix;
+    for (std::size_t i = 0; i < pending_.size(); ++i) {
+        if (i != 0) {
+            batch << ',';
+        }
+        batch << pending_[i];
+    }
+    const auto query = batch.str();
+    const auto count = pending_.size();
+    if (mysql_real_query(conn_, query.c_str(), static_cast<unsigned long>(query.size())) != 0) {
+        // The whole batch is lost, and saying how many rows went with it matters: "a CDR write
+        // failed" understates losing 500 billing records.
+        spdlog::error(
+            "chf: batched CDR write of {} rows to Doris FAILED -- those CDRs are lost: {}",
+            count,
+            mysql_error(conn_));
+        pending_.clear();
+        return 0;
+    }
+    pending_.clear();
+    return count;
 }
 
 CdrWriter::RetentionResult CdrWriter::apply_retention(int retention_days,
