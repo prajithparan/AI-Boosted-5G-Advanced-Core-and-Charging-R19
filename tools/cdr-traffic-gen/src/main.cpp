@@ -26,6 +26,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <random>
@@ -153,10 +154,25 @@ int main(int argc, char** argv) {
             std::mt19937_64 rng(opt.seed + static_cast<std::uint64_t>(w));
             std::uniform_int_distribution<int> sub_pick(0, opt.subscribers - 1);
             std::uniform_int_distribution<int> rg_pick(1, opt.rating_groups);
-            // A realistic-ish spread rather than a constant: a model trained on identical usage
-            // learns a constant. Lognormal because real usage is heavily right-skewed -- most
-            // sessions small, a few very large.
-            std::lognormal_distribution<double> volume(15.0, 1.5);
+            // ADR-0340: usage is drawn around a PER-SUBSCRIBER mean, not from one global
+            // distribution.
+            //
+            // The first version drew every session independently from a single lognormal. It
+            // produced a correct-looking 1M-row dataset that a model could learn NOTHING from:
+            // trained on 565,016 real examples, MAE came out at 1.08x the mean of the target --
+            // i.e. no better than predicting the average for everyone.
+            //
+            // The reason is structural, not statistical. Independent draws are memoryless, so a
+            // subscriber's past usage carries no information about their next session -- and
+            // `avg_used_last3`, `velocity` and `prior_granted_total_volume`, which are three of
+            // the model's four features, exist precisely to exploit that link. Real subscribers
+            // are autocorrelated: heavy users stay heavy. Generating without that structure means
+            // generating noise at scale, and more volume cannot fix an absent signal.
+            //
+            // So each SUPI gets a stable profile derived from its own index, and sessions vary
+            // around it. Derived rather than stored so any worker computes the same profile for
+            // the same subscriber without shared state.
+            std::lognormal_distribution<double> session_jitter(0.0, 0.45);
 
             // Each worker is pinned to one CHF instance rather than round-robining per request:
             // a session's Create, Updates and Release must all reach the instance holding it --
@@ -189,9 +205,16 @@ int main(int argc, char** argv) {
                 if (n >= opt.sessions) {
                     break;
                 }
-                const auto supi = supi_for(sub_pick(rng));
+                const auto supi_index = sub_pick(rng);
+                const auto supi = supi_for(supi_index);
                 const int rg = rg_pick(rng);
-                const auto used = static_cast<std::uint64_t>(volume(rng));
+                // Stable per-subscriber mean: a deterministic hash of the index mapped into a
+                // wide but bounded range, so the population still spans light to heavy users.
+                const auto sub_index = static_cast<std::uint64_t>(supi_index);
+                const double profile_mu =
+                    13.0 + 3.5 * static_cast<double>((sub_index * 2654435761ULL) % 1000) / 1000.0;
+                const auto used =
+                    static_cast<std::uint64_t>(std::exp(profile_mu) * session_jitter(rng));
 
                 json create{
                     {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
@@ -217,7 +240,8 @@ int main(int argc, char** argv) {
                 // NULL. The training query needs BOTH non-null, so 16,000 CDRs yielded zero usable
                 // examples. The run looked productive by row count and taught nothing.
                 for (int u = 0; u < opt.updates; ++u) {
-                    const auto chunk = static_cast<std::uint64_t>(volume(rng));
+                    const auto chunk =
+                        static_cast<std::uint64_t>(std::exp(profile_mu) * session_jitter(rng));
                     json update{
                         {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
                         {"invocationTimeStamp",
