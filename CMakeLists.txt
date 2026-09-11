@@ -96,6 +96,7 @@ add_subdirectory(bss/subscriber-management)
 add_subdirectory(bss/roaming-interconnect)
 add_subdirectory(tools/sbi-loadgen)
 add_subdirectory(tools/mcp-server)
+add_subdirectory(tools/cdr-traffic-gen)
 
 if(5GC_BUILD_TESTS AND BUILD_TESTING)
     add_subdirectory(tests/integration)

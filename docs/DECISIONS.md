@@ -27157,3 +27157,59 @@ subscribers (need >= 200)"*, falling back to the clearly-labelled synthetic boot
 Volume, not a better model and not an open-source one — no pretrained model exists for *this*
 network's subscribers and tariffs, and none could transfer. Phase 8's traffic generator is the
 thing that produces real CDRs at scale, and it is the next increment.
+
+## ADR-0337: a traffic generator that produces real CDRs, and the ceiling it exposed
+
+**Date:** 2026-09-11. **Status:** accepted.
+
+ADR-0336 raised the training bar to 2000 examples over 200 subscribers and measured 12 usable
+pairs. No model fixes that — nothing pretrained knows this network's subscribers or tariffs. Only
+volume does. `tools/cdr-traffic-gen` produces it.
+
+### It drives the real N40 path, and that is the whole point
+
+Create, Update, Release over HTTP/2 + mTLS, through the real rating engine, the real balance
+reservation and the real CDR writer. **It does not insert rows into Doris.**
+
+Inserting would be far faster and worthless: those CDRs would carry whatever this tool chose, so a
+model trained on them would learn this file's arithmetic rather than the charging system's
+behaviour — while being tagged `data_source=real_cdr` because they came out of the real table.
+That is ADR-0336's mislabelling arrived at from the other direction.
+
+What is synthetic is the **offered load** — which subscriber, when, how much usage — which is
+honest and unavoidable in a lab with no real subscribers. Usage is drawn lognormal because real
+usage is heavily right-skewed; a constant would teach a model a constant. What is **real** is every
+charging decision made about that load.
+
+### Measured, and the answer is not what concurrency suggests
+
+| Concurrency | CDRs/sec |
+|---|---|
+| 8 | **26** |
+| 16 | 17 |
+| 48 | 15 |
+
+Throughput **falls** as clients are added. That is not a client limit, it is contention:
+`CdrWriter::write` takes a single `std::mutex` around a **single MySQL connection** performing a
+**single-row INSERT**, with BER encoding done inside the lock. Every CDR write in CHF is serialized
+process-wide.
+
+**This is a production finding, not a test-harness one.** A CHF that writes ~25 CDRs/sec is not
+carrier-grade, and ADR-0049's mandate is explicit about exceeding free5GC. The fix — batched
+inserts or Doris stream load — is a real increment with a real hazard attached: CDRs are revenue
+evidence, so any buffer that has not been flushed is billing data lost on a crash. It is named here
+rather than bolted on, because getting it wrong loses money rather than throughput.
+
+### 1M CDRs over 10k subscribers: feasible, and here is the arithmetic
+
+- **Storage**: ~1M rows at a few hundred bytes ≈ **200-300 MB** in Doris. Trivial against 584 GB free.
+- **Subscribers**: 10k SUPIs already exercised; the generator spreads load across them.
+- **Time**: at the measured ~25/s ceiling, **≈ 11 hours**. An overnight soak, not an afternoon.
+  Batched writes would cut that by an order of magnitude.
+- **Training**: 1M rows x 4 features is ~30 MB in memory; a RandomForest over it fits comfortably
+  in this machine's RAM and trains in minutes. The GPU is irrelevant here — this is a tabular
+  model, and the MX450's 2 GB would not be used either way.
+
+This run took the lab from 63 CDRs to **15669**, across **7027** distinct subscribers, with
+**24** usage-bearing. Still short of ADR-0336's bar, deliberately — the bar is there to be
+met by a real soak, not by a demonstration.
