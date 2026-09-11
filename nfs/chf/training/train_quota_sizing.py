@@ -55,11 +55,26 @@ FEATURE_NAMES = [
     "inter_invocation_interval_sec",
     "prior_granted_total_volume",
 ]
-MIN_REAL_EXAMPLES = 20
+# ADR-0336: raised from 20 after measuring what "20" actually admits.
+#
+# The lab had 63 CDR rows, 16 distinct subscribers and 24 usage-bearing rows -- which CLEARS a
+# threshold of 20. The next run would have trained on 24 examples spread over 16 subscribers and
+# tagged the result `data_source=real_cdr`: technically true, materially misleading. A model fit to
+# 24 points generalises to nothing and would very likely be WORSE than the documented synthetic
+# bootstrap it replaced, while carrying a label that reads as trustworthy.
+#
+# A threshold's job is not to be cleared. It is to refuse until there is enough data to mean
+# something, and 20 was low enough to make "real" the easier label to earn than the honest one.
+#
+# 2000 examples over 200 distinct subscribers is the bar now. Both are checked: 2000 rows from 5
+# subscribers is a model of five people, not of a subscriber base, and row count alone cannot see
+# that.
+MIN_REAL_EXAMPLES = 2000
+MIN_REAL_SUBSCRIBERS = 200
 
 
 def fetch_real_examples(doris_host: str, doris_port: int, database: str,
-                         user: str, password: str) -> tuple[np.ndarray, np.ndarray]:
+                         user: str, password: str) -> tuple[np.ndarray, np.ndarray, int]:
     """Real Doris query (ADR-0192) against nfs/chf/schema.doris.sql's own `cdr` table,
     over Doris's real MySQL wire protocol.
 
@@ -105,7 +120,13 @@ def fetch_real_examples(doris_host: str, doris_port: int, database: str,
             features.append([avg_used_last3, velocity, interval_sec, prior_granted])
             targets.append(float(seq[k][0]))
 
-    return np.array(features, dtype=np.float64), np.array(targets, dtype=np.float64)
+    # ADR-0336: the distinct-subscriber count travels with the data. Row count alone cannot
+    # distinguish a real subscriber base from one very chatty test SIM, and a model trained on the
+    # latter learns that SIM rather than the network.
+    distinct_subscribers = len({supi for (supi, _rg) in sequences})
+    return (np.array(features, dtype=np.float64),
+            np.array(targets, dtype=np.float64),
+            distinct_subscribers)
 
 
 def synthetic_bootstrap_examples(n: int = 200, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
@@ -161,19 +182,25 @@ def main() -> int:
     args = parser.parse_args()
 
     data_source = "real_cdr"
+    real_subscribers = 0
     try:
-        X, y = fetch_real_examples(args.doris_host, args.doris_port,
-                                    args.doris_database, args.doris_user,
-                                    args.doris_password)
+        X, y, real_subscribers = fetch_real_examples(args.doris_host, args.doris_port,
+                                                     args.doris_database, args.doris_user,
+                                                     args.doris_password)
     except Exception as exc:  # real, disclosed: Doris unreachable is a real possible state
         print(f"[train_quota_sizing] real Doris query failed ({exc}); "
               f"falling back to synthetic bootstrap data", file=sys.stderr)
         X, y = np.empty((0, 4)), np.empty((0,))
 
-    if len(X) < MIN_REAL_EXAMPLES:
-        print(f"[train_quota_sizing] only {len(X)} real CDR-derived examples "
-              f"(need >= {MIN_REAL_EXAMPLES}) -- using SYNTHETIC bootstrap data instead. "
-              f"Re-run this script once real CDR volume accumulates.", file=sys.stderr)
+    # ADR-0336: BOTH gates. Enough examples AND enough distinct subscribers -- see
+    # MIN_REAL_EXAMPLES' own comment for the measurement that prompted raising these.
+    if len(X) < MIN_REAL_EXAMPLES or real_subscribers < MIN_REAL_SUBSCRIBERS:
+        print(f"[train_quota_sizing] real data is too thin to train on: "
+              f"{len(X)} examples (need >= {MIN_REAL_EXAMPLES}) from "
+              f"{real_subscribers} subscribers (need >= {MIN_REAL_SUBSCRIBERS}). "
+              f"Using SYNTHETIC bootstrap data instead -- a model fitted to this little real data "
+              f"would carry a trustworthy label and generalise to nothing. "
+              f"Re-run once real CDR volume accumulates.", file=sys.stderr)
         X, y = synthetic_bootstrap_examples()
         data_source = "synthetic_bootstrap"
     else:
