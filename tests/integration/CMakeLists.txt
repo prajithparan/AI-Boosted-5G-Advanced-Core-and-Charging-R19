@@ -55,6 +55,7 @@ add_executable(integration_tests
     test_charging_scope.cpp
     test_unit_pooling.cpp
     test_mcp_pii_governance.cpp
+    test_protocol_attributes.cpp
     test_subscriber_lifecycle.cpp
     test_balance_shared_bucket.cpp
     test_cdr_billing_chain.cpp
@@ -69,6 +70,7 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/proportional_debit.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/charging_scope.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/unit_pooling.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/protocol_attributes.cpp
     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/agent_scope.cpp
     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/pii_audit.cpp
     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src/analytics.cpp

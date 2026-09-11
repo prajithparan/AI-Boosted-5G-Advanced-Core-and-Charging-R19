@@ -159,3 +159,25 @@ CREATE TABLE IF NOT EXISTS audit_record (
     ai_advisory_ref   TEXT,
     recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ADR-0347: the index the hot path needs.
+--
+-- CHF resolves a subscriber's bucket on EVERY charging request via
+-- `GET /bucket?relatedParty.id=<supi>`, which runs `related_party @> '[{"id": ...}]'::jsonb`. With
+-- only the primary key present that was a SEQUENTIAL SCAN: measured at 6,495 rows discarded and
+-- 2.278 ms per reservation, pegging one Postgres core and capping the entire charging pipeline at
+-- ~60 CDRs/sec. With this index the same query is a bitmap index scan at 0.058 ms -- a ~39x
+-- improvement that took end-to-end throughput from 60 to 131 CDRs/sec.
+--
+-- It is O(n) in bucket count without the index, so the cost grows with the subscriber base: at a
+-- few thousand buckets it is a slow query, at a few million it is an outage. jsonb_path_ops is the
+-- narrower, faster operator class and is sufficient because every lookup is a containment (@>)
+-- test, never a key-existence one.
+CREATE INDEX IF NOT EXISTS bucket_related_party_gin
+    ON bucket USING GIN (related_party jsonb_path_ops);
+
+-- Shared-bucket resolution also filters on these two. A partial index keeps it small: the vast
+-- majority of lookups want an active bucket, and indexing the inactive ones would cost writes
+-- without serving a read.
+CREATE INDEX IF NOT EXISTS bucket_shared_active_idx
+    ON bucket (is_shared) WHERE status = 'active' OR status IS NULL;

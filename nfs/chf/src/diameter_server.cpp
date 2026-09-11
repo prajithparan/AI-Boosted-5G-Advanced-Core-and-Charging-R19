@@ -7,6 +7,7 @@
 #include "diameter_core/avp.hpp"
 #include "diameter_core/dictionary.hpp"
 #include "diameter_core/header.hpp"
+#include "protocol_attributes.hpp"
 
 namespace chf {
 
@@ -1195,7 +1196,18 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                                           // already empty regardless of this field's value.
                                           "",
                                           static_cast<std::int64_t>(ccr->cc_request_number),
-                                          usage);
+                                          usage,
+                                          // AI quota sizing and the feature store are N40-only
+                                          // today; passed explicitly rather than defaulted so the
+                                          // attributes argument lands in the right position.
+                                          nullptr,
+                                          nullptr,
+                                          std::nullopt,
+                                          // ADR-0346: every AVP the peer sent, as scopable
+                                          // attributes. Without this a Gy session could only ever
+                                          // match an unscoped offering, so 4G voice, data, SMS and
+                                          // content were unproductisable.
+                                          chf::gy_attributes(*next_avps, ccr->supi));
                 granted.emplace_back(mscc.rating_group,
                                      charged.reserved ? charged.rating.grant : std::nullopt);
             }
@@ -1259,7 +1271,18 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                                           "", // real, disclosed -- see the Create call site's own
                                               // comment above.
                                           static_cast<std::int64_t>(ccr->cc_request_number),
-                                          usage);
+                                          usage,
+                                          // AI quota sizing and the feature store are N40-only
+                                          // today; passed explicitly rather than defaulted so the
+                                          // attributes argument lands in the right position.
+                                          nullptr,
+                                          nullptr,
+                                          std::nullopt,
+                                          // ADR-0346: every AVP the peer sent, as scopable
+                                          // attributes. Without this a Gy session could only ever
+                                          // match an unscoped offering, so 4G voice, data, SMS and
+                                          // content were unproductisable.
+                                          chf::gy_attributes(*next_avps, ccr->supi));
                 granted.emplace_back(mscc.rating_group,
                                      charged.reserved ? charged.rating.grant : std::nullopt);
             }

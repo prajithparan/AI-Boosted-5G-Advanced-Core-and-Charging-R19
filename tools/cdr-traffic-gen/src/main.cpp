@@ -250,8 +250,18 @@ int main(int argc, char** argv) {
                 json pdu_charging = json::object();
                 pdu_charging["pduSessionInformation"] = pdu;
                 pdu_charging["uPFID"] = profile.upf_id;
+                // ADR-0342/0343: the charging-information block and node functionality follow the
+                // PRODUCT. An SMS charged as if it were a PDU session would be a data record
+                // wearing an SMS label, which is precisely the kind of dataset that looks complete
+                // and teaches the wrong thing.
+                const char* node_functionality =
+                    (profile.product == cdrgen::ProductKind::Sms) ? "SMSF"
+                    : (profile.product == cdrgen::ProductKind::VoiceStep ||
+                       profile.product == cdrgen::ProductKind::Mms)
+                        ? "IMS_Node"
+                        : "SMF";
                 json create{
-                    {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
+                    {"nfConsumerIdentification", json{{"nodeFunctionality", node_functionality}}},
                     {"invocationTimeStamp",
                      sbi_core::format_rfc3339(std::chrono::system_clock::now())},
                     {"invocationSequenceNumber", 1},
@@ -262,9 +272,51 @@ int main(int argc, char** argv) {
                     // (dnnId, sNSSAI, ratType, PLMN) simply absent. Slice and roaming scopes then
                     // never match and the dataset contains one unscoped product wearing several
                     // names -- which is exactly what the first profiled run produced.
-                    {"pDUSessionChargingInformation", pdu_charging},
                     {"multipleUnitUsage", json::array({json{{"ratingGroup", rg}}})},
                 };
+
+                // Enterprise lines carry their tenant on every request. Consumers carry none --
+                // sending one would assert a corporate relationship that does not exist.
+                if (!profile.enterprise_id.empty()) {
+                    create["tenantIdentifier"] = profile.enterprise_id;
+                }
+
+                switch (profile.product) {
+                    case cdrgen::ProductKind::Sms: {
+                        // Real TS 32.291 sMSChargingInformation. originator/recipient are the
+                        // fields the spec defines; nothing here is invented to fill the block out.
+                        json sms = json::object();
+                        sms["originatorInfo"] = json::object();
+                        sms["originatorInfo"]["originatorSUPI"] = supi;
+                        sms["recipientInfo"] = json::array();
+                        json rcpt = json::object();
+                        rcpt["recipientSUPI"] = supi_for((supi_index + 1) % opt.subscribers);
+                        sms["recipientInfo"].push_back(rcpt);
+                        sms["sMSCAddress"] = "smsc.operator.example";
+                        create["sMSChargingInformation"] = sms;
+                        break;
+                    }
+                    case cdrgen::ProductKind::Mms: {
+                        json mms = json::object();
+                        mms["mmOriginatorInfo"] = json::object();
+                        mms["mmOriginatorInfo"]["originatorSUPI"] = supi;
+                        mms["messageSize"] = 50000 + (supi_index % 500000);
+                        create["mMSChargingInformation"] = mms;
+                        break;
+                    }
+                    case cdrgen::ProductKind::VoiceStep: {
+                        // MMTel is the 3GPP telephony service. Kept minimal and truthful: the
+                        // supplementary-service list is left out rather than populated with
+                        // services this generator does not actually model.
+                        create["mMTelChargingInformation"] = json::object();
+                        create["pDUSessionChargingInformation"] = pdu_charging;
+                        break;
+                    }
+                    default:
+                        create["pDUSessionChargingInformation"] = pdu_charging;
+                        break;
+                }
+
                 auto [status, loc] = post(create_url, create);
                 if (status != 201 || loc.empty()) {
                     stats.failed.fetch_add(1);

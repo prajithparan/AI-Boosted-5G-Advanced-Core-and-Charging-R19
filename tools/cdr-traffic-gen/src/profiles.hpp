@@ -32,6 +32,15 @@ enum class ProductKind {
     SliceScoped,  // chargingScope on sNSSAI/UPF/DNN -- the enterprise case
     Roaming,      // servingCNPlmnId != hPlmnId
     SharedBundle, // family/group: several members drawing on one bucket
+    // ADR-0342: the rest of a real operator's catalogue. Each maps to a charging-information
+    // block TS 32.291 actually defines, not a label invented here.
+    Sms,          // sMSChargingInformation, per-message serviceSpecificUnits
+    Mms,          // mMSChargingInformation, sized messages
+    VoiceStep,    // mMTelChargingInformation + time granted in STEPS, not one lump
+    ContentVideo, // UsedUnitContainer.serviceId -- content / service-class charging
+    ContentSocial,
+    ContentMusic,
+    ThrottledTier, // fair-use: post-threshold traffic rates on a different tier
 };
 
 struct Profile {
@@ -55,6 +64,29 @@ struct Profile {
     // Shared-bundle members resolve to one bucket, so several SUPIs draw on the same balance.
     bool shared_bucket = false;
     std::string bucket_owner_supi;
+
+    // ADR-0342: which TS 32.291 charging-information block this product populates, and the
+    // service class for content charging. Empty service_id means "not content-charged".
+    std::string service_id;
+    // Voice step charging: seconds granted per step. 0 = not step-charged. Real operators bill an
+    // initial block then increments; one lump grant cannot express that.
+    int voice_step_seconds = 0;
+    // Fair-use: the volume after which the subscriber moves to the throttled tier.
+    std::uint64_t throttle_threshold_octets = 0;
+
+    // ADR-0343: enterprise hierarchy. Real corporate accounts are three levels -- the enterprise,
+    // its cost centres, and the lines inside them -- and a shared bundle is pooled at a level, not
+    // across a flat list of strangers. `tenantIdentifier` is a real top-level TS 32.291 field that
+    // CHF already extracts, so the enterprise travels on every charging request and can scope an
+    // offering like any other attribute.
+    //
+    // Empty for consumers: a consumer has no tenant, and sending one would assert a corporate
+    // relationship that does not exist.
+    std::string enterprise_id; // tenantIdentifier, e.g. "ent-0042"
+    std::string department_id; // cost centre, e.g. "ent-0042-cc-3"
+    // The bucket this line draws on. For enterprises that is the DEPARTMENT's pool, so a cost
+    // centre's spend is attributable to it; for consumer family plans it is the household owner.
+    std::string bucket_key;
 };
 
 // Deterministic: the same index always yields the same profile, in any worker and any process.

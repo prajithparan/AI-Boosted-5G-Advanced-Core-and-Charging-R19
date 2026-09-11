@@ -61,6 +61,11 @@ struct CdrRecord {
     std::optional<std::uint64_t> used_total_volume;
     std::optional<double> reserved_cost;
     std::optional<std::string> reserved_cost_currency;
+    // ADR-0344: which of TS 32.291's twenty-five charging-information blocks this record came
+    // from, and the block itself. Empty type means the request carried none, which is a real state
+    // (a bare charging request) rather than an error.
+    std::string charging_information_type;
+    std::string service_charging_information; // the block, as JSON
     std::time_t invocation_time_stamp = 0;
     // ADR-0311: who served this usage, and whether that made it roaming. Both come from the
     // attributes ADR-0303/ADR-0305 already collect off the real TS 32.291 request -- this is the

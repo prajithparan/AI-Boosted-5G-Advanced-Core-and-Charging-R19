@@ -38,7 +38,7 @@ constexpr const char* kCdrInsertPrefix =
     "operation, subscriber_identifier, nf_consumer_node_functionality, rating_group, "
     "granted_total_volume, granted_service_specific_units, used_total_volume, "
     "reserved_cost, reserved_cost_currency, invocation_time_stamp, serving_plmn, "
-    "is_roaming, asn1_cdr) VALUES ";
+    "is_roaming, charging_information_type, service_charging_information, asn1_cdr) VALUES ";
 
 std::string escape(MYSQL* conn, const std::string& value) {
     std::string out(value.size() * 2 + 1, '\0');
@@ -172,7 +172,10 @@ void CdrWriter::write(const CdrRecord& record) {
                  << sql_or_null(record.reserved_cost) << ", "
                  << sql_string_or_null(conn_, record.reserved_cost_currency) << ", '" << ts_buf
                  << "', '" << escape(conn_, record.serving_plmn) << "', "
-                 << (record.is_roaming ? "TRUE" : "FALSE") << ", '" << asn1_hex << "')";
+                 << (record.is_roaming ? "TRUE" : "FALSE") << ", '"
+                 << escape(conn_, record.charging_information_type) << "', '"
+                 << escape(conn_, record.service_charging_information) << "', '" << asn1_hex
+                 << "')";
 
     std::ostringstream sql;
     sql << kCdrInsertPrefix << values_tuple.str();

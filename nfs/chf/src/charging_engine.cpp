@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <nf_config/nf_config.hpp>
 
+#include "charging_information.hpp"
 #include "unit_pooling.hpp"
 
 namespace chf {
@@ -86,6 +87,19 @@ collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCha
     }
     if (request.tenantIdentifier.has_value()) {
         attributes["tenantIdentifier"] = *request.tenantIdentifier;
+    }
+    // ADR-0344: the SERVICE this request charges for, as a scopable attribute. Without it an
+    // operator cannot price an SMS differently from a PDU session, because nothing in the request
+    // told the rating engine which one it was looking at.
+    if (const auto detected = detect_charging_information(request); detected.present()) {
+        attributes["chargingInformationType"] = detected.type;
+        // ADR-0345: every scalar in every block present, as "<Type>.<dotted.path>". This is what
+        // lets an operator price on any field the specification defines -- an SMS message type, an
+        // MMTel supplementary service, an MBS session id -- without an engineering change here.
+        // Added ALONGSIDE the hand-picked attributes above, never replacing them: those are the
+        // short, stable names existing catalog entries already scope on, and renaming them would
+        // silently break every configured product.
+        flatten_attributes(detected.payload, std::string{}, attributes);
     }
     if (request.pDUSessionChargingInformation.has_value() &&
         request.pDUSessionChargingInformation->pduSessionInformation.has_value()) {

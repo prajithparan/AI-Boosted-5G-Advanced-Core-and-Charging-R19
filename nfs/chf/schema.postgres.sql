@@ -58,3 +58,29 @@ CREATE TABLE IF NOT EXISTS audit_record (
     ai_advisory_ref   TEXT,
     recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ADR-0347: indexes for the read paths that exist, sized for a real subscriber base.
+--
+-- `rating_decision` carried only its primary key. Every "why was I charged this?" lookup
+-- (chf::RatingDecisionStore::find_by_charging_data_ref, ADR-0332, and the MCP explain_charge tool
+-- built on it) filters on a JSON field inside `input_snapshot` and sorts by `decided_at` -- a
+-- sequential scan plus a sort over the whole table. Harmless at lab size, an outage at the volume
+-- this system is being built for: one rating decision per rated usage means this table grows with
+-- the CDR stream, not with the subscriber count.
+--
+-- An EXPRESSION index, because the reference lives inside the JSON document rather than in a
+-- column of its own. Adding a generated column instead would be faster still but would change the
+-- table's shape for every existing reader; this is the smaller change that fixes the scan.
+CREATE INDEX IF NOT EXISTS rating_decision_charging_data_ref_idx
+    ON rating_decision ((input_snapshot->>'chargingDataRef'), decided_at DESC);
+
+-- The bill run selects unbilled applied-charge rows for an account and period. Without this it is
+-- a full scan of every rating decision ever made, every billing cycle.
+CREATE INDEX IF NOT EXISTS rating_decision_unbilled_idx
+    ON rating_decision (acbr_is_billed, decided_at)
+    WHERE acbr_type IS NOT NULL;
+
+-- NWDAF and analytics read by tariff and by time. A single composite serves "what did this tariff
+-- earn over this window", which is the shape both revenue reporting and model training use.
+CREATE INDEX IF NOT EXISTS rating_decision_tariff_time_idx
+    ON rating_decision (tariff_id, decided_at DESC);
