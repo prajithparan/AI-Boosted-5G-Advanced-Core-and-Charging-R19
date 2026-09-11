@@ -27213,3 +27213,48 @@ rather than bolted on, because getting it wrong loses money rather than throughp
 This run took the lab from 63 CDRs to **15669**, across **7027** distinct subscribers, with
 **24** usage-bearing. Still short of ADR-0336's bar, deliberately — the bar is there to be
 met by a real soak, not by a demonstration.
+
+### ADR-0337 addendum: two defects in the generator, and what `real_cdr` does and does not mean
+
+**Defect 1 — every Release returned 400.** The `usedUnitContainer` omits `localSequenceNumber`,
+which TS 32.291 makes mandatory. The first run produced **15,637 Create CDRs and 22 Releases** and
+looked productive by row count.
+
+**Defect 2 — the rows it did produce were untrainable.** Usage was reported only in the Release,
+and a Release CDR is written with `rating_group` NULL and `used_total_volume` NULL. The training
+query requires **both** non-null, so 16,000 CDRs yielded **zero** usable examples. Usage has to be
+reported in **Updates** — which is also what a real SMF does. Fixed, and the generator now prints
+`usage-bearing CDRs` separately from total CDRs, because the totals were the misleading number.
+
+Both defects share a shape worth naming: the run reported success, the table filled up, and
+nothing usable was produced. Only checking the rows against the *consumer's* query found it.
+
+### The loop now closes, and here is exactly what that proves
+
+Generated through CHF's real N40 path, then trained:
+
+```
+trainable rows: 6976 across 261 subscribers   (both ADR-0336 gates cleared)
+training on 6376 REAL CDR-derived examples
+test MAE: 10378353.51 octets (data_source=real_cdr, n_examples=6376)
+```
+
+**What this proves:** the pipeline works end to end — traffic → real charging decisions → real
+CDRs → threshold cleared honestly → a model tagged `real_cdr`.
+
+**What it does NOT prove, and the label cannot say:** that the model predicts real subscriber
+behaviour. The *offered load* is synthetic — a lognormal this generator chose. So the model has
+learned this generator's distribution, made real by the charging engine but not by any real user.
+`data_source=real_cdr` distinguishes "produced by the real charging engine" from "fabricated rows",
+which is a genuine and useful distinction; it does **not** mean "real user behaviour", and nobody
+should read it that way.
+
+The MAE improving from 585M octets (synthetic bootstrap) to 10.4M is likewise not evidence of a
+better model — it largely reflects that this generator's distribution is narrower than the
+bootstrap's. Comparing them as if they measured the same thing would be the error.
+
+### Throughput, corrected
+
+~5 sessions/sec at concurrency 8, each producing 3 usage-bearing Updates ≈ **10 trainable rows/sec**
+(~20 CDRs/sec all-operations). So **1M CDRs ≈ 14 hours**, 1M *trainable* rows ≈ 28 hours. The
+serialized `CdrWriter::write` is still the ceiling, and batching it remains the fix.

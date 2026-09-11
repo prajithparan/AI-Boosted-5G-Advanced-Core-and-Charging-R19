@@ -19,8 +19,8 @@
 // honest and unavoidable -- a lab has no real subscribers. What is real is every charging decision
 // made about that load.
 
-#include "sbi_core/http2_client.hpp"
 #include "sbi_core/datetime.hpp"
+#include "sbi_core/http2_client.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -44,12 +44,15 @@ struct Options {
     int sessions = 1000000;
     int concurrency = 8;
     int rating_groups = 3;
+    int updates = 2;
     std::uint64_t seed = 1;
 };
 
 struct Stats {
     std::atomic<std::uint64_t> created{0};
     std::atomic<std::uint64_t> released{0};
+    // Usage-bearing Update CDRs: the only rows a usage model can train on.
+    std::atomic<std::uint64_t> usage_reported{0};
     std::atomic<std::uint64_t> failed{0};
 };
 
@@ -62,6 +65,9 @@ void print_usage() {
   --sessions <n>         charging sessions to run; one CDR per Release (default 1000000)
   --concurrency <n>      worker threads (default 8)
   --rating-groups <n>    distinct rating groups per subscriber (default 3)
+  --updates <n>          usage-reporting Updates per session (default 2). THIS is what produces
+                         trainable rows: a CDR is only usable for usage modelling when it carries
+                         BOTH rating_group and used_total_volume, and only an Update does.
   --seed <n>             RNG seed, so a run is reproducible
 
 One session = Create + Update + Release against the real charging engine. The CDR is written by
@@ -107,6 +113,8 @@ int main(int argc, char** argv) {
             opt.concurrency = std::stoi(next("--concurrency"));
         } else if (a == "--rating-groups") {
             opt.rating_groups = std::stoi(next("--rating-groups"));
+        } else if (a == "--updates") {
+            opt.updates = std::stoi(next("--updates"));
         } else if (a == "--seed") {
             opt.seed = std::stoull(next("--seed"));
         } else {
@@ -185,19 +193,50 @@ int main(int argc, char** argv) {
                 stats.created.fetch_add(1);
                 const auto ref = loc.substr(loc.rfind('/') + 1);
 
-                // Release carries the measured usage. This is what makes the resulting CDR useful
-                // for training: used_total_volume is a real reported figure the charging engine
-                // proportioned a debit against, not a number written straight to the table.
+                // Usage is reported in UPDATEs, not only in the Release -- which is both what
+                // a real SMF does and the only thing that produces a trainable row.
+                //
+                // Measured the hard way: the first version reported usage solely in the Release,
+                // and every Release CDR came back with rating_group NULL and used_total_volume
+                // NULL. The training query needs BOTH non-null, so 16,000 CDRs yielded zero usable
+                // examples. The run looked productive by row count and taught nothing.
+                for (int u = 0; u < opt.updates; ++u) {
+                    const auto chunk = static_cast<std::uint64_t>(volume(rng));
+                    json update{
+                        {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
+                        {"invocationTimeStamp",
+                         sbi_core::format_rfc3339(std::chrono::system_clock::now())},
+                        {"invocationSequenceNumber", 2 + u},
+                        {"subscriberIdentifier", supi},
+                        {"multipleUnitUsage",
+                         json::array({json{{"ratingGroup", rg},
+                                           {"usedUnitContainer",
+                                            json::array({json{{"localSequenceNumber", 1 + u},
+                                                              {"totalVolume", chunk},
+                                                              {"quotaManagementIndicator",
+                                                               "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
+                    };
+                    auto [ustatus, ubody] = post(
+                        opt.chf_base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/update",
+                        update);
+                    if (ustatus >= 200 && ustatus < 300) {
+                        stats.usage_reported.fetch_add(1);
+                    } else {
+                        stats.failed.fetch_add(1);
+                    }
+                }
+
                 json release{
                     {"nfConsumerIdentification", json{{"nodeFunctionality", "SMF"}}},
                     {"invocationTimeStamp",
                      sbi_core::format_rfc3339(std::chrono::system_clock::now())},
-                    {"invocationSequenceNumber", 2},
+                    {"invocationSequenceNumber", 2 + opt.updates},
                     {"subscriberIdentifier", supi},
                     {"multipleUnitUsage",
                      json::array({json{{"ratingGroup", rg},
                                        {"usedUnitContainer",
-                                        json::array({json{{"totalVolume", used},
+                                        json::array({json{{"localSequenceNumber", 1 + opt.updates},
+                                                          {"totalVolume", used},
                                                           {"quotaManagementIndicator",
                                                            "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
                 };
@@ -235,6 +274,8 @@ int main(int argc, char** argv) {
     std::cout << "sessions requested : " << opt.sessions << "\n"
               << "created            : " << stats.created.load() << "\n"
               << "released (CDRs)    : " << stats.released.load() << "\n"
+              << "usage-bearing CDRs : " << stats.usage_reported.load()
+              << "   <- the trainable ones\n"
               << "failed             : " << stats.failed.load() << "\n"
               << "elapsed seconds    : " << elapsed << "\n"
               << "CDRs per second    : " << (elapsed > 0 ? stats.released.load() / elapsed : 0.0)
