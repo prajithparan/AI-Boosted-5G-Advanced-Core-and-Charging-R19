@@ -93,6 +93,10 @@ collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCha
     // told the rating engine which one it was looking at.
     if (const auto detected = detect_charging_information(request); detected.present()) {
         attributes["chargingInformationType"] = detected.type;
+        // ADR-0344: carried to the CDR writer through the attribute map rather than a new
+        // parameter on every call site. Reserved key (leading underscore) so it cannot collide
+        // with a flattened field name and cannot be scoped on by accident.
+        attributes["_chargingInformationPayload"] = detected.payload;
         // ADR-0345: every scalar in every block present, as "<Type>.<dotted.path>". This is what
         // lets an operator price on any field the specification defines -- an SMS message type, an
         // MMTel supplementary service, an MBS session id -- without an engineering change here.
@@ -561,6 +565,16 @@ void write_converged_charging_cdr(chf::CdrWriter& cdr_writer,
     if (const auto roaming = attributes.find("roaming");
         roaming != attributes.end() && roaming->is_boolean()) {
         cdr.is_roaming = roaming->get<bool>();
+    }
+    // ADR-0344: the service this record charges for, and the block it came from. Without these
+    // two the twenty-five charging types are detected and then thrown away at the last step --
+    // which is exactly the bug this ADR set out to fix, one layer further down.
+    if (const auto t = attributes.find("chargingInformationType");
+        t != attributes.end() && t->is_string()) {
+        cdr.charging_information_type = t->get<std::string>();
+    }
+    if (const auto p = attributes.find("_chargingInformationPayload"); p != attributes.end()) {
+        cdr.service_charging_information = p->dump();
     }
     cdr.charging_data_ref = ref;
     cdr.invocation_sequence_number = invocation_sequence_number;

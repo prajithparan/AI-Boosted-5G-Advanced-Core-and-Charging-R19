@@ -34,7 +34,7 @@ std::string hex_encode(const std::vector<std::uint8_t>& bytes) {
 // ADR-0338: one column list, used by both the single-row and batched INSERT paths so they cannot
 // drift into writing different columns.
 constexpr const char* kCdrInsertPrefix =
-    "INSERT INTO cdr (charging_data_ref, invocation_sequence_number, service_type, "
+    "INSERT INTO cdr (recorded_date, charging_data_ref, invocation_sequence_number, service_type, "
     "operation, subscriber_identifier, nf_consumer_node_functionality, rating_group, "
     "granted_total_volume, granted_service_specific_units, used_total_volume, "
     "reserved_cost, reserved_cost_currency, invocation_time_stamp, serving_plmn, "
@@ -159,8 +159,16 @@ void CdrWriter::write(const CdrRecord& record) {
 
     // ADR-0338: the column list is shared between the single-row and batched paths, so the two
     // cannot drift into writing different columns.
+    // ADR-0348: the partition key. Derived from the SAME instant as invocation_time_stamp rather
+    // than from wall-clock now(), so a record always lands in the partition its own timestamp says
+    // it belongs to -- a late-delivered CDR filed under today would be invisible to a query for the
+    // day it actually happened.
+    char date_buf[16];
+    std::strftime(
+        date_buf, sizeof(date_buf), "%Y-%m-%d", gmtime_r(&record.invocation_time_stamp, &tm));
+
     std::ostringstream values_tuple;
-    values_tuple << "('" << escape(conn_, record.charging_data_ref) << "', "
+    values_tuple << "('" << date_buf << "', '" << escape(conn_, record.charging_data_ref) << "', "
                  << record.invocation_sequence_number << ", '" << escape(conn_, record.service_type)
                  << "', '" << escape(conn_, record.operation) << "', '"
                  << escape(conn_, record.subscriber_identifier) << "', '"
