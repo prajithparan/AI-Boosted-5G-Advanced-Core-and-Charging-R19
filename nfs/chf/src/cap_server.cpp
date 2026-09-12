@@ -431,6 +431,12 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                     current_ref.reset();
                     current_supi.reset();
                     current_rating_group.reset();
+                    // ADR-0351: cleared with the rest of the dialogue state. Nothing reads it
+                    // unguarded today -- the renewal path is gated on current_rating_group, which
+                    // is reset just above -- but leaving one piece of per-dialogue state behind
+                    // while its siblings are cleared is how the NEXT call on this association ends
+                    // up silently scoped by the PREVIOUS call's called-party number.
+                    current_attributes = nlohmann::json::object();
                 } else {
                     spdlog::info("chf: CAP peer's TC-Continue carried opcode {} (not implemented), "
                                  "ignoring",

@@ -27659,24 +27659,26 @@ party numbers are **opaque octets** and are emitted as hex, not as digits: this 
 decoder for `CalledPartyNumber`'s nature-of-address + TBCD layout, and digits would be a guess that
 a reader would take for an E.164 number and never re-check.
 
-#### The root cause, stated plainly: there is no CAP server test at all
+#### The root cause: no test asserts what a CAP charge is rated *against*
 
-`tests/integration/` has **no test that drives a CAP dialogue**. `cap_attributes` had a unit test
-for what it *returns*; nothing tested whether anything ever *called* it. That is why a builder with
-no caller survived review -- and it is why the fix above cannot be said to be verified end-to-end.
-What is verified: the unit behaviour of `cap_attributes`, and that the call now compiles into
-`cap_server.cpp` at both charge sites.
+A CAP dialogue test does exist -- `ChfProtocolCeilings.Ss7InitialDpIsServedWhenNoCeilingIsConfigured`
+drives a real InitialDP over M3UA into a spawned CHF. What it asserts is **admission**: that the
+message was served rather than shed. Nothing asserts what the resulting charge was *scoped by*.
 
-`tests/integration/test_udm_map_server.cpp` (ADR-0299) is the proven pattern for this -- it acts as
-a VLR, opens a real SCTP association, does the M3UA activation and sends a real TC-Begin. A CAP
-equivalent acting as a gsmSSF is straightforward to write against it.
+So `cap_attributes` had a unit test for what it returns, and the CAP path had an integration test
+for whether messages get through -- and the gap between them, *is the returned value ever passed to
+the rating engine*, was tested by neither. A builder with no caller sits exactly in that gap.
 
-It is **not** written here, for a reason that is a scheduling fact rather than a judgement: such a
-test spawns a CHF plus product-catalog and balance-management, and the 2M-CDR soak currently owns
-ports 7884-7891, 7785 and 7786. A test that cannot be run cannot be trusted, so it is queued rather
-than written blind. **Tracked as the immediate follow-up once the soak completes.** Until then the
-CAP scoping path is: compiles, unit-tested at the edges, not exercised end-to-end -- flagged here
-rather than left for review to discover.
+What is verified now: the unit behaviour of `cap_attributes`, and that the call compiles into
+`cap_server.cpp` at both charge sites. What is **not**: that a CAMEL call actually rates against a
+scoped offering end-to-end.
+
+The test to close it extends the existing ceilings harness (or follows
+`tests/integration/test_udm_map_server.cpp`, ADR-0299) with a scoped offering and an assertion on
+the RatingDecision the InitialDP produces. It is **not** written here for a scheduling reason rather
+than a judgement: it spawns a CHF plus product-catalog and balance-management, and the 2M-CDR soak
+currently owns ports 7884-7891, 7785 and 7786. A test that cannot be run cannot be trusted, so it is
+queued rather than written blind. **Tracked as the immediate follow-up once the soak completes.**
 
 ### 2. AVP names, from the supplied spec, cross-checked three ways
 
@@ -27746,11 +27748,11 @@ in each:
 
 ### Disclosed gaps
 
-- **8 AVP names are not emitted** because their names wrap across lines in the table and only 2 of
-  the 8 have a prose clause to recover them from (the other 6 are defined in other specs, so
-  TS 32.299 carries no prose for them). Joining wrapped rows would mean guessing where the name ends
-  and the flag columns begin. The numeric key still carries all 8 -- which is the entire point of
-  emitting names *alongside* rather than *instead*.
+- **6 AVP names are not emitted.** 8 names wrap across lines in the table; 2 of those are recovered
+  from their prose clause, leaving 6 with no name (they are defined in other specs, so TS 32.299
+  carries no prose for them). Joining wrapped rows would mean guessing where the name ends and the
+  flag columns begin. The numeric key still carries all 6 -- which is the entire point of emitting
+  names *alongside* rather than *instead*.
 - Names are for scoping only. This dictionary names the AVP; it does not give its **type**, so
   values are still offered as both string and `u32` exactly as before.
 - Clauses 7.3/7.4/7.5 (3GPP2, ETSI, oneM2M vendor spaces) are deliberately not extracted.
