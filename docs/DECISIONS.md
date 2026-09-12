@@ -27848,6 +27848,34 @@ one session replayed three times; a different key gave a new session; **no key b
 before**; a replayed Release returned **204**, while a keyless release of an already-closed session
 still returned **404**. That last pair is the point -- the genuinely-unknown-ref 404 is preserved.
 
+### A correction, and the fix that was actually needed
+
+This ADR first claimed the release-404s were retransmissions arriving **after** the original had
+completed, on the strength of a measurement described as decisive: the CDR store held more Release
+rows than the generator had counted as successful. **That measurement was wrong and the conclusion
+with it.** A Release CDR is written *during* request processing, while the generator increments its
+counter only on receiving the response -- so with 48 concurrent workers the store legitimately runs
+ahead. The excess was concurrency, not duplication.
+
+What exposed it was shipping the completion-only cache and watching it detect nothing: 17,271 keys
+stored, zero duplicates found, and the 404s continuing at the same rate. A retransmission would
+have carried the same key and been caught. So the retransmissions were arriving **while the
+original was still executing** -- precisely the gap this ADR had disclosed and deferred.
+
+The evidence was in the data all along: subscriber `imsi-999700000023581` held `chg-1295` (Create
+only, orphaned, still in the active set) and `chg-1296` (Create + 3 Updates + Release) created in
+the same second. Two refs for one create. Roughly 0.6% of creates left an orphaned Create CDR --
+a spurious row in the billing record, not a cosmetic defect.
+
+So the key is now CLAIMED atomically (`HSETNX`) *before* processing, and a duplicate waits, bounded,
+for the owner to publish. Verified against the real race rather than a sequential approximation of
+it: **10 concurrent requests sharing one idempotency key produced exactly one session, one Create
+CDR, and 9 logged detections.** The subsequent 3M run reports zero failures, zero replays and zero
+orphaned creates, against 300+ replays and 32 orphans before.
+
+The lesson is the one this project keeps relearning: a measurement that confirms the hypothesis is
+not evidence until you have checked what else could produce the same number.
+
 ### A bug worth recording
 
 The first implementation detected nothing. `req.headers` is a plain case-sensitive `std::multimap`

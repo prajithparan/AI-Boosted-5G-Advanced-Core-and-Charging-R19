@@ -924,17 +924,26 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
-            // answered, replay that answer instead of processing it a second time.
+            // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
+            // retransmission that arrives while the original is still executing is still caught --
+            // a completion-only cache misses exactly that case, and it is the common one.
             const auto idem_key = idempotency_key_of(req);
-            if (idem_key.has_value()) {
-                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+            if (idem_key.has_value() &&
+                idempotency_store.claim(*idem_key) == chf::Claim::Duplicate) {
+                if (const auto seen = idempotency_store.await_response(*idem_key);
+                    seen.has_value()) {
                     spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
                                  "the original {} response per TS 29.500 clause 5.2.8",
                                  *idem_key,
                                  seen->status);
                     return replay_idempotent(*seen);
                 }
+                // The owner never published within the wait. Processing normally is the honest
+                // fallback: it is precisely the behaviour of a CHF without duplicate detection,
+                // which the clause permits, rather than a fabricated answer.
+                spdlog::warn("chf: duplicate idempotency-key={} but the original did not publish a "
+                             "response in time -- processing normally",
+                             *idem_key);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1056,17 +1065,26 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
-            // answered, replay that answer instead of processing it a second time.
+            // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
+            // retransmission that arrives while the original is still executing is still caught --
+            // a completion-only cache misses exactly that case, and it is the common one.
             const auto idem_key = idempotency_key_of(req);
-            if (idem_key.has_value()) {
-                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+            if (idem_key.has_value() &&
+                idempotency_store.claim(*idem_key) == chf::Claim::Duplicate) {
+                if (const auto seen = idempotency_store.await_response(*idem_key);
+                    seen.has_value()) {
                     spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
                                  "the original {} response per TS 29.500 clause 5.2.8",
                                  *idem_key,
                                  seen->status);
                     return replay_idempotent(*seen);
                 }
+                // The owner never published within the wait. Processing normally is the honest
+                // fallback: it is precisely the behaviour of a CHF without duplicate detection,
+                // which the clause permits, rather than a fabricated answer.
+                spdlog::warn("chf: duplicate idempotency-key={} but the original did not publish a "
+                             "response in time -- processing normally",
+                             *idem_key);
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1216,17 +1234,26 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
-            // answered, replay that answer instead of processing it a second time.
+            // TS 29.500 clause 5.2.8. The key is CLAIMED before any processing happens, so a
+            // retransmission that arrives while the original is still executing is still caught --
+            // a completion-only cache misses exactly that case, and it is the common one.
             const auto idem_key = idempotency_key_of(req);
-            if (idem_key.has_value()) {
-                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+            if (idem_key.has_value() &&
+                idempotency_store.claim(*idem_key) == chf::Claim::Duplicate) {
+                if (const auto seen = idempotency_store.await_response(*idem_key);
+                    seen.has_value()) {
                     spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
                                  "the original {} response per TS 29.500 clause 5.2.8",
                                  *idem_key,
                                  seen->status);
                     return replay_idempotent(*seen);
                 }
+                // The owner never published within the wait. Processing normally is the honest
+                // fallback: it is precisely the behaviour of a CHF without duplicate detection,
+                // which the clause permits, rather than a fabricated answer.
+                spdlog::warn("chf: duplicate idempotency-key={} but the original did not publish a "
+                             "response in time -- processing normally",
+                             *idem_key);
             }
             // Real spec shape (requestBody required: true, schema ChargingDataRequest) -- parsed
             // for validation/mandatory-field-checking parity with Create.

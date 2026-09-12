@@ -49,10 +49,18 @@ namespace chf {
 // state of the resource/session context considering the original request has been processed."
 // That is what this store enables: the original response is remembered under the key and replayed.
 //
-// DISCLOSED GAP: only COMPLETED responses are remembered. A duplicate that arrives while the
-// original is still being processed finds nothing cached and is processed normally -- for Release
-// that means it still meets the existing 404 guard. Closing that needs a claim-then-wait protocol;
-// the observed failure mode is a retry after the original completed, which this covers.
+// The duplicate must be caught BEFORE the original finishes, not after. Remembering only
+// completed responses is not enough, and this was measured rather than reasoned about: with a
+// completion-only cache, a 3M run still produced pairs like chg-1295/chg-1296 -- two refs
+// allocated to one subscriber in the same second, the first orphaned with a Create CDR and no
+// session, because the retransmission arrived while the original create was still executing and
+// so found nothing cached. That is a spurious CDR in the billing record, not a cosmetic defect.
+//
+// So a key is CLAIMED atomically on arrival (HSETNX) and only then processed. A second request
+// bearing the same key loses the claim, waits briefly for the original to publish its response,
+// and replays it. If the original never publishes within the wait, the duplicate is processed
+// normally -- the same behaviour as having no duplicate detection at all, which is the safe
+// fallback rather than inventing a response.
 //
 // The TTL is the spec's own "The server may consider an idempotency key as expired after an
 // operator configurable timer" -- configurable, never hardcoded here (config/chf.json).
@@ -61,15 +69,25 @@ struct IdempotentResponse {
     std::string location; // Location header of the original 201, empty for 204/others
 };
 
+enum class Claim {
+    Owned,    // this request owns the key and must process normally
+    Duplicate // another request holds the key -- this is a retransmission
+};
+
 class IdempotencyStore {
 public:
     IdempotencyStore(std::shared_ptr<sw::redis::Redis> redis, int ttl_seconds)
         : redis_(std::move(redis)), ttl_seconds_(ttl_seconds) {}
 
-    // The remembered response for this key, or nullopt if this key has not been seen (or expired).
-    std::optional<IdempotentResponse> lookup(const std::string& key);
+    // Atomically take ownership of this key. Owned means nobody else has it and this request
+    // should be processed; Duplicate means a retransmission.
+    Claim claim(const std::string& key);
 
-    // Remember what the original request answered, so a retransmission of it gets the same answer.
+    // Wait (briefly, bounded) for the owner of this key to publish its response, then return it.
+    // nullopt means the owner had not finished in time -- caller falls back to normal processing.
+    std::optional<IdempotentResponse> await_response(const std::string& key);
+
+    // Publish what the original request answered, releasing anyone waiting on the claim.
     void remember(const std::string& key, const IdempotentResponse& response);
 
     bool enabled() const { return ttl_seconds_ > 0; }

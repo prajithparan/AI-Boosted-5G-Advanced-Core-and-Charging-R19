@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <thread>
 
 namespace chf {
 
@@ -49,25 +50,48 @@ std::string idempotency_key_redis_key(const std::string& key) {
 }
 } // namespace
 
-std::optional<IdempotentResponse> IdempotencyStore::lookup(const std::string& key) {
+Claim IdempotencyStore::claim(const std::string& key) {
+    if (!enabled() || key.empty()) {
+        return Claim::Owned; // detection off, or a client that sent no key: process normally
+    }
+    const auto redis_key = idempotency_key_redis_key(key);
+    // HSETNX is the atomic part: exactly one concurrent request can create the field, so exactly
+    // one owns the key. Doing this BEFORE processing is what closes the window in which a
+    // retransmission arriving mid-flight would otherwise be processed as a fresh request.
+    const bool owned = redis_->hsetnx(redis_key, "state", "pending");
+    // The TTL bounds every entry, including one whose owner dies before publishing -- otherwise a
+    // crashed request would wedge its key permanently.
+    redis_->expire(redis_key, std::chrono::seconds(ttl_seconds_));
+    return owned ? Claim::Owned : Claim::Duplicate;
+}
+
+std::optional<IdempotentResponse> IdempotencyStore::await_response(const std::string& key) {
     if (!enabled() || key.empty()) {
         return std::nullopt;
     }
     const auto redis_key = idempotency_key_redis_key(key);
-    const auto status = redis_->hget(redis_key, "status");
-    if (!status) {
-        return std::nullopt;
+    // Bounded, because a charging request must not block on a peer's retransmission. The original
+    // is executing on this same cluster and publishes as soon as it answers; if it has not within
+    // this window the caller processes normally, which is exactly the pre-ADR-0352 behaviour.
+    constexpr int kPollIntervalMs = 20;
+    constexpr int kMaxWaitMs = 2000;
+    for (int waited = 0; waited < kMaxWaitMs; waited += kPollIntervalMs) {
+        const auto status = redis_->hget(redis_key, "status");
+        if (status) {
+            IdempotentResponse response;
+            try {
+                response.status = std::stoi(*status);
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            if (const auto location = redis_->hget(redis_key, "location"); location) {
+                response.location = *location;
+            }
+            return response;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
     }
-    IdempotentResponse response;
-    try {
-        response.status = std::stoi(*status);
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
-    if (const auto location = redis_->hget(redis_key, "location"); location) {
-        response.location = *location;
-    }
-    return response;
+    return std::nullopt;
 }
 
 void IdempotencyStore::remember(const std::string& key, const IdempotentResponse& response) {
@@ -75,10 +99,12 @@ void IdempotencyStore::remember(const std::string& key, const IdempotentResponse
         return;
     }
     const auto redis_key = idempotency_key_redis_key(key);
-    redis_->hset(redis_key, "status", std::to_string(response.status));
     if (!response.location.empty()) {
         redis_->hset(redis_key, "location", response.location);
     }
+    // Written LAST: await_response keys off "status", so it must not become visible before the
+    // location it belongs with, or a waiter could replay a 201 with no Location.
+    redis_->hset(redis_key, "status", std::to_string(response.status));
     redis_->expire(redis_key, std::chrono::seconds(ttl_seconds_));
 }
 
