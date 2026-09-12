@@ -21,6 +21,8 @@
 
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
+#include "sbi_core/sbi_headers.hpp"
+#include "sbi_core/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -231,6 +233,18 @@ int main(int argc, char** argv) {
                 req.method = "POST";
                 req.url = url;
                 req.headers.emplace("content-type", "application/json");
+                // TS 29.500 clause 5.2.8: "the NF acting as an HTTP/2 client shall include an
+                // idempotency key (which shall uniquely identify the request message towards the
+                // target NF) in the 3gpp-Sbi-Request-Info header for a non-idempotent request
+                // message, e.g. a POST request" -- and the SAME key on a retry of it.
+                //
+                // Every request this tool sends is a POST, so every one gets a key. The retry that
+                // matters here is libcurl's own: when it re-sends after the peer closed a pooled
+                // connection, it re-sends THIS request with THIS header, so the key is carried
+                // unchanged and CHF recognises the duplicate -- which is precisely the "same key
+                // on retry" the clause asks for, without the tool needing to see the retry.
+                req.headers.emplace(sbi_core::headers::kRequestInfo,
+                                    "idempotency-key=" + sbi_core::generate_uuid_v4());
                 req.body = body.dump();
                 auto resp = client.send(req);
                 if (!resp.has_value()) {

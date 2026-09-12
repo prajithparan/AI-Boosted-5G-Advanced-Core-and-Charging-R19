@@ -125,6 +125,20 @@ PROPERTIES (
     -- rather than -90 so a full year of history stays queryable for analytics and year-on-year
     -- revenue comparison, which is what NWDAF training needs.
     "dynamic_partition.start" = "-400",
+    -- Doris does NOT create the historical partitions implied by a negative `start` unless this is
+    -- set: it defaults to false, so the table above was only ever given partitions from today
+    -- forward. `start = -400` then described a retention window that did not exist, and any CDR
+    -- whose recorded_date fell before today was REJECTED with "no partition for this tuple".
+    --
+    -- For a charging system that is lost billing data, and it is lost quietly: CdrWriter::write
+    -- throws, main.cpp catches and logs a warning, and the Nchf response is still a success. The
+    -- only backstop is ADR-0282's sequence-gap alarm at Release. A live generator timestamping
+    -- with now() never hits it, which is why 1.9M and 3M row runs looked clean -- CI caught it
+    -- because test_cdr_billing_chain.cpp backdates a CDR into a closed billing period, which is
+    -- exactly what a real delayed or replayed record from an SMF looks like.
+    --
+    -- 404 partitions (-400..+3) is within Doris's own max_dynamic_partition_num default of 500.
+    "dynamic_partition.create_history_partition" = "true",
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32"

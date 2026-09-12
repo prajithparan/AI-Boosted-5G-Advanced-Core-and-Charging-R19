@@ -119,6 +119,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -194,6 +195,47 @@ constexpr const char* kDiameterOriginHost = "chf.5gc-r19.local";
 constexpr const char* kDiameterOriginRealm = "5gc-r19.local";
 constexpr const char* kNfType = "CHF";
 constexpr const char* kApiRoot = "/nchf-convergedcharging/v3";
+
+// TS 29.500 clause 5.2.8 duplicate-request detection: pull the idempotency-key this request
+// carries, if any. Absent is the normal case -- the feature is optional for clients too.
+std::optional<std::string> idempotency_key_of(const sbi_core::http2::Request& req) {
+    // HTTP/2 transmits field names in lowercase (RFC 9113 clause 8.2.1), so a lookup keyed on the
+    // specification's own mixed-case spelling never matches -- found the hard way: the first
+    // version used kRequestInfo directly and silently detected no duplicates at all. Compared
+    // case-insensitively so the header is honoured however the peer cased it.
+    static const std::string kName = [] {
+        std::string lower(sbi_core::headers::kRequestInfo);
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return lower;
+    }();
+    for (const auto& [name, value] : req.headers) {
+        std::string lowered = name;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (lowered == kName) {
+            if (auto key = sbi_core::headers::request_info_idempotency_key(value);
+                key.has_value()) {
+                return key;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+// Replay the answer the ORIGINAL request got. Clause 5.2.8's own words: "produce a proper response
+// based on the current state of the resource/session context considering the original request has
+// been processed."
+sbi_core::http2::Response replay_idempotent(const chf::IdempotentResponse& remembered) {
+    sbi_core::http2::Response resp;
+    resp.status = remembered.status;
+    if (!remembered.location.empty()) {
+        resp.headers.emplace("location", remembered.location);
+    }
+    return resp;
+}
 // Real basePath confirmed directly from TS32291_Nchf_OfflineOnlyCharging.yaml's own `servers`
 // block (ADR-0055) -- P4.2.
 constexpr const char* kOfflineApiRoot = "/nchf-offlineonlycharging/v1";
@@ -370,6 +412,11 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "CHF_NRF_BASE_URL");
     const auto rating_database_url =
         nf_config::require<std::string>(config, "rating_database_url", "CHF_RATING_DATABASE_URL");
+    // TS 29.500 clause 5.2.8: "The server may consider an idempotency key as expired after an
+    // operator configurable timer." 0 disables duplicate detection entirely, which is a conformant
+    // choice -- the clause makes the whole feature optional for servers.
+    const auto idempotency_key_ttl_seconds = nf_config::require<int>(
+        config, "idempotency_key_ttl_seconds", "CHF_IDEMPOTENCY_KEY_TTL_SECONDS");
 
     sbi_core::init_logging("chf");
     sbi_core::init_tracing("chf");
@@ -408,6 +455,11 @@ int main() {
     redis->ping();
     spdlog::info("chf: connected to Redis/Valkey");
     chf::ChargingDataStore charging_data_store(redis);
+    chf::IdempotencyStore idempotency_store(redis, idempotency_key_ttl_seconds);
+    spdlog::info("chf: TS 29.500 clause 5.2.8 duplicate-request detection {} (idempotency-key TTL "
+                 "{}s)",
+                 idempotency_store.enabled() ? "ENABLED" : "disabled",
+                 idempotency_key_ttl_seconds);
     chf::OfflineChargingDataStore offline_charging_data_store(redis);
     chf::SpendingLimitSubscriptionStore spending_limit_store(redis);
     chf::PolicyCounterConfigStore policy_counter_config_store(redis);
@@ -858,6 +910,7 @@ int main() {
         std::string(kApiRoot) + "/chargingdata",
         [&verifier,
          &charging_data_store,
+         &idempotency_store,
          &create_counter,
          &catalog_client,
          &balance_client,
@@ -870,6 +923,18 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
+            // answered, replay that answer instead of processing it a second time.
+            const auto idem_key = idempotency_key_of(req);
+            if (idem_key.has_value()) {
+                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+                    spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
+                                 "the original {} response per TS 29.500 clause 5.2.8",
+                                 *idem_key,
+                                 seen->status);
+                    return replay_idempotent(*seen);
+                }
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -959,6 +1024,16 @@ int main() {
             resp.headers.emplace("location", std::string(kApiRoot) + "/chargingdata/" + ref);
             json j = response;
             resp.body = j.dump();
+            // TS 29.500 clause 5.2.8: remember what this request answered, so a
+            // retransmission of it gets the same answer rather than being processed again.
+            if (idem_key.has_value()) {
+                std::string location;
+                if (const auto loc = resp.headers.find("location"); loc != resp.headers.end()) {
+                    location = loc->second;
+                }
+                idempotency_store.remember(*idem_key,
+                                           chf::IdempotentResponse{resp.status, location});
+            }
             return resp;
         });
 
@@ -967,6 +1042,7 @@ int main() {
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/update",
         [&verifier,
          &charging_data_store,
+         &idempotency_store,
          &update_counter,
          &catalog_client,
          &balance_client,
@@ -979,6 +1055,18 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
+            // answered, replay that answer instead of processing it a second time.
+            const auto idem_key = idempotency_key_of(req);
+            if (idem_key.has_value()) {
+                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+                    spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
+                                 "the original {} response per TS 29.500 clause 5.2.8",
+                                 *idem_key,
+                                 seen->status);
+                    return replay_idempotent(*seen);
+                }
             }
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<
@@ -1101,6 +1189,16 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             json j = response;
             resp.body = j.dump();
+            // TS 29.500 clause 5.2.8: remember what this request answered, so a
+            // retransmission of it gets the same answer rather than being processed again.
+            if (idem_key.has_value()) {
+                std::string location;
+                if (const auto loc = resp.headers.find("location"); loc != resp.headers.end()) {
+                    location = loc->second;
+                }
+                idempotency_store.remember(*idem_key,
+                                           chf::IdempotentResponse{resp.status, location});
+            }
             return resp;
         });
 
@@ -1109,6 +1207,7 @@ int main() {
         std::string(kApiRoot) + "/chargingdata/{ChargingDataRef}/release",
         [&verifier,
          &charging_data_store,
+         &idempotency_store,
          &release_counter,
          &balance_client,
          &cdr_writer,
@@ -1116,6 +1215,18 @@ int main() {
          &chf_instance_id](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            // TS 29.500 clause 5.2.8: if this request carries an idempotency-key we have already
+            // answered, replay that answer instead of processing it a second time.
+            const auto idem_key = idempotency_key_of(req);
+            if (idem_key.has_value()) {
+                if (const auto seen = idempotency_store.lookup(*idem_key); seen.has_value()) {
+                    spdlog::info("chf: duplicate request detected (idempotency-key={}), replaying "
+                                 "the original {} response per TS 29.500 clause 5.2.8",
+                                 *idem_key,
+                                 seen->status);
+                    return replay_idempotent(*seen);
+                }
             }
             // Real spec shape (requestBody required: true, schema ChargingDataRequest) -- parsed
             // for validation/mandatory-field-checking parity with Create.
@@ -1282,6 +1393,16 @@ int main() {
 
             sbi_core::http2::Response resp;
             resp.status = 204;
+            // TS 29.500 clause 5.2.8: remember what this request answered, so a
+            // retransmission of it gets the same answer rather than being processed again.
+            if (idem_key.has_value()) {
+                std::string location;
+                if (const auto loc = resp.headers.find("location"); loc != resp.headers.end()) {
+                    location = loc->second;
+                }
+                idempotency_store.remember(*idem_key,
+                                           chf::IdempotentResponse{resp.status, location});
+            }
             return resp;
         });
 

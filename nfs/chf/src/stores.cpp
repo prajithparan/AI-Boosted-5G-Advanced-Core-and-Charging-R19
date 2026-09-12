@@ -2,6 +2,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
+
 namespace chf {
 
 namespace {
@@ -40,6 +42,45 @@ std::string charging_data_content_key(const std::string& ref) {
 }
 
 } // namespace
+
+namespace {
+std::string idempotency_key_redis_key(const std::string& key) {
+    return "chf:idem:" + key;
+}
+} // namespace
+
+std::optional<IdempotentResponse> IdempotencyStore::lookup(const std::string& key) {
+    if (!enabled() || key.empty()) {
+        return std::nullopt;
+    }
+    const auto redis_key = idempotency_key_redis_key(key);
+    const auto status = redis_->hget(redis_key, "status");
+    if (!status) {
+        return std::nullopt;
+    }
+    IdempotentResponse response;
+    try {
+        response.status = std::stoi(*status);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    if (const auto location = redis_->hget(redis_key, "location"); location) {
+        response.location = *location;
+    }
+    return response;
+}
+
+void IdempotencyStore::remember(const std::string& key, const IdempotentResponse& response) {
+    if (!enabled() || key.empty()) {
+        return;
+    }
+    const auto redis_key = idempotency_key_redis_key(key);
+    redis_->hset(redis_key, "status", std::to_string(response.status));
+    if (!response.location.empty()) {
+        redis_->hset(redis_key, "location", response.location);
+    }
+    redis_->expire(redis_key, std::chrono::seconds(ttl_seconds_));
+}
 
 std::string ChargingDataStore::create(const std::string& supi) {
     const auto id = redis_->incr(kChargingDataNextIdKey);

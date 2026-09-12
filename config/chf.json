@@ -5,6 +5,7 @@
   "product_catalog_base_url": "https://127.0.0.1:7785",
   "balance_management_base_url": "https://127.0.0.1:7786",
   "rating_database_url": "postgresql://postgres@127.0.0.1:5434/chf_rating",
+  "idempotency_key_ttl_seconds": 3600,
   "redis_url": "tcp://127.0.0.1:6379",
   "doris_host": "127.0.0.1",
   "doris_port": 9030,

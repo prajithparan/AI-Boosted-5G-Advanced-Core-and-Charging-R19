@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -63,5 +64,21 @@ struct ProducerId {
 
 std::string format_producer_id(const ProducerId& id);
 std::optional<ProducerId> parse_producer_id(const std::string& header_value);
+
+// TS 29.500 clause 5.2.3.3.12, real ABNF:
+//   Sbi-Request-Info-Header = "3gpp-Sbi-Request-Info:" OWS req-param *( ";" OWS req-param ) OWS
+//   req-param              = req-param-name "=" OWS req-param-value
+//   req-param-name         = "retrans" / "redirect" / "reason" / "idempotency-key" /
+//                            "receivedrejectioncause" / "callback-uri-prefix" / "nfinst" /
+//                            "nfservinst" / "redirection-cause" / token
+//
+// `token` is in the name production, so an unknown parameter is legal and must not invalidate the
+// header -- every parameter is returned and the caller takes the ones it understands.
+std::map<std::string, std::string> parse_request_info(const std::string& header_value);
+
+// Clause 5.2.3.3.12: "it is a string and may be encoded using Universally Unique Identifier
+// (UUID) ... to uniquely identify a request message (to be received) in the target NF."
+// Returns the idempotency-key parameter if the header carries one.
+std::optional<std::string> request_info_idempotency_key(const std::string& header_value);
 
 } // namespace sbi_core::headers

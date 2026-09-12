@@ -34,6 +34,51 @@
 
 namespace chf {
 
+// TS 29.500 clause 5.2.8 "Detection of duplicated request message".
+//
+// The spec is explicit that this is OPTIONAL for both sides ("The support of 'detection of
+// duplicated request message' is optional for HTTP clients and servers"), so a CHF without it is
+// conformant -- which is what this one was. What it is NOT is harmless: clause 6.10.x's own retry
+// rules tell an HTTP/2 client it *should* retry a non-idempotent request when a GOAWAY frame shows
+// the request was never processed, and a client cannot always tell. libcurl does exactly this. The
+// retry then arrives at a CHF that has already released the session, and the duplicate guard
+// answers 404 -- correct, but indistinguishable from a genuinely unknown ChargingDataRef.
+//
+// With the key present, clause 5.2.8 says the server "may use the idempotency key to determine if
+// it is a duplicated request message; and if so produce a proper response based on the current
+// state of the resource/session context considering the original request has been processed."
+// That is what this store enables: the original response is remembered under the key and replayed.
+//
+// DISCLOSED GAP: only COMPLETED responses are remembered. A duplicate that arrives while the
+// original is still being processed finds nothing cached and is processed normally -- for Release
+// that means it still meets the existing 404 guard. Closing that needs a claim-then-wait protocol;
+// the observed failure mode is a retry after the original completed, which this covers.
+//
+// The TTL is the spec's own "The server may consider an idempotency key as expired after an
+// operator configurable timer" -- configurable, never hardcoded here (config/chf.json).
+struct IdempotentResponse {
+    int status = 0;
+    std::string location; // Location header of the original 201, empty for 204/others
+};
+
+class IdempotencyStore {
+public:
+    IdempotencyStore(std::shared_ptr<sw::redis::Redis> redis, int ttl_seconds)
+        : redis_(std::move(redis)), ttl_seconds_(ttl_seconds) {}
+
+    // The remembered response for this key, or nullopt if this key has not been seen (or expired).
+    std::optional<IdempotentResponse> lookup(const std::string& key);
+
+    // Remember what the original request answered, so a retransmission of it gets the same answer.
+    void remember(const std::string& key, const IdempotentResponse& response);
+
+    bool enabled() const { return ttl_seconds_ > 0; }
+
+private:
+    std::shared_ptr<sw::redis::Redis> redis_;
+    int ttl_seconds_;
+};
+
 class ChargingDataStore {
 public:
     explicit ChargingDataStore(std::shared_ptr<sw::redis::Redis> redis)
