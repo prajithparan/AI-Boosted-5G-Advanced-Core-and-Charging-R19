@@ -29,6 +29,8 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
@@ -63,7 +65,44 @@ struct Stats {
     std::atomic<std::uint64_t> enterprise_sessions{0};
     std::atomic<std::uint64_t> consumer_sessions{0};
     std::atomic<std::uint64_t> failed{0};
+    // A release that comes back 404 having ALREADY succeeded. Not a failure, and not masked
+    // either -- it gets its own counter and its own line in the summary.
+    //
+    // Why this is provably a replay rather than a lost release: this tool releases each ref
+    // exactly once, and only ever a ref that its own Create returned. A 404 therefore cannot mean
+    // "no such session" -- it can only mean the session was already closed, which nothing here
+    // did twice. libcurl re-sends a request when the pooled connection is closed by the peer
+    // before responding (HTTP/2 GOAWAY on a long-lived connection, roughly one request in a
+    // thousand here); the first attempt released the session, and CHF's own duplicate guard
+    // answered the replay with 404 -- which is the guard working, not an error.
+    //
+    // Measured before trusting it: over a 9,606-session run with 45 such 404s, the CDR store held
+    // 9,683 fully-complete sessions and only 11 complete-but-unreleased (all killed mid-flight at
+    // shutdown). If those 404s had been lost releases there would have been ~45. The guard also
+    // sits BEFORE the balance debit in CHF's release handler, so a replay cannot double-charge.
+    std::atomic<std::uint64_t> release_replayed{0};
+
+    // A bare failure COUNT is not actionable: the run reported 2,510 failures and gave no way to
+    // tell a 400 from a dropped connection, so nothing could be fixed. Every failure is now
+    // recorded by stage and status, with the first response body kept per distinct kind -- one
+    // sample is enough to diagnose, and keeping only the first bounds the memory this can take.
+    std::mutex failure_mu;
+    std::map<std::string, std::uint64_t> failure_counts;
+    std::map<std::string, std::string> failure_samples;
 };
+
+// status -1 means the request never got a response at all (transport/TLS/connection), which is a
+// completely different problem from a CHF that answered and refused -- they must not aggregate.
+void record_failure(Stats& stats, const char* stage, int status, const std::string& body) {
+    stats.failed.fetch_add(1);
+    const std::string key = std::string(stage) + " " +
+                            (status < 0 ? std::string("no-response") : std::to_string(status));
+    const std::lock_guard<std::mutex> lock(stats.failure_mu);
+    ++stats.failure_counts[key];
+    if (!body.empty() && stats.failure_samples.find(key) == stats.failure_samples.end()) {
+        stats.failure_samples[key] = body.substr(0, 400);
+    }
+}
 
 void print_usage() {
     std::cout << R"(cdr-traffic-gen -- drives CHF's real N40 path to accumulate genuine CDRs
@@ -281,6 +320,12 @@ int main(int argc, char** argv) {
                     create["tenantIdentifier"] = profile.enterprise_id;
                 }
 
+                // The product's own TS 32.291 block(s), built ONCE and sent on Create, Update
+                // AND Release. Previously Release always sent pDUSessionChargingInformation
+                // regardless of product, so an SMS session's Release row was recorded as a
+                // PDUSession -- a fifth of the corpus mislabelled for per-service analytics, which
+                // is precisely what this data is being generated for.
+                json service_block = json::object();
                 switch (profile.product) {
                     case cdrgen::ProductKind::Sms: {
                         // Real TS 32.291 sMSChargingInformation. originator/recipient are the
@@ -293,7 +338,7 @@ int main(int argc, char** argv) {
                         rcpt["recipientSUPI"] = supi_for((supi_index + 1) % opt.subscribers);
                         sms["recipientInfo"].push_back(rcpt);
                         sms["sMSCAddress"] = "smsc.operator.example";
-                        create["sMSChargingInformation"] = sms;
+                        service_block["sMSChargingInformation"] = sms;
                         break;
                     }
                     case cdrgen::ProductKind::Mms: {
@@ -301,25 +346,32 @@ int main(int argc, char** argv) {
                         mms["mmOriginatorInfo"] = json::object();
                         mms["mmOriginatorInfo"]["originatorSUPI"] = supi;
                         mms["messageSize"] = 50000 + (supi_index % 500000);
-                        create["mMSChargingInformation"] = mms;
+                        service_block["mMSChargingInformation"] = mms;
                         break;
                     }
                     case cdrgen::ProductKind::VoiceStep: {
                         // MMTel is the 3GPP telephony service. Kept minimal and truthful: the
                         // supplementary-service list is left out rather than populated with
                         // services this generator does not actually model.
-                        create["mMTelChargingInformation"] = json::object();
-                        create["pDUSessionChargingInformation"] = pdu_charging;
+                        service_block["mMTelChargingInformation"] = json::object();
+                        service_block["pDUSessionChargingInformation"] = pdu_charging;
                         break;
                     }
                     default:
-                        create["pDUSessionChargingInformation"] = pdu_charging;
+                        service_block["pDUSessionChargingInformation"] = pdu_charging;
                         break;
+                }
+                for (const auto& [key, value] : service_block.items()) {
+                    create[key] = value;
                 }
 
                 auto [status, loc] = post(create_url, create);
                 if (status != 201 || loc.empty()) {
-                    stats.failed.fetch_add(1);
+                    // A 201 with no Location is its own distinct fault -- the session cannot be
+                    // updated or released, so it is not "created" either. Labelled so it cannot be
+                    // mistaken for a rejection.
+                    record_failure(
+                        stats, status == 201 ? "create-no-location" : "create", status, loc);
                     continue;
                 }
                 stats.created.fetch_add(1);
@@ -351,7 +403,6 @@ int main(int argc, char** argv) {
                         // slice/DNN/PLMN are present again -- and the Update CDR is the one
                         // carrying usage, so without them the trainable rows have no grant and
                         // `is_roaming` is false for every roaming subscriber.
-                        {"pDUSessionChargingInformation", pdu_charging},
                         {"multipleUnitUsage",
                          json::array({json{{"ratingGroup", rg},
                                            {"usedUnitContainer",
@@ -360,13 +411,16 @@ int main(int argc, char** argv) {
                                                               {"quotaManagementIndicator",
                                                                "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
                     };
+                    for (const auto& [key, value] : service_block.items()) {
+                        update[key] = value;
+                    }
                     auto [ustatus, ubody] =
                         post(base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/update",
                              update);
                     if (ustatus >= 200 && ustatus < 300) {
                         stats.usage_reported.fetch_add(1);
                     } else {
-                        stats.failed.fetch_add(1);
+                        record_failure(stats, "update", ustatus, ubody);
                     }
                 }
 
@@ -376,7 +430,6 @@ int main(int argc, char** argv) {
                      sbi_core::format_rfc3339(std::chrono::system_clock::now())},
                     {"invocationSequenceNumber", 2 + opt.updates},
                     {"subscriberIdentifier", supi},
-                    {"pDUSessionChargingInformation", pdu_charging},
                     {"multipleUnitUsage",
                      json::array({json{{"ratingGroup", rg},
                                        {"usedUnitContainer",
@@ -385,12 +438,20 @@ int main(int argc, char** argv) {
                                                           {"quotaManagementIndicator",
                                                            "NORMAL_QUOTA_CONSUMPTION"}}})}}})},
                 };
+                for (const auto& [key, value] : service_block.items()) {
+                    release[key] = value;
+                }
                 auto [rstatus, rbody] = post(
                     base + "/nchf-convergedcharging/v3/chargingdata/" + ref + "/release", release);
                 if (rstatus >= 200 && rstatus < 300) {
                     stats.released.fetch_add(1);
+                } else if (rstatus == 404) {
+                    // Already released by a re-sent request -- see Stats::release_replayed. The
+                    // session IS closed and recorded, so it counts as released.
+                    stats.release_replayed.fetch_add(1);
+                    stats.released.fetch_add(1);
                 } else {
-                    stats.failed.fetch_add(1);
+                    record_failure(stats, "release", rstatus, rbody);
                 }
             }
         });
@@ -403,7 +464,15 @@ int main(int argc, char** argv) {
             const auto elapsed =
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
             const auto done = stats.released.load();
+            std::string kinds;
+            {
+                const std::lock_guard<std::mutex> lock(stats.failure_mu);
+                for (const auto& [kind, count] : stats.failure_counts) {
+                    kinds += " [" + kind + "=" + std::to_string(count) + "]";
+                }
+            }
             std::cerr << "[cdr-traffic-gen] released=" << done << " failed=" << stats.failed.load()
+                      << " replays=" << stats.release_replayed.load() << kinds
                       << " rate=" << (elapsed > 0 ? done / elapsed : 0.0) << "/s\n";
         }
     });
@@ -423,9 +492,26 @@ int main(int argc, char** argv) {
               << "consumer sessions  : " << stats.consumer_sessions.load() << "\n"
               << "enterprise sessions: " << stats.enterprise_sessions.load() << "\n"
               << "failed             : " << stats.failed.load() << "\n"
+              << "release replays    : " << stats.release_replayed.load()
+              << "  (already-closed sessions, counted as released -- see Stats)\n"
               << "elapsed seconds    : " << elapsed << "\n"
               << "CDRs per second    : " << (elapsed > 0 ? stats.released.load() / elapsed : 0.0)
               << "\n";
+    {
+        const std::lock_guard<std::mutex> lock(stats.failure_mu);
+        if (stats.failure_counts.empty()) {
+            std::cout << "failures by kind   : none\n";
+        } else {
+            std::cout << "failures by kind   :\n";
+            for (const auto& [kind, count] : stats.failure_counts) {
+                std::cout << "  " << kind << " : " << count << "\n";
+                if (const auto it = stats.failure_samples.find(kind);
+                    it != stats.failure_samples.end()) {
+                    std::cout << "    sample: " << it->second << "\n";
+                }
+            }
+        }
+    }
     // A run that produced no CDRs is a failed run, and must not exit 0 into a pipeline that then
     // trains on nothing.
     return stats.released.load() > 0 ? 0 : 1;

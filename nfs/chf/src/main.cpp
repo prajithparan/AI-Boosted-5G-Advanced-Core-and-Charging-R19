@@ -147,6 +147,7 @@
 #include "cap_server.hpp"
 #include "cdr.hpp"
 #include "charging_engine.hpp"
+#include "charging_information.hpp"
 #include "diameter_core/header.hpp"
 #include "diameter_server.hpp"
 #include "rating_decision_store.hpp"
@@ -1238,6 +1239,17 @@ int main() {
                     sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp)
                         .value_or(
                             std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+                // ADR-0349 fixed "detected then dropped" for Create and Update, which both reach
+                // the CDR through write_converged_charging_cdr(). Release does not -- it builds its
+                // record by hand right here -- so it kept dropping the charging type even though
+                // the Release request carries the very same TS 32.291 block. Every Release row in
+                // the previous 1.9M-CDR run has an empty charging_information_type as a result,
+                // which is 20% of the corpus unusable for per-service analytics.
+                if (const auto detected = chf::detect_charging_information(*body);
+                    detected.present()) {
+                    cdr.charging_information_type = detected.type;
+                    cdr.service_charging_information = detected.payload.dump();
+                }
                 cdr_writer.write(cdr);
 
                 // P12 (ADR-0282): CDR sequence-gap detection, raised as a business alarm.
