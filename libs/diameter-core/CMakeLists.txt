@@ -7,6 +7,7 @@
 add_library(diameter_core STATIC
     src/header.cpp
     src/avp.cpp
+    src/avp_names.cpp
 )
 
 target_include_directories(diameter_core PUBLIC

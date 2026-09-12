@@ -13,23 +13,28 @@
 //
 // WHAT THIS DELIBERATELY DOES NOT DO: invent AVP names.
 //
-// TS 32.299 and RFC 4006 are NOT vendored in this repository, and this project's Diameter
-// dictionary carries no constant for Called-Station-Id, Service-Context-Id or Service-Identifier.
-// Writing `attributes["calledStationId"] = avp(30)` would be a code-to-name mapping recalled from
-// memory -- exactly the fabrication this project forbids, and exactly the kind that is invisible
-// until an operator's tariff silently prices the wrong thing.
+// Attributes are keyed by what the WIRE actually carries: the AVP code, and the vendor id when one
+// is present. `Gy.avp.432`, `Gy.avp.10415.21`. An operator scoping a product knows the codes their
+// own network sends; nothing here has to guess, and an AVP added by a future release or a vendor
+// extension becomes scopable the moment it arrives rather than when someone updates a table.
 //
-// So attributes are keyed by what the WIRE actually carries: the AVP code, and the vendor id when
-// one is present. `Gy.avp.432`, `Gy.avp.10415.21`. An operator scoping a product knows the codes
-// their own network sends; nothing here has to guess. Where this project's own verified dictionary
-// does name a code, the friendly name is emitted ALONGSIDE the numeric one, never instead of it.
+// ADR-0351: the numeric key is now joined by a NAMED one -- `Gy.Rating-Group` alongside
+// `Gy.avp.432` -- for every code in diameter_core::avp_name, which is generated from the real
+// TS 32.299 V19.0.0 the user supplied at specs/TS_32-299.pdf and cross-checked four ways before
+// it will emit (see tools/avp-dictionary/extract_avp_names.py). Alongside, never instead:
 //
-// The result is total coverage with zero invention: every AVP the peer sends becomes scopable the
-// moment it arrives, including AVPs added by a future release or by a vendor extension.
+//   * a name this dictionary lacks costs nothing, because the numeric key is always emitted;
+//   * a name it has cannot change any existing match, because `charging_scope_matches` looks up
+//     only the keys an offering's own scope names (ADR-0303);
+//   * so a wrong name could only ever fail to match, never silently match the wrong thing -- and
+//     the generator refuses to emit at all if its three sources disagree.
+//
+// Each AVP gets exactly two paths, one fully numeric and one named, not two per nesting level.
 
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -43,11 +48,13 @@ namespace chf {
 // value (an MSCC's Service-Identifier, say) is reachable as "Gy.avp.456.avp.439".
 nlohmann::json gy_attributes(const std::vector<diameter_core::Avp>& avps, const std::string& supi);
 
-// CAMEL/CAP: the parsed operation's own parameters, by their real field names -- which come from
+// CAMEL/CAP: the parsed InitialDP's own parameters, by their real field names -- which come from
 // this project's own cap_core, built against vendored material, so naming them invents nothing.
-nlohmann::json cap_attributes(const std::string& service_key,
-                              const std::string& calling_party,
-                              const std::string& called_party,
+// Takes the parameters in the types cap_core actually decodes them into: the party numbers are
+// opaque octets (cap_operations.hpp), NOT digit strings, and are not pretended otherwise here.
+nlohmann::json cap_attributes(std::int32_t service_key,
+                              const std::vector<std::uint8_t>& called_party_number,
+                              const std::optional<std::vector<std::uint8_t>>& calling_party_number,
                               const std::string& supi);
 
 } // namespace chf

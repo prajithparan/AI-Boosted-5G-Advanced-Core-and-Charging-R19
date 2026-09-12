@@ -327,11 +327,12 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                  chf::AiQuotaSizer* ai_quota_sizer = nullptr,
                  chf::QuotaFeatureStore* quota_feature_store = nullptr,
                  std::optional<std::time_t> invocation_time_stamp = std::nullopt,
-                 // ADR-0303: the request's own attributes, for offering scope matching. Defaults
-                 // to empty so the Diameter Gy and CAP call sites -- which have no TS 32.291
-                 // request to draw them from -- keep working unchanged and simply match only
-                 // unscoped offerings, which is the honest outcome for them rather than a
-                 // fabricated slice/UPF context.
+                 // ADR-0303: the request's own attributes, for offering scope matching. The
+                 // default is empty, but no caller relies on it any more: N40 passes the TS 32.291
+                 // request's own attributes, Gy passes every AVP the peer sent (ADR-0346) and CAP
+                 // passes the InitialDP's own parameters (ADR-0351). A call site that passed
+                 // nothing would silently match only unscoped offerings -- which is exactly the
+                 // bug ADR-0351 found in the CAP path.
                  const nlohmann::json& attributes = nlohmann::json::object());
 
 // P4.2/ADR-0055, TS 29.594 (Nchf_SpendingLimitControl): builds the real SpendingLimitStatus both

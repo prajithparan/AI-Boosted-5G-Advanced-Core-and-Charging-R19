@@ -4,6 +4,7 @@
 
 #include "cap_core/cap_dictionary.hpp"
 #include "cap_core/cap_operations.hpp"
+#include "protocol_attributes.hpp"
 #include "ss7_core/m3ua_asp.hpp"
 #include "ss7_core/m3ua_dictionary.hpp"
 #include "ss7_core/m3ua_header.hpp"
@@ -217,6 +218,11 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
     // ADR-0298: remembered so a mid-call re-authorization rates against the SAME rating group the
     // InitialDP did, rather than re-deriving it from a serviceKey no later message carries.
     std::optional<std::int64_t> current_rating_group;
+    // ADR-0351: and for the same reason, the InitialDP's own scopable attributes -- an
+    // ApplyChargingReport carries no serviceKey or party numbers, so a renewal that rebuilt them
+    // from the report alone would rate the second period against a different (empty) scope than
+    // the first.
+    nlohmann::json current_attributes = nlohmann::json::object();
     std::vector<std::uint8_t> peer_transaction_id;
 
     while (!stop_) {
@@ -314,7 +320,11 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                                                    "CHF",
                                                                    "",
                                                                    evt_invoke.invoke_id,
-                                                                   renewal);
+                                                                   renewal,
+                                                                   nullptr,
+                                                                   nullptr,
+                                                                   std::nullopt,
+                                                                   current_attributes);
 
                         std::int32_t renewed_duration = 0;
                         if (renewed.reserved && renewed.rating.grant.has_value() &&
@@ -495,6 +505,12 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
         current_ref = ref;
         current_supi = supi;
         current_rating_group = static_cast<std::int64_t>(arg->service_key);
+        // ADR-0351: without this the CAP path passed NO attributes at all, so every CAMEL call --
+        // the whole legacy voice estate -- could only ever match an unscoped offering. ADR-0346
+        // built cap_attributes() to close exactly that gap and then never called it from anywhere
+        // but its own test, so the gap stayed open in the shipped binary.
+        current_attributes = chf::cap_attributes(
+            arg->service_key, arg->called_party_number, arg->calling_party_number, supi);
         sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging usage{};
         usage.ratingGroup = static_cast<sbi_gen::Uint32>(arg->service_key);
         const auto charged = chf::charge_one_usage(catalog_client,
@@ -518,7 +534,15 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                                    // own constructor for that reason.
                                                    "",
                                                    invoke.invoke_id,
-                                                   usage);
+                                                   usage,
+                                                   // AI quota sizing and the feature store are
+                                                   // N40-only today; passed explicitly rather than
+                                                   // defaulted so the attributes argument lands in
+                                                   // the right position.
+                                                   nullptr,
+                                                   nullptr,
+                                                   std::nullopt,
+                                                   current_attributes);
 
         std::int32_t max_call_period_duration = 0; // 100ms units, real ApplyChargingArg field
         if (charged.reserved && charged.rating.grant.has_value() &&
