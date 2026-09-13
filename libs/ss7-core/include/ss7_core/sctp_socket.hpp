@@ -65,6 +65,7 @@ public:
     // thread currently parked in a blocking accept() call.
     void close();
 
+
 private:
     explicit SctpSocket(int fd);
     void close_if_open();

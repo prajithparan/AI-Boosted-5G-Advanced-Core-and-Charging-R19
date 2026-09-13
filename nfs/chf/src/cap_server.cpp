@@ -167,6 +167,8 @@ CapServer::CapServer(std::uint16_t port,
 
 CapServer::~CapServer() {
     stop_ = true;
+    // ADR-0353: SctpSocket::close() now wakes a blocked accept() itself, which is what lets the
+    // join below return.
     listener_.close();
     if (accept_thread_.joinable()) {
         accept_thread_.join();

@@ -51,6 +51,7 @@ add_executable(integration_tests
     test_n28_sy_end_to_end.cpp
     test_udm_map_insert_subscriber_data.cpp
     test_chf_protocol_ceilings.cpp
+    test_cap_scoped_charging.cpp
     test_proportional_debit.cpp
     test_charging_scope.cpp
     test_unit_pooling.cpp
@@ -99,7 +100,7 @@ add_executable(integration_tests
 target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
 target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
-add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf)
+add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     AMF_PATH="$<TARGET_FILE:amf>"
@@ -110,6 +111,11 @@ target_compile_definitions(integration_tests PRIVATE
     AUSF_PATH="$<TARGET_FILE:ausf>"
     PCF_PATH="$<TARGET_FILE:pcf>"
     CHF_PATH="$<TARGET_FILE:chf>"
+    # ADR-0353: the CAP scoping test needs the charging backends running, not just CHF --
+    # a rating decision cannot be made without a catalog to rate against and a balance to
+    # reserve from, which is exactly why the ceilings test could not assert one.
+    PRODUCT_CATALOG_PATH="$<TARGET_FILE:product-catalog>"
+    BALANCE_MANAGEMENT_PATH="$<TARGET_FILE:balance-management>"
     HELLO_NF_PATH="$<TARGET_FILE:hello-nf>"
     NEF_PATH="$<TARGET_FILE:nef>"
     NSACF_PATH="$<TARGET_FILE:nsacf>"

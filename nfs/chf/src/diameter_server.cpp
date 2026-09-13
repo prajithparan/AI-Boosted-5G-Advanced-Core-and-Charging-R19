@@ -1,5 +1,7 @@
 #include "diameter_server.hpp"
 
+#include <sys/socket.h>
+
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 #include <spdlog/spdlog.h>
@@ -672,6 +674,18 @@ DiameterServer::DiameterServer(
 DiameterServer::~DiameterServer() {
     stop_ = true;
     boost::system::error_code ec;
+    // ADR-0353: shutdown(2) BEFORE close, or this destructor hangs forever.
+    //
+    // accept_thread_ is blocked in a synchronous accept(). Closing the acceptor from this thread
+    // does not wake it -- Boost.Asio does not define closing a socket while another thread is
+    // inside a synchronous operation on it, and on Linux the blocked accept simply stays blocked.
+    // The join below then never returns. Observed directly in a hung shutdown's thread stacks
+    // (inet_csk_accept for this thread, futex_do_wait for the joiner).
+    //
+    // shutdown(2) on a LISTENING socket is the part that actually wakes it on Linux. Errors are
+    // ignored deliberately: the socket may already be closed, and there is nothing useful to do
+    // about it during teardown.
+    ::shutdown(acceptor_.native_handle(), SHUT_RDWR);
     acceptor_.close(ec);
     if (accept_thread_.joinable()) {
         accept_thread_.join();

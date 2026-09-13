@@ -1715,5 +1715,25 @@ int main() {
     spdlog::info("chf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     spdlog::info("chf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
+
+    // ADR-0353: flush billing data HERE, not in ~CdrWriter.
+    //
+    // run_multi_threaded returns once SIGTERM stops the io_context, and the obvious place to
+    // flush is CdrWriter's destructor -- which ADR-0338 wrote for exactly this. It is never
+    // reached. DiameterServer and CapServer are declared after cdr_writer, so they are destroyed
+    // BEFORE it, and their destructors hang: each closes its listener and joins an accept thread
+    // that is blocked in accept()/sctp_accept(), and closing a socket from another thread does not
+    // reliably wake a blocked accept on Linux. Confirmed from the live thread stacks of a hung
+    // shutdown (inet_csk_accept, sctp_accept, and main in futex_do_wait joining them), not guessed.
+    //
+    // So the flush is explicit and happens before any destructor runs. An orderly `docker stop` or
+    // Kubernetes eviction then keeps its CDRs even though teardown afterwards is still ugly.
+    //
+    // The hang itself is fixed too (shutdown(2) before close in both server destructors, same
+    // ADR), so this exits 0 rather than waiting for the grace period's SIGKILL. The explicit flush
+    // stays regardless: billing data should not depend on teardown order surviving a future edit.
+    if (const auto flushed = cdr_writer.flush(); flushed > 0) {
+        spdlog::info("chf: flushed {} buffered CDR(s) before exit", flushed);
+    }
     return 0;
 }

@@ -72,6 +72,23 @@ SctpSocket& SctpSocket::operator=(SctpSocket&& other) noexcept {
 
 void SctpSocket::close_if_open() {
     if (fd_ >= 0) {
+        // ADR-0353: shutdown(2) before close(2), so a thread blocked in accept() or recv() on this
+        // socket actually wakes.
+        //
+        // Every SCTP listener in this project -- AMF's NGAP task, UDM's MAP server, CHF's CAP
+        // server -- runs a dedicated thread in a blocking accept, and every one of their
+        // destructors closes the socket and then joins that thread. close() alone does not wake a
+        // blocked accept on Linux, so the join never returns. That cost nothing while no NF ever
+        // exited cleanly; the moment SIGTERM became a clean shutdown (same ADR) it hung AMF, UDM
+        // and CHF, and hung 19 integration tests with them, because the spawn harness reaps with a
+        // blocking waitpid.
+        //
+        // Done HERE rather than at each call site deliberately: a wake-before-close that callers
+        // have to remember is one every future listener will forget. On an already-connected
+        // socket this is also the correct teardown -- it starts SCTP's own SHUTDOWN exchange
+        // instead of aborting the association. Errors are ignored: the peer may already be gone,
+        // and there is nothing useful to do about it while closing.
+        ::shutdown(fd_, SHUT_RDWR);
         ::close(fd_);
         fd_ = -1;
     }
