@@ -14,17 +14,54 @@
   </picture>
 </p>
 
-A modular, standards-faithful 5G Core (5GC) implementation in modern C++, targeting 3GPP
+A modular, standards-faithful 5G Core (5GC) and Charging (**CHF + Online Charging, Gy/CAP**) implementation in modern C++, targeting 3GPP
 **R19 (5G-Advanced)**. R19 is what 3GPP itself brands *5G-Advanced*; 6G has no
 stage-3 specification yet and nothing here implements it, so it is deliberately absent from
 the title. **When Release 20 lands and 3GPP defines 6G, the intent is to carry this
 architecture forward and revisit the name then** — a statement of direction, not a
 capability claim. Every Network Function's northbound API is meant to be **generated**
 from the official 3GPP OpenAPI YAML — never hand-written — with a TM Forum SID-aligned
-charging/BSS domain, a JSON-schema-driven operator GUI, and AI/ML pipelines wired into NWDAF.
+charging/BSS domain, a JSON-schema-driven operator GUI, and AI/ML pipelines wired into **both
+NWDAF and the CHF**. The charging half is the CHF of TS 32.290/32.291 plus the
+online-charging interfaces it terminates: Diameter Gy credit-control with quota and
+re-authorization, Sy spending limits, and CAMEL/CAP for the legacy voice estate. *OCS* is
+deliberately not used as the title — TS 32.296 defines that as its own network function, this does
+not implement it, and a title should not need a footnote to be true.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
 original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what that changed).
+### What that means in practice
+
+**On charging — the whole surface, not a demo slice.**
+
+- **All 25 charging-information types TS 32.291 defines** are detected, scoped and stored — the
+  complete set, not a convenient subset.
+- **Charge anything that arrives.** 5G N40, 4G Diameter Gy and CAMEL/CAP all rate from the *same*
+  catalog against the *same* offerings. A tariff written once prices the 5G session, the legacy
+  data session and the CAMEL voice call.
+- **613 AVP names** generated from TS 32.299 and agreed by four independent derivations before a
+  single one is emitted, so a Gy attribute is scopable **by name**, never only by number — and an
+  AVP the dictionary has never heard of is still scopable the moment it arrives.
+- **Duplicate-safe by construction.** TS 29.500 clause 5.2.8 idempotency keys are claimed
+  atomically *before* a charging request is processed, so a retransmitted Release cannot
+  double-charge or orphan a session.
+- **3,000,000 CDRs across 75,000 subscribers**, driven through the real N40 path — *charged*, not
+  inserted — with zero failures, zero dropped writes and zero sequence-gap alarms.
+
+**On AI — advisory, auditable, and switchable off.**
+
+- **Inference is in-process C++** via ONNX Runtime. No Python anywhere on the runtime path, ever;
+  training is a sidecar that produces an artifact, not a dependency.
+- **AI quota sizing ships with a kill switch, default OFF.** Billing is not a place to discover
+  what a model does.
+- **Every AI-influenced decision is auditable**: the RatingDecision row records the model id and
+  version, the input feature vector, the output score, and *which deterministic bound actually
+  applied* — so an operator can always answer "why was I charged this?"
+- **One feature store, computed once** from CHF's own CDRs, so a model, a revenue query and a bill
+  run cannot quietly disagree about the same subscriber's usage.
+- **Every model versioned in MLflow** with training-data lineage and a drift path through
+  `Nnwdaf_MLModelMonitor`.
+
 Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg package name) stay as
 short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
 architectural choice made (and rejected) along the way.

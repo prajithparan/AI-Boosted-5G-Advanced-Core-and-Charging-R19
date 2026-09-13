@@ -6,13 +6,28 @@ that as a bug — flag it, don't silently pick one.
 
 ## Project goal
 
-A modular, standards-faithful 5G Core (5GC) implementation in modern C++
-where every Network Function's northbound API is **generated** from the
-official 3GPP OpenAPI YAML (forge.3gpp.org/rep/all/5G_APIs, REL-19 branch),
-with a TM Forum SID-aligned charging/BSS domain, a JSON-schema-driven GUI,
-and AI/ML pipelines wired into NWDAF. Target: a production-grade,
-spec-traceable reference implementation (raised from the original
-lab-grade scope — see ADR-0009 in `docs/DECISIONS.md`).
+A modular, standards-faithful 5G Core (5GC) **and Charging (CHF + Online
+Charging, Gy/CAP)**
+implementation in modern C++, targeting 3GPP **R19 (5G-Advanced)**. R19 is
+what 3GPP itself brands 5G-Advanced; 6G has no stage-3 specification yet and
+nothing here implements it, so it is deliberately absent from the title. When
+Release 20 lands and 3GPP defines 6G, the intent is to carry this architecture
+forward and revisit the name then — a statement of direction, not a capability
+claim. Every Network Function's northbound API is **generated** from the
+official 3GPP OpenAPI YAML (forge.3gpp.org/rep/all/5G_APIs, REL-19 branch) —
+never hand-written — with a TM Forum SID-aligned charging/BSS domain, a
+JSON-schema-driven operator GUI, and AI/ML pipelines wired into **both NWDAF
+and the CHF**. Target: a production-grade, spec-traceable reference
+implementation (raised from the original lab-grade scope — see ADR-0009 in
+`docs/DECISIONS.md`).
+
+The charging half, named precisely rather than by a label that would have to be
+qualified: the CHF of TS 32.290/32.291, plus the online-charging interfaces it
+terminates — Diameter Gy credit-control (RFC 4006 / TS 32.299) with quota
+management and re-authorization, Sy spending limits (TS 29.219), and CAMEL/CAP
+for the legacy voice estate. "OCS" is deliberately NOT used as the title: TS
+32.296 defines an Online Charging System as its own network function, this does
+not implement that, and a title should not need a footnote to be true.
 
 ## Source of truth (strict)
 
