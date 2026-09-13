@@ -18,17 +18,16 @@ using sbi_core::headers::request_info_idempotency_key;
 
 TEST(SbiRequestInfo, ParsesTheSpecsOwnExamples) {
     // EXAMPLE 1 from clause 5.2.3.3.12, verbatim.
-    const auto ex1 = parse_request_info(
-        "retrans=true; redirect=true; reason=temporary-rejection-cause; "
-        "receivedrejectioncause=INSUFFICIENT_RESOURCES");
+    const auto ex1 =
+        parse_request_info("retrans=true; redirect=true; reason=temporary-rejection-cause; "
+                           "receivedrejectioncause=INSUFFICIENT_RESOURCES");
     EXPECT_EQ(ex1.at("retrans"), "true");
     EXPECT_EQ(ex1.at("redirect"), "true");
     EXPECT_EQ(ex1.at("reason"), "temporary-rejection-cause");
     EXPECT_EQ(ex1.at("receivedrejectioncause"), "INSUFFICIENT_RESOURCES");
 
     // EXAMPLE 3, the non-idempotent-request case this exists for.
-    EXPECT_EQ(request_info_idempotency_key(
-                  "idempotency-key=54804518-4191-46b3-955c-ac631f953ed8"),
+    EXPECT_EQ(request_info_idempotency_key("idempotency-key=54804518-4191-46b3-955c-ac631f953ed8"),
               "54804518-4191-46b3-955c-ac631f953ed8");
 
     // EXAMPLE 4 quotes its value; the quotes are not part of it.
