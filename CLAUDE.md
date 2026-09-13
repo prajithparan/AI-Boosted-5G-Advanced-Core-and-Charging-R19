@@ -246,9 +246,12 @@ not implement that, and a title should not need a footnote to be true.
   lab tier.
 - Known debt against the production-grade bar, tracked in
   `docs/DECISIONS.md` ADR-0009: Phase 0's h2c-only transport (no
-  TLS/mTLS yet), stub-nrf's unsigned fake OAuth2 token, the synchronous
-  HTTP/2 client, and ~40 outstanding `clang-tidy` style warnings. None
-  of these are acceptable as a final state anymore.
+  TLS/mTLS yet), the synchronous HTTP/2 client, and ~40 outstanding
+  `clang-tidy` style warnings. None of these are acceptable as a final
+  state anymore. (The "unsigned fake OAuth2 token" once listed here is
+  resolved: tokens are ES256-signed JWTs, `libs/sbi-core/src/jwt.cpp`.
+  The h2c-only transport is likewise resolved: every SBI is TLS 1.3 +
+  mTLS. Verified during the 33-series review, `docs/SECURITY_COMPLIANCE.md`.)
 
 ## Commercialization mandate (ADR-0049, user-directed, mandatory)
 

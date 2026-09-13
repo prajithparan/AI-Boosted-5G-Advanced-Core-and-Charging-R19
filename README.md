@@ -62,6 +62,29 @@ original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what t
 - **Every model versioned in MLflow** with training-data lineage and a drift path through
   `Nnwdaf_MLModelMonitor`.
 
+### Security compliance — 3GPP 33-series, Release 19
+
+Assessed against the specifications fetched from the official 3GPP archive
+(`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
+clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
+**Stated honestly: this is a partial-compliance picture with one hard gap, not a certification.**
+
+| TS | Subject | Applies here | Status |
+|---|---|---|---|
+| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing**, NRF discovery authorization missing, no SEPP/N32 |
+| 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 only; profile requires TLS 1.2 support too |
+| 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; **duplicate JSON keys silently accepted** (§4.3.6.3); management-plane baseline not yet assessed |
+| 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Not implemented.** 33.127 requires POIs in AMF, SMF, UPF, UDM, SMSF, NEF, NWDAF, an NRF SIRF, and **§7.22 an IRI-POI in the CHF**. A licensed operator cannot deploy without this. |
+| 33.528 | SCAS for PCF | Core | Unapproved shell — the document itself says "shall not be implemented"; defers to 33.117 |
+| 33.535 | AKMA | In scope (AAnF, Tier 2) | Not built yet |
+| 33.122 | CAPIF security | In scope (Tier 3) | Not built yet |
+| 33.203 | IMS access security | In scope (IMS AS, Tier 3) | Not built yet |
+| 33.220 / 33.224 | GBA / GBA Push | Out of scope (`nfs/bsf` is the 5G BSF of TS 29.521, not GBA's) | — |
+| 33.102 / 33.401 | 3G / EPS security | Out of scope (no EPC; 4G charging *interfaces* only) | — |
+| 33.106 / 33.107 / 33.108 | 3G/EPS LI | Superseded by 33.126/127/128 per their own Scope | — |
+| 33.246 / 33.511 / 33.256 / 33.536 | MBMS, gNB SCAS, UAS, V2X | Out of scope | — |
+| 33.258 | *(requested)* | **Not a published 3GPP TS** — the archive has 33.250/256/259 only | — |
+
 Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg package name) stay as
 short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
 architectural choice made (and rejected) along the way.
