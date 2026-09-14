@@ -3,6 +3,7 @@
   "advertised_ipv4": "127.0.0.1",
   "metrics_bind_address": "0.0.0.0:9485",
   "nrf_base_url": "https://127.0.0.1:7777",
+  "redis_url": "tcp://127.0.0.1:6379",
   "nrf_heartbeat_seconds": 30,
   "notification_interval_seconds": 30,
   "nf_load_default_nf_types": [

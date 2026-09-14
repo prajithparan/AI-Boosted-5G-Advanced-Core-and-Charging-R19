@@ -54,7 +54,7 @@ services:
     # loopback.
     environment:
       AMF_NRF_BASE_URL: https://nrf:7777
-      AMF_REDIS_URL: tcp://redis:6379
+      AMF_REDIS_URL: tcp://valkey:6379
     volumes:
       - certs_data:/build/certs
     ports:
@@ -272,8 +272,11 @@ services:
         condition: service_started
       doris:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
     environment:
       NWDAF_FEATURE_STORE_HOST: doris
+      NWDAF_REDIS_URL: tcp://valkey:6379   # ADR-0360: subscription state shared across replicas
     volumes:
       - certs_data:/build/certs
     ports:
@@ -523,7 +526,7 @@ services:
       balance-management:
         condition: service_started
     environment:
-      CHF_REDIS_URL: tcp://redis:6379
+      CHF_REDIS_URL: tcp://valkey:6379
       CHF_DORIS_HOST: doris
       CHF_DORIS_PORT: "9030"
       CHF_DORIS_USER: root

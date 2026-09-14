@@ -84,13 +84,14 @@ flowchart TB
   CHF --> BAL
 
   subgraph DATA["Datastores — all self-hosted open source"]
-    VALKEY[(Valkey<br/>session state · CHF refs · idempotency keys)]:::store
+    VALKEY[(Valkey<br/>session state · CHF refs · idempotency keys · NWDAF subscriptions)]:::store
     PG[(PostgreSQL ×6<br/>UDR · catalog · balance · rating audit · subscriber · roaming)]:::store
     DORIS[(Apache Doris<br/>CDRs 3M+ · 404-day partitions · feature store)]:::store
     KAFKA[(Apache Kafka<br/>topic chf.cdr · acks=all · idempotent)]:::store
   end
   CP -.-> VALKEY
   CHF --> VALKEY
+  NWDAF --> VALKEY
   UDR --> PG
   CAT --> PG
   BAL --> PG
@@ -104,7 +105,8 @@ flowchart TB
     TRAIN[Training sidecar · Python<br/>MLflow lineage]:::ai
     ONNX[ONNX Runtime<br/>in-process quota sizing<br/>kill switch, default OFF]:::ai
     MCP[MCP server<br/>read-only tools · PII audit · agent scoping]:::ai
-    NWDAF[NWDAF · AnLF<br/>AnalyticsInfo + EventsSubscription<br/>NF_LOAD · ABNORMAL_BEHAVIOUR<br/>MTLF + 8 services: planned]:::ai
+    NWDAF[NWDAF · AnLF · replicable<br/>AnalyticsInfo + EventsSubscription<br/>NF_LOAD · ABNORMAL_BEHAVIOUR<br/>MTLF + 8 services: planned]:::ai
+    DCCF[DCCF · ADRF · MFAF<br/>TS 29.574 / 29.575 / 29.576]:::planned
     AGENTS[Network-analytics · Care/retention · Tech-ops agents]:::planned
   end
   DORIS -- "extract_features.py" --> FEAT
@@ -113,6 +115,8 @@ flowchart TB
   FEAT --> NWDAF
   NRF --> NWDAF
   NWDAF -.-> AGENTS
+  KAFKA -.-> DCCF
+  DCCF -.-> NWDAF
   MCP --> PG
   MCP --> DORIS
 

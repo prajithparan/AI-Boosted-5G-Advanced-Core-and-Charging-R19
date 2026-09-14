@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <string>
 #include <thread>
 
@@ -143,4 +144,71 @@ TEST(NwdafPhaseA, SubscriptionLifecycleAtTheYamlsApiRoot) {
     r = c.send(create);
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 400);
+}
+
+// ADR-0360: subscription state is in Valkey, so two NWDAF replicas are interchangeable. A
+// subscription created on replica A is updated and deleted through replica B, and A then reports
+// it gone. With the Phase A in-process map this test fails at the first PUT with a 404 -- which is
+// exactly the failure an operator would have hit the day they ran a second instance.
+TEST(NwdafPhaseA, SubscriptionsAreSharedAcrossReplicas) {
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    nf_test::SpawnedProcess replica_a(NWDAF_PATH);
+    // The second replica's port and metrics endpoint come from the same env overrides an operator
+    // would use (config mandate: nothing hardcoded); set only around the fork so replica A is not
+    // affected.
+    setenv("NWDAF_PORT", "7799", 1);
+    setenv("NWDAF_METRICS_BIND_ADDRESS", "0.0.0.0:9486", 1);
+    nf_test::SpawnedProcess replica_b(NWDAF_PATH);
+    unsetenv("NWDAF_PORT");
+    unsetenv("NWDAF_METRICS_BIND_ADDRESS");
+    const std::string a = kNwdaf;
+    const std::string b = "https://127.0.0.1:7799";
+
+    auto c = make_client();
+    ASSERT_TRUE(wait_up(c, a + kAnalyticsRoot + "/context", 30s)) << "replica A never came up";
+    ASSERT_TRUE(wait_up(c, b + kAnalyticsRoot + "/context", 30s)) << "replica B never came up";
+
+    sbi_core::http2::ClientRequest create;
+    create.method = "POST";
+    create.url = a + kSubsRoot + "/subscriptions";
+    create.headers.emplace("content-type", "application/json");
+    create.body = json{{"eventSubscriptions", json::array({json{{"event", "NF_LOAD"}}})}}.dump();
+    auto r = c.send(create);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    const auto loc_it = r->headers.find("location");
+    ASSERT_NE(loc_it, r->headers.end());
+    const std::string location = loc_it->second; // r is reassigned below; an iterator would dangle
+
+    // Update through B: the resource A created must be visible to B.
+    sbi_core::http2::ClientRequest put;
+    put.method = "PUT";
+    put.url = b + location;
+    put.headers.emplace("content-type", "application/json");
+    put.body =
+        json{{"eventSubscriptions",
+              json::array({json{{"event", "NF_LOAD"}}, json{{"event", "ABNORMAL_BEHAVIOUR"}}})}}
+            .dump();
+    r = c.send(put);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 200) << r->body;
+    EXPECT_EQ(json::parse(r->body)["eventSubscriptions"].size(), 2U);
+
+    // Delete through B, then A agrees it is gone.
+    sbi_core::http2::ClientRequest del;
+    del.method = "DELETE";
+    del.url = b + location;
+    r = c.send(del);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204);
+    del.url = a + location;
+    r = c.send(del);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 404);
+
+    // A PUT on an id nobody created is a 404 on either replica -- never a silent upsert.
+    put.url = a + kSubsRoot + "/subscriptions/nwdaf-sub-does-not-exist";
+    r = c.send(put);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 404);
 }

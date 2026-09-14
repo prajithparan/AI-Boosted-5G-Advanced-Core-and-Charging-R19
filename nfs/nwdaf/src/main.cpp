@@ -59,6 +59,7 @@
 #include "analytics.hpp"
 #include "feature_store.hpp"
 #include "nf_config/nf_config.hpp"
+#include "subscription_store.hpp"
 
 using json = nlohmann::json;
 
@@ -224,16 +225,6 @@ compute(const std::string& event_id,
     return std::nullopt; // an analytic this NWDAF does not compute
 }
 
-// ---- Nnwdaf_EventsSubscription state
-// -------------------------------------------------------------
-
-struct SubscriptionStore {
-    std::mutex mutex;
-    std::unordered_map<std::string, sbi_gen::NnwdafEventsSubscription> subscriptions;
-    std::unordered_map<std::string, sbi_gen::AnalyticsSubscriptionsTransfer> transfers;
-    std::uint64_t next_id = 1;
-};
-
 // ---- NRF lifecycle (same shape as every other NF, ADR-0006/0019) --------------------------------
 
 void run_nrf_lifecycle(const std::string& instance_id,
@@ -327,6 +318,7 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "NWDAF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "NWDAF_ADVERTISED_IPV4");
+    const auto redis_url = nf_config::require<std::string>(config, "redis_url", "NWDAF_REDIS_URL");
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "NWDAF_NRF_HEARTBEAT_SECONDS");
     const auto notify_interval_seconds = nf_config::require<int>(
@@ -384,7 +376,8 @@ int main() {
 
     nwdaf::FeatureStore features(fs);
     std::mutex features_mutex;
-    SubscriptionStore store;
+    // ADR-0360: subscription state in Valkey, shared by every NWDAF replica.
+    nwdaf::SubscriptionStore store(std::make_shared<sw::redis::Redis>(redis_url));
 
     auto meter = sbi_core::get_meter("nwdaf");
     auto analytics_counter = meter->CreateUInt64Counter("nwdaf_analytics_requests_total",
@@ -490,12 +483,7 @@ int main() {
                 return sbi_core::http2::problem_response(
                     400, "Bad Request", "eventSubscriptions must not be empty");
             }
-            std::string id;
-            {
-                const std::lock_guard<std::mutex> lock(store.mutex);
-                id = "nwdaf-sub-" + std::to_string(store.next_id++);
-                store.subscriptions[id] = *body;
-            }
+            const auto id = store.create_subscription(*body);
             sbi_core::http2::Response resp;
             resp.status = 201;
             resp.headers.emplace("content-type", "application/json");
@@ -519,13 +507,8 @@ int main() {
                 return err;
             }
             const auto id = req.path_params.at("subscriptionId");
-            {
-                const std::lock_guard<std::mutex> lock(store.mutex);
-                if (!store.subscriptions.contains(id)) {
-                    return sbi_core::http2::problem_response(
-                        404, "Not Found", "no subscription " + id);
-                }
-                store.subscriptions[id] = *body;
+            if (!store.replace_subscription(id, *body)) {
+                return sbi_core::http2::problem_response(404, "Not Found", "no subscription " + id);
             }
             sbi_core::http2::Response resp;
             resp.status = 200;
@@ -542,8 +525,7 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             const auto id = req.path_params.at("subscriptionId");
-            const std::lock_guard<std::mutex> lock(store.mutex);
-            if (store.subscriptions.erase(id) == 0) {
+            if (!store.remove_subscription(id)) {
                 return sbi_core::http2::problem_response(404, "Not Found", "no subscription " + id);
             }
             sbi_core::http2::Response resp;
@@ -565,12 +547,7 @@ int main() {
             if (!body) {
                 return err;
             }
-            std::string id;
-            {
-                const std::lock_guard<std::mutex> lock(store.mutex);
-                id = "nwdaf-transfer-" + std::to_string(store.next_id++);
-                store.transfers[id] = *body;
-            }
+            const auto id = store.create_transfer(*body);
             spdlog::warn("nwdaf: analytics subscription transfer {} accepted and stored; no peer "
                          "NWDAF exists to transfer to (Phase A disclosure)",
                          id);
@@ -594,11 +571,9 @@ int main() {
                 return err;
             }
             const auto id = req.path_params.at("transferId");
-            const std::lock_guard<std::mutex> lock(store.mutex);
-            if (!store.transfers.contains(id)) {
+            if (!store.replace_transfer(id, *body)) {
                 return sbi_core::http2::problem_response(404, "Not Found", "no transfer " + id);
             }
-            store.transfers[id] = *body;
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
@@ -611,8 +586,7 @@ int main() {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
             const auto id = req.path_params.at("transferId");
-            const std::lock_guard<std::mutex> lock(store.mutex);
-            if (store.transfers.erase(id) == 0) {
+            if (!store.remove_transfer(id)) {
                 return sbi_core::http2::problem_response(404, "Not Found", "no transfer " + id);
             }
             sbi_core::http2::Response resp;
@@ -625,13 +599,16 @@ int main() {
         while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(notify_interval_seconds));
             std::vector<std::pair<std::string, sbi_gen::NnwdafEventsSubscription>> snapshot;
-            {
-                const std::lock_guard<std::mutex> lock(store.mutex);
-                for (const auto& [id, sub] : store.subscriptions) {
+            try {
+                for (auto& [id, sub] : store.all_subscriptions()) {
                     if (sub.notificationURI) {
-                        snapshot.emplace_back(id, sub);
+                        snapshot.emplace_back(id, std::move(sub));
                     }
                 }
+            } catch (const std::exception& e) {
+                spdlog::error("nwdaf: notifier could not read subscriptions from Valkey: {}",
+                              e.what());
+                continue;
             }
             for (const auto& [id, sub] : snapshot) {
                 sbi_gen::NnwdafEventsSubscriptionNotification note;

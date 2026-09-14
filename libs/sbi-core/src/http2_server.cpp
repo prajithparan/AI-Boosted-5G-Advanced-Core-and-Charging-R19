@@ -411,7 +411,23 @@ private:
             return;
         }
         boost::asio::post(ioc_, [self, stream_id, req, handler = *matched_handler]() {
-            Response resp = handler(*req);
+            // The API boundary (CLAUDE.md: exceptions only here). A handler that throws -- a
+            // datastore client losing its connection mid-request is the realistic case, ADR-0360
+            // -- answers a TS 29.500 ProblemDetails 500 for that one request. Before this, the
+            // exception escaped io_context::run() and took the whole NF down with it.
+            Response resp;
+            try {
+                resp = handler(*req);
+            } catch (const std::exception& e) {
+                spdlog::error(
+                    "sbi-core: handler for {} {} threw: {}", req->method, req->path, e.what());
+                resp.status = 500;
+                resp.headers.emplace("content-type", "application/problem+json");
+                resp.body =
+                    R"({"status":500,"title":"Internal Server Error",)"
+                    R"("detail":"request handler failed","cause":"SYSTEM_FAILURE"})"; // TS 29.500
+                                                                                      // Table 5.2.7.2-1
+            }
             boost::asio::post(self->strand_, [self, stream_id, resp = std::move(resp)]() mutable {
                 self->submit_response(stream_id, std::move(resp));
             });
