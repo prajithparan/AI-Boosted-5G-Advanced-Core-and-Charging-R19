@@ -8,8 +8,8 @@
 #include <nlohmann/json.hpp>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "TS26510_CommonData_grp.hpp" // was TS29572_Nlmf_DataExposure.hpp; merged into the group by ADR-0358's regeneration
 #include "TS29572_Nlmf_Broadcast.hpp"
-#include "TS29572_Nlmf_DataExposure.hpp"
 
 #include <gtest/gtest.h>
 

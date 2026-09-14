@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf"
 
   nrf:
     build:
@@ -259,6 +259,26 @@ services:
     ports:
       - "7797:7797"   # Nnsacf_NSAC + Nnsacf_SliceEventExposure (TLS 1.3 + mTLS)
       - "9484:9484"   # Prometheus /metrics
+
+  # ADR-0358: NWDAF Phase A -- Nnwdaf_AnalyticsInfo + Nnwdaf_EventsSubscription (AnLF).
+  nwdaf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/nwdaf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+      doris:
+        condition: service_healthy
+    environment:
+      NWDAF_FEATURE_STORE_HOST: doris
+    volumes:
+      - certs_data:/build/certs
+    ports:
+      - "7798:7798"   # Nnwdaf_AnalyticsInfo + Nnwdaf_EventsSubscription (TLS 1.3 + mTLS)
+      - "9485:9485"   # Prometheus /metrics
 
   smsf:
     build:

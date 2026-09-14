@@ -125,11 +125,12 @@
 // `TS29520_Nnwdaf_VFLTraining.yaml`) bridged a cyclic `$ref` that absorbed `Nnef_PFDmanagement`'s
 // own schemas into the shared `TS26510_CommonData_grp.hpp` group -- its own standalone generated
 // header stopped existing, breaking this file's own
-// `#include "TS29551_Nnef_PFDmanagement.hpp"` line, fixed by removing it (the shared group header
-// was already included). See ADR-0210 for the full disclosure, including two real bugs of my own
-// caught via live verification (fabricated nested-object field shapes in the new test file's own
-// bodies, and the resulting `400`s re-triggering the known `ASSERT`-before-cleanup leaked-process
-// bug class from ADR-0204).
+// `#include "TS26510_CommonData_grp.hpp" // was TS29551_Nnef_PFDmanagement.hpp; merged into the
+// group by ADR-0358's regeneration` line, fixed by removing it (the shared group header was already
+// included). See ADR-0210 for the full disclosure, including two real bugs of my own caught via
+// live verification (fabricated nested-object field shapes in the new test file's own bodies, and
+// the resulting `400`s re-triggering the known `ASSERT`-before-cleanup leaked-process bug class
+// from ADR-0204).
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -7947,7 +7948,10 @@ int main() {
                     self_base_url + "/nnef-callback/v1/monitoring-notify/" + af_id + "/" + sub_id;
                 ee.monitoringConfigurations = json{{"0", config}};
                 if (body->maximumNumberOfReports.has_value()) {
-                    sbi_gen::ReportingOptions options{};
+                    // Suffixed since ADR-0358 pulled Ndccf_DataManagement's own ReportingOptions
+                    // into the generated set; this is the UDM EE one, which is what an EE
+                    // subscription carries.
+                    sbi_gen::ReportingOptions_Nudm_EE options{};
                     options.maxNumOfReports = body->maximumNumberOfReports;
                     ee.reportingOptions = options;
                 }

@@ -5161,3 +5161,15 @@ Control), TS 23.502 §4.2.11 / §4.3.2.2.1 for the AMF/SMF invocation points.
 | `LocalNumberUpdate` leaves the unsent maximum alone | TS 29.536 §6.1.6.2.5 (both fields OPTIONAL) | same | same test -- PDU maximum still 20 after a UE-only update |
 | `CreateSubscription` returns 201 + Location | TS 29.536 §5.3.2.2 | `nfs/nsacf/src/main.cpp` `/subscriptions` | Not covered end-to-end this increment -- disclosed in ADR-0276 (CRUD is real; nothing publishes to it) |
 | NRF registration with `nfType=NSACF` | TS 29.510 §6.1.6.3.3 | `run_nrf_lifecycle` | Live: NRF accepts the profile (the enum value is in this project's own `known_nf_types()`) |
+
+## NWDAF (Phase A, ADR-0358)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Nnwdaf_AnalyticsInfo GetNWDAFAnalytics (`GET /nnwdaf-analyticsinfo/v1/analytics`) | TS 23.288 6.1.2; TS 29.520 5.2 | `nfs/nwdaf/src/main.cpp` | `test_nwdaf_phase_a.cpp` NfLoadIsComputedFromTheRealNrfRegistry, AnUnsupportedAnalyticsIdIsA404NotAnEmpty200 |
+| Nnwdaf_AnalyticsInfo GetNwdafContext (`GET .../context`) | TS 29.520 5.2 | `nfs/nwdaf/src/main.cpp` | (204, no context in Phase A) |
+| Nnwdaf_EventsSubscription Create/Update/Delete (`/nnwdaf-eventssubscription/v1/subscriptions`) | TS 23.288 6.1.1; TS 29.520 5.1 | `nfs/nwdaf/src/main.cpp` | `test_nwdaf_phase_a.cpp` SubscriptionLifecycleAtTheYamlsApiRoot |
+| Nnwdaf_EventsSubscription Transfer Create/Update/Delete (`/transfers`) | TS 23.288 6.1B; TS 29.520 5.1 | `nfs/nwdaf/src/main.cpp` | stored only -- no peer NWDAF; disclosed |
+| NF load analytics | TS 23.288 6.5 (input Table 6.5.2-1: NRF) | `nfs/nwdaf/src/analytics.cpp` nf_load_from_profiles | `test_nwdaf_analytics.cpp` NwdafNfLoad.* |
+| Abnormal behaviour analytics (UNEXPECTED_LARGE_RATE_FLOW, TOO_FREQUENT_SERVICE_ACCESS) | TS 23.288 6.7.5 (output Table 6.7.5.3-1) | `nfs/nwdaf/src/analytics.cpp` detect_abnormal_behaviour | `test_nwdaf_analytics.cpp` NwdafAbnormalBehaviour.* |
+| Data collection from the CHF feature store | TS 23.288 6.2 (this project's own source, ADR-0350) | `nfs/nwdaf/src/feature_store.cpp` | live smoke against 147,237 rows (ADR-0358) |

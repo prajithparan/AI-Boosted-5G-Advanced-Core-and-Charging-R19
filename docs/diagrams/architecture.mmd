@@ -65,13 +65,14 @@ flowchart TB
     TRAIN[Training sidecar · Python<br/>MLflow lineage]:::ai
     ONNX[ONNX Runtime<br/>in-process quota sizing<br/>kill switch, default OFF]:::ai
     MCP[MCP server<br/>read-only tools · PII audit · agent scoping]:::ai
-    NWDAF[NWDAF · AnLF + MTLF<br/>TS 23.288 · 10 Nnwdaf services]:::planned
+    NWDAF[NWDAF · AnLF<br/>AnalyticsInfo + EventsSubscription<br/>NF_LOAD · ABNORMAL_BEHAVIOUR<br/>MTLF + 8 services: planned]:::ai
     AGENTS[Network-analytics · Care/retention · Tech-ops agents]:::planned
   end
   DORIS -- "extract_features.py" --> FEAT
   FEAT --> TRAIN --> ONNX --> CHF
   KAFKA -.-> NWDAF
-  FEAT -.-> NWDAF
+  FEAT --> NWDAF
+  NRF --> NWDAF
   NWDAF -.-> AGENTS
   MCP --> PG
   MCP --> DORIS

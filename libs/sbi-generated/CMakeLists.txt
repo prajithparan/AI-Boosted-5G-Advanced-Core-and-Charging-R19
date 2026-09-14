@@ -159,6 +159,14 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29520_Nnwdaf_VFLInference.yaml
     TS29591_Nnef_VFLTraining.yaml
     TS29520_Nnwdaf_VFLTraining.yaml
+    # ADR-0358: NWDAF Phase A -- the remaining six of its ten R19 service files, so the NF is
+    # generated from its complete YAML surface (the full-coverage rule), not from four of ten.
+    TS29520_Nnwdaf_AnalyticsInfo.yaml
+    TS29520_Nnwdaf_DataManagement.yaml
+    TS29520_Nnwdaf_MLModelMonitor.yaml
+    TS29520_Nnwdaf_MLModelProvision.yaml
+    TS29520_Nnwdaf_RoamingAnalytics.yaml
+    TS29520_Nnwdaf_RoamingData.yaml
     # ADR-0276: NSACF (TS 29.536) -- both of its real R19 API files, so the NF is generated
     # from its complete YAML surface rather than half of it.
     TS29536_Nnsacf_NSAC.yaml
@@ -307,6 +315,12 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_VFLInference.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29591_Nnef_VFLTraining.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_VFLTraining.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_AnalyticsInfo.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_DataManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelMonitor.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingAnalytics.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingData.yaml
     # ADR-0276: NSACF (TS 29.536), this project's fifth Tier 2 NF -- Network Slice Admission
     # Control. Both of its real R19 API files, added together: the NSAC service itself and
     # its own event-exposure service, so the NF is generated from the complete YAML surface

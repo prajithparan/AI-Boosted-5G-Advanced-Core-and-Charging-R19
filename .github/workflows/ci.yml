@@ -230,7 +230,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         run: PGPASSWORD=product_catalog psql -h localhost -U product_catalog -d product_catalog -f bss/product-catalog/schema.sql
@@ -524,7 +524,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         run: PGPASSWORD=product_catalog psql -h localhost -U product_catalog -d product_catalog -f bss/product-catalog/schema.sql

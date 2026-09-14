@@ -97,8 +97,8 @@
 // Gap-closure (ADR-0193 audit, ADR-0196): Nlmf_Broadcast/Nlmf_DataExposure's own types stayed in
 // their own standalone headers (no cross-file $ref cycle pulled them into the shared group
 // header above).
+#include "TS26510_CommonData_grp.hpp" // was TS29572_Nlmf_DataExposure.hpp; merged into the group by ADR-0358's regeneration
 #include "TS29572_Nlmf_Broadcast.hpp"
-#include "TS29572_Nlmf_DataExposure.hpp"
 #include "nf_config/nf_config.hpp"
 #include "stores.hpp"
 
