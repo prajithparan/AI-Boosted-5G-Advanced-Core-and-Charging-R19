@@ -198,6 +198,9 @@ jobs:
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
             echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
+            # thrashes this 15 GB box; cap it to the same 4 the project build uses.
+            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
             for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
@@ -223,8 +226,23 @@ jobs:
           # clone only has the tip commit, so that `git show` fails with exit 128 the moment the
           # pinned baseline isn't HEAD (the normal case, not an edge case). Real bug this comment
           # documents: every CI run failed on exactly this until it was found and fixed.
-          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+          #
+          # Checked out AT the baseline commit, not left at HEAD (ADR-0364 CI note): vcpkg's
+          # binary-cache key hashes the scripts/ tree and tool version of the checkout, so a
+          # clone at a newer HEAD misses every cached archive and rebuilds all ~170 installed ports from
+          # source -- onnxruntime alone is an hour. The first self-hosted run did exactly that.
+          # The lab machine's own vcpkg sits at the baseline commit, so this makes the shared
+          # cache (~/.cache/vcpkg/archives, 470 archives) hit for CI too.
+          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
+            git -C "$VCPKG_ROOT" fetch --quiet origin
+            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
+            rm -f "$VCPKG_ROOT/vcpkg"
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
 
@@ -543,6 +561,9 @@ jobs:
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
             echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
+            # thrashes this 15 GB box; cap it to the same 4 the project build uses.
+            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
             for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
@@ -562,8 +583,18 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
-          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+          # Same as the build job: clone once, check out vcpkg.json's builtin-baseline so the
+          # binary cache key matches the lab machine's own vcpkg.
+          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
+            git -C "$VCPKG_ROOT" fetch --quiet origin
+            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
+            rm -f "$VCPKG_ROOT/vcpkg"
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
 
@@ -733,6 +764,9 @@ jobs:
             # that at the persistent cache so asn1c is built once per machine, not per run.
             mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
             echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            # vcpkg ignores CI_JOBS and builds a cache-missing port at nproc+1 (-j9 here), which
+            # thrashes this 15 GB box; cap it to the same 4 the project build uses.
+            echo "VCPKG_MAX_CONCURRENCY=4" >> "$GITHUB_ENV"
             echo "$HOME/.local/bin" >> "$GITHUB_PATH"
             echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
             for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
@@ -765,8 +799,18 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
-          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+          # Same as the build job: clone once, check out vcpkg.json's builtin-baseline so the
+          # binary cache key matches the lab machine's own vcpkg.
+          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
             git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
+            git -C "$VCPKG_ROOT" fetch --quiet origin
+            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
+            rm -f "$VCPKG_ROOT/vcpkg"
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
             "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           fi
 
