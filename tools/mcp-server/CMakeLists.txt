@@ -4,6 +4,10 @@
 # nfs/chf already finds it -- an imported target from another directory is not visible.
 find_package(libpqxx CONFIG REQUIRED)
 find_package(unofficial-libmariadb CONFIG REQUIRED)
+# ADR-0355 made cdr.cpp publish every record to Kafka through cdr_event_producer.cpp; a target
+# that compiles cdr.cpp for its read path (CdrQuery) has to carry that TU and librdkafka too,
+# or the link fails on CdrEventProducer -- which is exactly how CI caught it (2026-09-14).
+find_package(RdKafka CONFIG REQUIRED)
 
 # Reuses CHF's own store implementations rather than re-implementing their queries here, so an
 # MCP read cannot drift from the tested one. Disclosed coupling: this is a TOOL reading project
@@ -12,13 +16,14 @@ add_executable(mcp-server
     src/main.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/rating_decision_store.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_event_producer.cpp
     ${CMAKE_SOURCE_DIR}/nfs/chf/src/cdr_asn1.cpp
     src/pii_audit.cpp
     src/agent_scope.cpp
     src/tools.cpp
     src/analytics.cpp
 )
-target_link_libraries(mcp-server PRIVATE sbi_core nf_config libpqxx::pqxx unofficial::libmariadb tcap_core tbcd_core)
+target_link_libraries(mcp-server PRIVATE sbi_core nf_config libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ tcap_core tbcd_core)
 target_include_directories(mcp-server PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src)
 target_compile_definitions(mcp-server PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
