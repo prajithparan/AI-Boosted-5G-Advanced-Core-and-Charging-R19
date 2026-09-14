@@ -92,6 +92,17 @@ Until then, P8 stays honestly **Blocked** in the matrix above, and the productio
 
 Ordered by how hard each would bite:
 
+0. **No Lawful Interception, anywhere** (ADR-0354, `docs/SECURITY_COMPLIANCE.md` F1). Added
+   2026-09-13 at position zero deliberately: every item below is about how *well* the core runs;
+   this one is about whether a licensed operator may run it at all. TS 33.127 V19.7.0 requires an
+   IRI-POI in AMF, SMF, UDM, SMSF, NEF and NWDAF, a CC-POI in UPF, a SIRF in NRF, and -- clause
+   7.22 -- an IRI-POI in the CHF emitting `ChargingDataEvent` on every Nchf/Rf request for a
+   target. `grep -rli 'lawful intercept'` over `nfs/ libs/ docs/` returns nothing. It is on no
+   roadmap in this repository. The same review found four further security non-conformances that
+   bite less hard but are real: mandatory SNOW 3G NAS algorithms missing (33.501 §5.5), duplicate
+   JSON keys silently accepted (33.117 §4.3.6.3 -- an attack surface, verified by experiment), NRF
+   discovery not authorized per producer (33.501 §13.3.1.3), and TLS 1.2 unsupported where 33.210
+   §6.2.1 requires it (an architect's call: the non-conformant choice is the more secure one).
 1. **No horizontal scalability for 7 of 9 core NFs** (P8, above). A single AMF pod is the capacity
    ceiling *and* the failure domain.
 2. **No geo-redundancy, no measured RPO/RTO** (P11) — deferred by decision, but still absent. It
@@ -111,7 +122,10 @@ Ordered by how hard each would bite:
 8. **Helm covers 7 of 18 NFs**; no multi-cluster story (P3).
 9. **N28/Sy is incomplete against the user's own directive**: PCF↔CHF works, but SMF has no
    `policyCounterId` code and no GUI exists for the data model that directive requires.
-10. **NWDAF does not exist** (Phase 5), which also blocks P4.9 and P13.
+10. **NWDAF does not exist** (Phase 5), which also blocks P4.9 and P13. Its input side is now
+    ready: the CHF -> feature-store pipeline is built and populated from a 3M-CDR / 75k-subscriber
+    corpus (ADR-0350, 147,237 subscriber-day rows). The **event bus** (Kafka/Redpanda) CLAUDE.md
+    mandates between NFs and the feature store is still absent -- only the batch half exists.
 11. **NEF exposes nothing to an AF** (ADR-0294). All 14 `Nnef_*` SBI files are built, but the
     AF-facing TS 29.122 / TS 29.522 APIs -- the "exposure" the NF is named for -- are unbuilt (58
     of 60 spec files on disk, unwired), and NEF's only outbound HTTP is NRF registration, so
