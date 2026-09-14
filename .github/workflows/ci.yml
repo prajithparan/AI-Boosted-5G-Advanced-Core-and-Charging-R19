@@ -129,6 +129,31 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # User-directed 2026-09-14: real Apache Kafka (KRaft, single node) so the event-bus tests
+      # (ADR-0355's test_cdr_event_bus, and the MFAF's -- ADR-0359 step 1) actually run here
+      # instead of GTEST_SKIPping. Jobs run on the runner VM, so clients reach the broker at
+      # 127.0.0.1:9092 -- that is the only advertised listener, which is why this block differs
+      # from the two-listener lab compose service. Apache-2.0 (P1).
+      kafka:
+        image: apache/kafka:3.9.0
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
       # ADR-0073, migrated ADR-0192: real, self-hosted, open-source Apache Doris for CHF's own CDR
       # generation (ADR-0058) -- see ADR-0192 for the full engine comparison. Real, confirmed
       # default: root user, no password (apache/doris's own
@@ -276,6 +301,7 @@ jobs:
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:5437/udr
           CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:5434/chf_rating
           CHF_REDIS_URL: tcp://127.0.0.1:6379
+          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:9092
           CHF_DORIS_HOST: 127.0.0.1
           CHF_DORIS_PORT: "9030"
           CHF_DORIS_USER: root
@@ -405,6 +431,31 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # User-directed 2026-09-14: real Apache Kafka (KRaft, single node) so the event-bus tests
+      # (ADR-0355's test_cdr_event_bus, and the MFAF's -- ADR-0359 step 1) actually run here
+      # instead of GTEST_SKIPping. Jobs run on the runner VM, so clients reach the broker at
+      # 127.0.0.1:9092 -- that is the only advertised listener, which is why this block differs
+      # from the two-listener lab compose service. Apache-2.0 (P1).
+      kafka:
+        image: apache/kafka:3.9.0
+        env:
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
       # ADR-0073, migrated ADR-0192: real, self-hosted, open-source Apache Doris for CHF's own CDR
       # generation (ADR-0058). GitHub Actions service containers run one image each with no
       # custom entrypoint override -- the real all-in-one image (FE+BE together) still needs its
@@ -554,6 +605,7 @@ jobs:
           TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:5435/subscriber_management
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:5436/roaming_interconnect
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:5437/udr
+          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:9092
           TSAN_OPTIONS: suppressions=${{ github.workspace }}/.tsan-suppressions
         # The -E exclusion that used to live here is GONE (task #165) -- see the build job's own
         # note. Left as a comment rather than deleted so the history of the exclusion is findable

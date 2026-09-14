@@ -22,6 +22,22 @@ PfcpPeer::PfcpPeer()
 
 PfcpPeer::~PfcpPeer() {
     stop_ = true;
+    // The receive thread sits in a synchronous receive_from. Asio implements that with its own
+    // non-blocking socket plus poll(), so the SO_RCVTIMEO set in the constructor never fires and
+    // the thread never wakes to see stop_ -- join() then blocks forever. Since ADR-0353 main()
+    // returns on SIGTERM and this destructor actually runs; the SMF hung on every orderly stop
+    // and 16 CI tests timed out in teardown (2026-09-14). Same cure as the UPF's PFCP loop
+    // (ADR-0357): one datagram from the loopback makes receive_from return, the loop reads stop_.
+    try {
+        boost::asio::io_context nudge_ioc;
+        boost::asio::ip::udp::socket nudge(nudge_ioc, boost::asio::ip::udp::v4());
+        const std::uint8_t zero = 0;
+        nudge.send_to(boost::asio::buffer(&zero, 1),
+                      boost::asio::ip::udp::endpoint(boost::asio::ip::make_address("127.0.0.1"),
+                                                     pfcp_core::kSmfCpFunctionPfcpPort));
+    } catch (const std::exception&) {
+        // Nothing useful to do during shutdown; the join below then waits for a real datagram.
+    }
     if (receive_thread_.joinable()) {
         receive_thread_.join();
     }
@@ -47,6 +63,9 @@ void PfcpPeer::receive_loop() {
         boost::asio::ip::udp::endpoint sender;
         boost::system::error_code ec;
         const std::size_t n = socket_.receive_from(boost::asio::buffer(recv_buf), sender, 0, ec);
+        if (stop_) {
+            break; // the shutdown nudge, or a real datagram that arrived at the same moment
+        }
         if (ec) {
             continue; // real recv error or (far more often) the SO_RCVTIMEO poll interval expiring
         }
