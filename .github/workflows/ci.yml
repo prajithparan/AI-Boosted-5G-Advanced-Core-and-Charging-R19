@@ -905,5 +905,7 @@ jobs:
         # `-n 1` gives one file per process so all cores stay busy; xargs still exits non-zero if
         # any invocation fails, so warnings-as-errors continue to fail the job exactly as before.
         run: |
+          # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
+          # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
           find libs nfs -name '*.cpp' -print0 \
-            | xargs -0 -P "$(nproc)" -n 1 clang-tidy-18 -p build
+            | xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build
