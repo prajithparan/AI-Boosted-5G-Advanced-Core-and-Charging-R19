@@ -91,7 +91,8 @@ std::string CdrEventProducer::to_event_json(const CdrRecord& r) {
     return j.dump();
 }
 
-CdrEventProducer::CdrEventProducer(const CdrEventBusOptions& options) : topic_(options.topic) {
+CdrEventProducer::CdrEventProducer(const CdrEventBusOptions& options)
+    : topic_(options.topic), flush_timeout_ms_(options.flush_timeout_ms) {
     if (options.brokers.empty()) {
         spdlog::info("chf: CDR event bus disabled (no brokers configured)");
         return;
@@ -124,7 +125,7 @@ CdrEventProducer::CdrEventProducer(const CdrEventBusOptions& options) : topic_(o
 
 CdrEventProducer::~CdrEventProducer() {
     if (producer_) {
-        flush(10000);
+        flush(flush_timeout_ms_);
     }
 }
 

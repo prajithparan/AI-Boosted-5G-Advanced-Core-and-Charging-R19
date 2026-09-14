@@ -194,6 +194,14 @@ extern "C" {
 
 namespace {
 
+// The UPF's PFCP port. Set ONCE in main() from config/smf.json (`upf_pfcp_port`, env
+// SMF_UPF_PFCP_PORT) before the server starts; read by every N4 endpoint construction below.
+// Was pfcp_core::kPfcpPort straight from the dictionary -- the IANA value, but a hardcoded port
+// nonetheless, and the user's standing mandate is that every port is configurable outside code.
+// A namespace-scope value rather than a parameter because the four sites sit in four lambdas with
+// four capture lists, and this is written exactly once before any of them can run.
+std::uint16_t g_upf_pfcp_port = 0;
+
 // Real Aligned PER (X.691) encode/decode of a single ASN.1 type -- the exact same underlying
 // asn1c runtime entry points nfs/amf/src/ngap_codec.cpp's own per_encode/decode_value use (see
 // its own comment on ADR-0031's Aligned PER patch), reimplemented locally here rather than
@@ -537,7 +545,7 @@ void run_pfcp_lifecycle(const std::string& smf_instance_id,
     spdlog::info("smf: discovered UPF at {} via Nnrf_NFDiscovery", upf_ip);
 
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
-                                                      pfcp_core::kPfcpPort);
+                                                      g_upf_pfcp_port);
 
     while (true) {
         pfcp_core::Header req_header;
@@ -758,7 +766,7 @@ std::optional<std::string> install_downlink_far(smf::PfcpPeer& pfcp_peer,
     mod_pdu.insert(mod_pdu.end(), mod_ies.begin(), mod_ies.end());
 
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
-                                                      pfcp_core::kPfcpPort);
+                                                      g_upf_pfcp_port);
     const std::string description = std::string("Session Modification (") + label + " real DL FAR)";
     const auto mod_resp_ies = pfcp_peer.send_request_and_await_response(
         upf_endpoint,
@@ -849,7 +857,7 @@ perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
                                  const std::optional<std::string>& ambr_uplink = std::nullopt,
                                  const std::optional<std::string>& ambr_downlink = std::nullopt) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
-                                                      pfcp_core::kPfcpPort);
+                                                      g_upf_pfcp_port);
 
     static std::atomic<std::uint64_t> next_cp_seid{1};
     const std::uint64_t cp_seid = next_cp_seid++;
@@ -1429,7 +1437,7 @@ bool perform_n4_session_modification_update_qer(smf::PfcpPeer& pfcp_peer,
                                                 const pfcp_core::Mbr& mbr,
                                                 bool create_instead) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
-                                                      pfcp_core::kPfcpPort);
+                                                      g_upf_pfcp_port);
 
     std::vector<std::uint8_t> qer;
     pfcp_core::encode_ie(qer,
@@ -1501,7 +1509,7 @@ bool perform_n4_session_modification_update_urr(smf::PfcpPeer& pfcp_peer,
                                                 std::uint64_t new_volume_threshold_octets,
                                                 std::uint64_t new_volume_quota_octets) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
-                                                      pfcp_core::kPfcpPort);
+                                                      g_upf_pfcp_port);
 
     std::vector<std::uint8_t> update_urr;
     pfcp_core::encode_ie(update_urr,
@@ -1775,6 +1783,8 @@ void report_pdu_session_to_nsacf(sbi_core::http2::Client& nsacf_client,
 int main() {
     const auto config = nf_config::load("smf", CONFIG_DIR);
     const auto port = nf_config::require<unsigned short>(config, "port");
+    g_upf_pfcp_port =
+        nf_config::require<std::uint16_t>(config, "upf_pfcp_port", "SMF_UPF_PFCP_PORT");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
     const auto nrf_base_url =

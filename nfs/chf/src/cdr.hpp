@@ -86,7 +86,8 @@ struct DorisOptions {
     // a quiet period cannot strand a CDR in memory indefinitely.
     int flush_interval_ms = 1000;
     std::string host;
-    std::uint16_t port = 9030;
+    std::uint16_t port = 0; // set from config (doris_port); a literal default here would be a
+                            // hardcoded port waiting for a caller that forgets to set it
     std::string user;
     std::string password;
     std::string database;
@@ -98,6 +99,7 @@ struct DorisOptions {
     // deployment that has not opted in changes nothing.
     std::string event_bus_brokers;
     std::string event_bus_topic = "chf.cdr";
+    int event_bus_flush_timeout_ms = 0;
     bool direct_insert = true;
 };
 
@@ -182,6 +184,7 @@ public:
 private:
     std::unique_ptr<CdrEventProducer> events_; // ADR-0355; null when the bus is not configured
     bool direct_insert_ = true;
+    int events_flush_timeout_ms_ = 0;
     std::mutex mutex_;
     // nullptr if construction failed to connect -- see this file's own header for why that's a
     // real, deliberate degraded state, not an error CdrWriter itself surfaces to its caller.

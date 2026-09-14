@@ -186,11 +186,9 @@ using nlohmann::json;
 // diameter_core::kDiameterTcpPort). Lab-internal identity, disclosed -- no real registered DNS
 // realm/enterprise number, matching the same per-NF naming convention already used for TLS cert
 // CNs (scripts/gen-lab-pki.sh).
-constexpr unsigned short kDiameterPort = diameter_core::kDiameterTcpPort;
 // P4.5/ADR-0061: real CAP (gsmSCF) listener, real IANA-assigned M3UA port (RFC 4666 §1.4.8,
 // ss7_core::dictionary::kSctpPort) -- CHF's second, non-SBI real network listener alongside
 // Diameter's, same "second real protocol on the same NF" shape.
-constexpr unsigned short kCapPort = ss7_core::dictionary::kSctpPort;
 constexpr const char* kDiameterOriginHost = "chf.5gc-r19.local";
 constexpr const char* kDiameterOriginRealm = "5gc-r19.local";
 constexpr const char* kNfType = "CHF";
@@ -276,17 +274,24 @@ chf::DorisOptions chf_doris_options(const nlohmann::json& config) {
     // ADR-0338: opt-in CDR batching. Defaulted rather than required so existing configs keep
     // working unchanged AND keep their current durability -- batch_size 1 means every CDR is on
     // disk when write() returns, which is what every deployment has today.
-    options.batch_size = config.value("cdr_batch_size", 1);
+    options.batch_size =
+        nf_config::optional<int>(config, "cdr_batch_size", "CHF_CDR_BATCH_SIZE").value_or(1);
     // ADR-0355: the event bus. All three default to "nothing changes"; CHF_CDR_EVENT_BUS_BROKERS
     // in the environment is the one-line way to turn it on for a lab instance.
     options.event_bus_brokers = nf_config::optional<std::string>(
                                     config, "cdr_event_bus_brokers", "CHF_CDR_EVENT_BUS_BROKERS")
                                     .value_or("");
-    options.event_bus_topic = config.value("cdr_event_bus_topic", std::string("chf.cdr"));
+    options.event_bus_topic =
+        nf_config::optional<std::string>(config, "cdr_event_bus_topic", "CHF_CDR_EVENT_BUS_TOPIC")
+            .value_or("chf.cdr");
+    options.event_bus_flush_timeout_ms = nf_config::require<int>(
+        config, "cdr_event_bus_flush_timeout_ms", "CHF_CDR_EVENT_BUS_FLUSH_TIMEOUT_MS");
     options.direct_insert =
         nf_config::optional<bool>(config, "cdr_direct_insert", "CHF_CDR_DIRECT_INSERT")
             .value_or(true);
-    options.flush_interval_ms = config.value("cdr_flush_interval_ms", 1000);
+    options.flush_interval_ms =
+        nf_config::optional<int>(config, "cdr_flush_interval_ms", "CHF_CDR_FLUSH_INTERVAL_MS")
+            .value_or(1000);
     if (const char* env = std::getenv("CHF_CDR_BATCH_SIZE"); env != nullptr && *env != 0) {
         options.batch_size = std::atoi(env);
     }
@@ -464,7 +469,11 @@ int main() {
     redis->ping();
     spdlog::info("chf: connected to Redis/Valkey");
     chf::ChargingDataStore charging_data_store(redis);
-    chf::IdempotencyStore idempotency_store(redis, idempotency_key_ttl_seconds);
+    chf::IdempotencyStore idempotency_store(
+        redis,
+        idempotency_key_ttl_seconds,
+        nf_config::require<int>(config, "idempotency_wait_poll_ms", "CHF_IDEMPOTENCY_WAIT_POLL_MS"),
+        nf_config::require<int>(config, "idempotency_wait_max_ms", "CHF_IDEMPOTENCY_WAIT_MAX_MS"));
     spdlog::info("chf: TS 29.500 clause 5.2.8 duplicate-request detection {} (idempotency-key TTL "
                  "{}s)",
                  idempotency_store.enabled() ? "ENABLED" : "disabled",
@@ -729,7 +738,9 @@ int main() {
         }
     }
 
-    spdlog::info("chf: Diameter (Gy+Rf+Sy) listening on tcp://0.0.0.0:{}", kDiameterPort);
+    // Logs the port actually bound. It logged the dictionary constant before, so an instance
+    // moved by CHF_DIAMETER_PORT reported 3868 while listening elsewhere.
+    spdlog::info("chf: Diameter (Gy+Rf+Sy) listening on tcp://0.0.0.0:{}", diameter_port);
 
     // P4.5/ADR-0061: real CAP server -- CHF plays the real gsmSCF role, receiving InitialDP from
     // a real gsmSSF peer and dispatching into the exact same charge_one_usage shared code path
@@ -766,7 +777,7 @@ int main() {
         }
     }
 
-    spdlog::info("chf: CAP (gsmSCF) listening on sctp://0.0.0.0:{}", kCapPort);
+    spdlog::info("chf: CAP (gsmSCF) listening on sctp://0.0.0.0:{}", cap_port);
 
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.

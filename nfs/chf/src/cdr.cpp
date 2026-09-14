@@ -72,12 +72,14 @@ CdrWriter::CdrWriter(const DorisOptions& options) {
     // deployment has: one CDR, one INSERT, already on disk when write() returns.
     batch_size_ = options.batch_size > 0 ? options.batch_size : 1;
     direct_insert_ = options.direct_insert;
+    events_flush_timeout_ms_ = options.event_bus_flush_timeout_ms;
     // ADR-0355: the bus is built even when Doris is unreachable -- the two sinks are independent,
     // and a deployment running bus-only has no Doris connection here at all.
     try {
         CdrEventBusOptions bus;
         bus.brokers = options.event_bus_brokers;
         bus.topic = options.event_bus_topic;
+        bus.flush_timeout_ms = options.event_bus_flush_timeout_ms;
         events_ = std::make_unique<CdrEventProducer>(bus);
     } catch (const std::exception& e) {
         spdlog::error("chf: CDR event bus could not start ({}); continuing with direct insert only",
@@ -132,7 +134,7 @@ CdrWriter::~CdrWriter() {
     // ADR-0355: the bus first -- events_ is reset by the unique_ptr destructor after this body,
     // but flushing explicitly here keeps the shutdown log honest about what was delivered.
     if (events_) {
-        events_->flush(10000);
+        events_->flush(events_flush_timeout_ms_);
     }
     // ADR-0338: flush BEFORE closing the connection. A clean shutdown that dropped buffered rows
     // would lose billing data on the one path where losing it is entirely avoidable.

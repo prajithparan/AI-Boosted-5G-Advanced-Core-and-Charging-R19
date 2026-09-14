@@ -76,8 +76,14 @@ enum class Claim {
 
 class IdempotencyStore {
 public:
-    IdempotencyStore(std::shared_ptr<sw::redis::Redis> redis, int ttl_seconds)
-        : redis_(std::move(redis)), ttl_seconds_(ttl_seconds) {}
+    // poll_ms / max_wait_ms: how a duplicate waits for the original to publish. Config, not
+    // literals (user mandate: every tunable changeable without a rebuild).
+    IdempotencyStore(std::shared_ptr<sw::redis::Redis> redis,
+                     int ttl_seconds,
+                     int poll_ms,
+                     int max_wait_ms)
+        : redis_(std::move(redis)), ttl_seconds_(ttl_seconds), poll_ms_(poll_ms),
+          max_wait_ms_(max_wait_ms) {}
 
     // Atomically take ownership of this key. Owned means nobody else has it and this request
     // should be processed; Duplicate means a retransmission.
@@ -95,6 +101,8 @@ public:
 private:
     std::shared_ptr<sw::redis::Redis> redis_;
     int ttl_seconds_;
+    int poll_ms_;
+    int max_wait_ms_;
 };
 
 class ChargingDataStore {

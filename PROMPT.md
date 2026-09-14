@@ -380,6 +380,32 @@ of everything stubbed, simplified, or non-conformant. That report is the
 project's credibility — accurate and unflattering where warranted.
 ```
 
+### Phase 9 — Production documentation (recorded 2026-09-14, user-directed; executed after the phases above)
+```
+Deliver the professional, industry-standard documentation set a telco needs to
+deploy and run this system in production -- covering every component, without
+exception. At minimum: system architecture and interface reference (every N-x
+reference point, every SBI, every Diameter/SS7 interface, with the TS clause
+each implements); installation and deployment guide (Docker Compose and Helm,
+sizing, prerequisites, PKI and mTLS provisioning, datastore setup for Valkey,
+PostgreSQL, Doris, Kafka); configuration reference (every key in every
+config/<service>.json, its environment override, default, and effect -- the
+strict "everything configurable outside code" mandate makes this reference
+complete by construction); operations runbook (start/stop ordering, health
+checks, upgrade and rollback, backup and restore of every datastore, scaling,
+disaster recovery once P11 exists); charging operations guide (product and
+tariff configuration in the catalog, rating rules, CDR lifecycle, TAP OUT,
+reconciliation); security and compliance guide (the 33-series assessment,
+LI once built, certificate lifecycle, hardening); observability guide (every
+metric, alarm and trace, with thresholds); AI/ML operations (model lifecycle,
+MLflow, drift monitoring, the kill switches); troubleshooting guide; API
+reference generated from the R19 YAML; and a conformance statement per NF.
+Format: a versioned documentation site built from Markdown in the repository
+(docs-as-code, reviewed like code), with diagrams from docs/diagrams/. Every
+statement in it must be true of the shipped code -- it is written from the
+repository, never ahead of it.
+```
+
 ---
 
 ## SECTION 2 — Reality check

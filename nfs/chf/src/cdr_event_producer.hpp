@@ -49,6 +49,8 @@ struct CdrEventBusOptions {
     std::string topic = "chf.cdr";
     // The producer's own client id, so a broker operator can see WHICH CHF instance is producing.
     std::string client_id = "chf";
+    // How long shutdown waits for the broker to acknowledge what is queued. Config, not a literal.
+    int flush_timeout_ms = 0;
 };
 
 class CdrEventProducer {
@@ -81,6 +83,7 @@ private:
     std::unique_ptr<DeliveryReport> report_;
     std::unique_ptr<RdKafka::Producer> producer_;
     std::string topic_;
+    int flush_timeout_ms_ = 0;
     std::atomic<std::uint64_t> delivered_{0};
     std::atomic<std::uint64_t> failed_{0};
 };

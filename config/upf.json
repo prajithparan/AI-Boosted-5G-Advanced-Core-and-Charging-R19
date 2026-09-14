@@ -1,5 +1,6 @@
 {
   "port": 7796,
+  "pfcp_bind_port": 8805,
   "metrics_bind_address": "0.0.0.0:9471",
   "nrf_base_url": "https://127.0.0.1:7777"
 }

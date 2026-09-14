@@ -73,9 +73,7 @@ std::optional<IdempotentResponse> IdempotencyStore::await_response(const std::st
     // Bounded, because a charging request must not block on a peer's retransmission. The original
     // is executing on this same cluster and publishes as soon as it answers; if it has not within
     // this window the caller processes normally, which is exactly the pre-ADR-0352 behaviour.
-    constexpr int kPollIntervalMs = 20;
-    constexpr int kMaxWaitMs = 2000;
-    for (int waited = 0; waited < kMaxWaitMs; waited += kPollIntervalMs) {
+    for (int waited = 0; waited < max_wait_ms_; waited += poll_ms_) {
         const auto status = redis_->hget(redis_key, "status");
         if (status) {
             IdempotentResponse response;
@@ -89,7 +87,7 @@ std::optional<IdempotentResponse> IdempotencyStore::await_response(const std::st
             }
             return response;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+        std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms_));
     }
     return std::nullopt;
 }

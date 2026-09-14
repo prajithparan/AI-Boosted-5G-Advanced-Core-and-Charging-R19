@@ -1479,14 +1479,40 @@ build_session_deletion_response_ies(std::uint64_t request_seid,
 // Runs on the main thread (blocking UDP I/O, same "blocking transport gets its own thread"
 // discipline ADR-0006/ADR-0030 already established -- here it's simply the only thread, since
 // UPF has no HTTP2 server to share time with). Never returns.
+// pfcp_bind_port: every port configurable outside code (user mandate). Read in main() from
+// config/upf.json (`pfcp_bind_port`, env UPF_PFCP_BIND_PORT) and passed in, rather than taken
+// from pfcp_core::kPfcpPort here. 8805 stays the configured default because it is IANA-assigned
+// (TS 29.244 4.2.1), but a lab running two UPFs on one host must be able to move it.
 void run_pfcp_lifecycle(std::time_t start_time,
                         upf::Datapath* datapath,
                         TeidSessionStore& teid_session_store,
-                        SeidToTeidStore& seid_to_teid_store) {
+                        SeidToTeidStore& seid_to_teid_store,
+                        std::uint16_t pfcp_bind_port) {
     boost::asio::io_context ioc;
+    // ADR-0357: this is the thread main() blocks in, and it blocks in a SYNCHRONOUS receive_from
+    // below, which ioc.stop() cannot interrupt -- the io_context here only constructs the socket.
+    // So the shutdown callback raises a flag and sends the socket one datagram from the loopback:
+    // receive_from returns, the loop sees the flag and ends, main returns, destructors run. Found
+    // by watching UPF log "signal 15 received" and then sit in __skb_wait_for_more_packets until
+    // SIGKILL.
+    std::atomic<bool> stop_requested{false};
+    sbi_core::on_shutdown_signal([&stop_requested, pfcp_bind_port] {
+        stop_requested.store(true);
+        try {
+            boost::asio::io_context nudge_ioc;
+            boost::asio::ip::udp::socket nudge(nudge_ioc, boost::asio::ip::udp::v4());
+            const std::uint8_t zero = 0;
+            nudge.send_to(boost::asio::buffer(&zero, 1),
+                          boost::asio::ip::udp::endpoint(boost::asio::ip::make_address("127.0.0.1"),
+                                                         pfcp_bind_port));
+        } catch (const std::exception&) {
+            // Nothing useful to do during shutdown; the flag alone ends the loop on the next
+            // packet.
+        }
+    });
     boost::asio::ip::udp::socket socket(
-        ioc, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), pfcp_core::kPfcpPort));
-    spdlog::info("upf: listening for PFCP/N4 (UDP) on 0.0.0.0:{}", pfcp_core::kPfcpPort);
+        ioc, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), pfcp_bind_port));
+    spdlog::info("upf: listening for PFCP/N4 (UDP) on 0.0.0.0:{}", pfcp_bind_port);
 
     constexpr std::array<std::uint8_t, 4> kNodeIpv4{127, 0, 0, 1}; // this lab's loopback-only scope
     std::uint64_t next_seid = 1;
@@ -1494,10 +1520,13 @@ void run_pfcp_lifecycle(std::time_t start_time,
     PfdStore pfd_store;
 
     std::vector<std::uint8_t> recv_buf(2048);
-    while (true) {
+    while (!stop_requested.load()) {
         boost::asio::ip::udp::endpoint sender;
         boost::system::error_code ec;
         const std::size_t n = socket.receive_from(boost::asio::buffer(recv_buf), sender, 0, ec);
+        if (stop_requested.load()) {
+            break; // the shutdown nudge, or a real packet that arrived at the same moment
+        }
         if (ec) {
             spdlog::warn("upf: PFCP receive failed: {}", ec.message());
             continue;
@@ -1747,6 +1776,8 @@ int main() {
     run_pfcp_lifecycle(start_time,
                        datapath.has_value() ? &*datapath : nullptr,
                        teid_session_store,
-                       seid_to_teid_store); // blocks forever
+                       seid_to_teid_store,
+                       nf_config::require<std::uint16_t>(
+                           config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT")); // blocks forever
     return 0;
 }
