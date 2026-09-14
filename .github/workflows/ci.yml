@@ -39,11 +39,8 @@ concurrency:
 # On the lab machine: ccache and the vcpkg binary cache live under ~/.cache/5gc-ci (outside the
 # per-run workspace, which actions/checkout cleans), service containers publish on host ports
 # +10000 so the developer's lab compose stack can stay up, and one runner means the jobs run one
-# at a time -- which is also what keeps the box's 15 GB from thrashing.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
+# at a time -- which is also what keeps the box's 15 GB from thrashing. (The concurrency block
+# above, ADR-0124, is what lets a newer push cancel the run it supersedes on that single runner.)
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
@@ -306,14 +303,14 @@ jobs:
 
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
-          docker exec -i ${{ job.services.postgres-subscriber.id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
-          docker exec -i ${{ job.services.postgres-roaming.id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
+          docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
+          docker exec -i ${{ job.services['postgres-roaming'].id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
-        run: docker exec -i ${{ job.services.postgres-udr.id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
+        run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
       - name: Apply CHF PostgreSQL schema (ADR-0060)
-        run: docker exec -i ${{ job.services.postgres-chf.id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
+        run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
       - name: Apply CHF Doris schema (ADR-0058, migrated ADR-0192)
         # GitHub Actions service containers don't support the docker-compose-style
@@ -667,11 +664,11 @@ jobs:
 
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
-          docker exec -i ${{ job.services.postgres-subscriber.id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
-          docker exec -i ${{ job.services.postgres-roaming.id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
+          docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
+          docker exec -i ${{ job.services['postgres-roaming'].id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
-        run: docker exec -i ${{ job.services.postgres-udr.id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
+        run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
