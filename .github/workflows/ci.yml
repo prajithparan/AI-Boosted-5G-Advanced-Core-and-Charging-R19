@@ -82,6 +82,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Real PostgreSQL for bss/balance-management, which tests/integration/test_cap_scoped_charging
+      # .cpp spawns (ADR-0351/09689d8). Never provided before: that test was added after the last
+      # green run and CI did not reach Test again until ADR-0363, when it failed on
+      # "connection to server at localhost, port 5433 refused". Same credentials and database as
+      # deploy/docker/docker-compose.yml's postgres-balance; host port +10000 (ADR-0363).
+      postgres-balance:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: balance_management
+          POSTGRES_PASSWORD: balance_management
+          POSTGRES_DB: balance_management
+        ports:
+          - 15433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       postgres-roaming:
         image: postgres:16-alpine
         env:
@@ -319,6 +337,9 @@ jobs:
         # GitHub-hosted and self-hosted runners (ADR-0363).
         run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
 
+      - name: Apply balance-management PostgreSQL schema (ADR-0056)
+        run: docker exec -i ${{ job.services['postgres-balance'].id }} psql -U balance_management -d balance_management < bss/balance-management/schema.sql
+
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
           docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
@@ -359,6 +380,7 @@ jobs:
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
@@ -438,6 +460,24 @@ jobs:
           POSTGRES_DB: subscriber_management
         ports:
           - 15435:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # Real PostgreSQL for bss/balance-management, which tests/integration/test_cap_scoped_charging
+      # .cpp spawns (ADR-0351/09689d8). Never provided before: that test was added after the last
+      # green run and CI did not reach Test again until ADR-0363, when it failed on
+      # "connection to server at localhost, port 5433 refused". Same credentials and database as
+      # deploy/docker/docker-compose.yml's postgres-balance; host port +10000 (ADR-0363).
+      postgres-balance:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: balance_management
+          POSTGRES_PASSWORD: balance_management
+          POSTGRES_DB: balance_management
+        ports:
+          - 15433:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -693,6 +733,9 @@ jobs:
         # GitHub-hosted and self-hosted runners (ADR-0363).
         run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
 
+      - name: Apply balance-management PostgreSQL schema (ADR-0056)
+        run: docker exec -i ${{ job.services['postgres-balance'].id }} psql -U balance_management -d balance_management < bss/balance-management/schema.sql
+
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
           docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
@@ -719,6 +762,7 @@ jobs:
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit

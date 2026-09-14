@@ -75,6 +75,11 @@ TEST(CdrEventBus, ACdrWrittenByCdrWriterArrivesOnTheTopicKeyedOnTheSubscriber) {
     opts.event_bus_brokers = b;
     opts.event_bus_topic = topic;
     opts.direct_insert = false;
+    // The destructor's flush waits this long for the broker's delivery report. Left at the
+    // struct default (0 ms) the CDR is still queued when the producer is torn down and is
+    // dropped -- "flush incomplete after 0 ms ... (1 still queued)", the exact failure CI's
+    // first run of this test showed. config/chf.json sets 10000 for the real CHF.
+    opts.event_bus_flush_timeout_ms = 10000;
     chf::CdrRecord r;
     r.charging_data_ref = "chg-bus-1";
     r.invocation_sequence_number = 1;
