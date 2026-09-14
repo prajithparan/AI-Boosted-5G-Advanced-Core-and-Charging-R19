@@ -31,13 +31,26 @@ concurrency:
 # (bare checkout; cache's path/key/restore-keys), so this is a safe version bump for this repo's
 # actual usage, not a blind major-version jump.
 
+# ADR-0363 (2026-09-14, user-directed): CI runs on a self-hosted runner on the project's own
+# 8-core lab machine (labels below), not on GitHub's 2-vCPU/7 GB free-tier runners, which needed
+# the -j2/-j1 caps below and took 1.5-2 h per run with mid-job runner deaths. Every step that
+# depended on the host being a fresh GitHub VM is now conditional on `runner.environment` /
+# $RUNNER_ENVIRONMENT, so the workflow still runs on `ubuntu-latest` if `runs-on` is flipped back.
+# On the lab machine: ccache and the vcpkg binary cache live under ~/.cache/5gc-ci (outside the
+# per-run workspace, which actions/checkout cleans), service containers publish on host ports
+# +10000 so the developer's lab compose stack can stay up, and one runner means the jobs run one
+# at a time -- which is also what keeps the box's 15 GB from thrashing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, 5gc-lab]
     # Real PostgreSQL for tests/integration/test_product_catalog_postgres.cpp (ADR-0054) -- without
     # this, that test's SetUp() finds no reachable Postgres and calls GTEST_SKIP() (a real,
     # disclosed local-dev fallback, not a CI behavior); this service makes CI actually exercise the
@@ -50,7 +63,7 @@ jobs:
           POSTGRES_PASSWORD: product_catalog
           POSTGRES_DB: product_catalog
         ports:
-          - 5432:5432
+          - 15432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -66,7 +79,7 @@ jobs:
           POSTGRES_PASSWORD: subscriber_management
           POSTGRES_DB: subscriber_management
         ports:
-          - 5435:5432
+          - 15435:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -79,7 +92,7 @@ jobs:
           POSTGRES_PASSWORD: roaming_interconnect
           POSTGRES_DB: roaming_interconnect
         ports:
-          - 5436:5432
+          - 15436:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -95,7 +108,7 @@ jobs:
           POSTGRES_PASSWORD: udr
           POSTGRES_DB: udr
         ports:
-          - 5437:5432
+          - 15437:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -112,7 +125,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: chf_rating
         ports:
-          - 5434:5432
+          - 15434:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -123,7 +136,7 @@ jobs:
       redis:
         image: valkey/valkey:8-alpine
         ports:
-          - 6379:6379
+          - 16379:6379
         options: >-
           --health-cmd "valkey-cli ping"
           --health-interval 10s
@@ -132,7 +145,7 @@ jobs:
       # User-directed 2026-09-14: real Apache Kafka (KRaft, single node) so the event-bus tests
       # (ADR-0355's test_cdr_event_bus, and the MFAF's -- ADR-0359 step 1) actually run here
       # instead of GTEST_SKIPping. Jobs run on the runner VM, so clients reach the broker at
-      # 127.0.0.1:9092 -- that is the only advertised listener, which is why this block differs
+      # 127.0.0.1:19092 (host port +10000, ADR-0363) -- the only advertised listener, which is why this block differs
       # from the two-listener lab compose service. Apache-2.0 (P1).
       kafka:
         image: apache/kafka:3.9.0
@@ -141,14 +154,14 @@ jobs:
           KAFKA_PROCESS_ROLES: broker,controller
           KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
           KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:19092
           KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
           KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
           KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
           KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
         ports:
-          - 9092:9092
+          - 19092:9092
         options: >-
           --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
           --health-interval 10s
@@ -161,9 +174,9 @@ jobs:
       doris:
         image: apache/doris:all-in-one-4.1.3
         ports:
-          - 8030:8030
-          - 9030:9030
-          - 8040:8040
+          - 18030:8030
+          - 19030:9030
+          - 18040:8040
         options: >-
           --health-cmd "curl -sf http://localhost:8030/api/health"
           --health-interval 10s
@@ -172,7 +185,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Locate caches and tools for this runner (ADR-0363)
+        # Self-hosted: persistent ccache + vcpkg + binary cache outside the workspace, and a
+        # parallelism the 15 GB box can carry. GitHub-hosted: the original in-workspace layout
+        # and the -j2/-j1 caps (ADR-0222/0225/0229) stay exactly as they were.
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            mkdir -p "$HOME/.cache/5gc-ci"
+            echo "VCPKG_ROOT=$HOME/.cache/5gc-ci/vcpkg" >> "$GITHUB_ENV"
+            echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/5gc-ci/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+            echo "CCACHE_DIR=$HOME/.cache/5gc-ci/ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
+            # that at the persistent cache so asn1c is built once per machine, not per run.
+            mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
+            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
+            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+              command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
+            done
+            ccache -o max_size=20G; ccache -z
+          fi
+
       - name: Cache vcpkg binary cache
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -188,10 +226,13 @@ jobs:
           # clone only has the tip commit, so that `git show` fails with exit 128 the moment the
           # pinned baseline isn't HEAD (the normal case, not an edge case). Real bug this comment
           # documents: every CI run failed on exactly this until it was found and fixed.
-          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
 
       - name: Install Ninja
+        if: runner.environment == \'github-hosted\'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
         # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
@@ -200,9 +241,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y ninja-build libsctp-dev libbpf-dev libcap-dev clang-18 bison flex postgresql-client
 
       - name: Install sbi-codegen Python deps
-        run: pip install -r tools/sbi-codegen/requirements.txt
+        run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
@@ -239,7 +281,7 @@ jobs:
       - name: Build
         run: |
           for attempt in 1 2 3; do
-            if cmake --build build -- -j2; then
+            if cmake --build build -- -j${CI_JOBS:-2}; then
               exit 0
             fi
             echo "::warning::Build attempt ${attempt} failed (possibly a transient runner issue, see ADR-0225) -- retrying" >&2
@@ -258,18 +300,20 @@ jobs:
         run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
-        run: PGPASSWORD=product_catalog psql -h localhost -U product_catalog -d product_catalog -f bss/product-catalog/schema.sql
+        # docker exec into the service container: no psql on the host, and the same command on
+        # GitHub-hosted and self-hosted runners (ADR-0363).
+        run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
 
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
-          PGPASSWORD=subscriber_management psql -h localhost -p 5435 -U subscriber_management -d subscriber_management -f bss/subscriber-management/schema.sql
-          PGPASSWORD=roaming_interconnect psql -h localhost -p 5436 -U roaming_interconnect -d roaming_interconnect -f bss/roaming-interconnect/schema.sql
+          docker exec -i ${{ job.services.postgres-subscriber.id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
+          docker exec -i ${{ job.services.postgres-roaming.id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
-        run: PGPASSWORD=udr psql -h localhost -p 5437 -U udr -d udr -f nfs/udr/schema.postgres.sql
+        run: docker exec -i ${{ job.services.postgres-udr.id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
       - name: Apply CHF PostgreSQL schema (ADR-0060)
-        run: PGPASSWORD= psql -h localhost -p 5434 -U postgres -d chf_rating -f nfs/chf/schema.postgres.sql
+        run: docker exec -i ${{ job.services.postgres-chf.id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
       - name: Apply CHF Doris schema (ADR-0058, migrated ADR-0192)
         # GitHub Actions service containers don't support the docker-compose-style
@@ -278,8 +322,8 @@ jobs:
         # FE) instead, same "explicit apply step" pattern the postgres schemas above already use
         # for the identical real reason.
         run: |
-          mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
-          mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
 
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
@@ -295,15 +339,25 @@ jobs:
         # same-host-only local-dev defaults (nfs/chf/src/main.cpp's own
         # chf_rating_postgres_conninfo/chf_redis_conninfo/chf_doris_options comments).
         env:
-          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:5432/product_catalog
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:5435/subscriber_management
-          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:5436/roaming_interconnect
-          UDR_DATABASE_URL: postgresql://udr:udr@localhost:5437/udr
-          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:5434/chf_rating
-          CHF_REDIS_URL: tcp://127.0.0.1:6379
-          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:9092
+          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
+          MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
+          AMF_REDIS_URL: tcp://127.0.0.1:16379
+          AUSF_REDIS_URL: tcp://127.0.0.1:16379
+          NWDAF_REDIS_URL: tcp://127.0.0.1:16379
+          NWDAF_FEATURE_STORE_HOST: 127.0.0.1
+          NWDAF_FEATURE_STORE_PORT: "19030"
+          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
+          MCP_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
+          CHF_REDIS_URL: tcp://127.0.0.1:16379
+          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:19092
           CHF_DORIS_HOST: 127.0.0.1
-          CHF_DORIS_PORT: "9030"
+          CHF_DORIS_PORT: "19030"
           CHF_DORIS_USER: root
           CHF_DORIS_DATABASE: chf_cdr
         # -E exclusion: UdrIntegration.AmfContextLifecycle has real, disclosed, pre-existing
@@ -336,7 +390,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
   sanitize:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, 5gc-lab]
     strategy:
       # fail-fast: false (ADR-0222) -- real, observed waste: default fail-fast:true cancelled a
       # still-running, unrelated `tsan` leg the moment `asan-ubsan` failed from a GitHub-infra-level
@@ -355,7 +409,7 @@ jobs:
           POSTGRES_PASSWORD: product_catalog
           POSTGRES_DB: product_catalog
         ports:
-          - 5432:5432
+          - 15432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -368,7 +422,7 @@ jobs:
           POSTGRES_PASSWORD: subscriber_management
           POSTGRES_DB: subscriber_management
         ports:
-          - 5435:5432
+          - 15435:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -381,7 +435,7 @@ jobs:
           POSTGRES_PASSWORD: roaming_interconnect
           POSTGRES_DB: roaming_interconnect
         ports:
-          - 5436:5432
+          - 15436:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -397,7 +451,7 @@ jobs:
           POSTGRES_PASSWORD: udr
           POSTGRES_DB: udr
         ports:
-          - 5437:5432
+          - 15437:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -414,7 +468,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: chf_rating
         ports:
-          - 5434:5432
+          - 15434:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -425,7 +479,7 @@ jobs:
       redis:
         image: valkey/valkey:8-alpine
         ports:
-          - 6379:6379
+          - 16379:6379
         options: >-
           --health-cmd "valkey-cli ping"
           --health-interval 10s
@@ -434,7 +488,7 @@ jobs:
       # User-directed 2026-09-14: real Apache Kafka (KRaft, single node) so the event-bus tests
       # (ADR-0355's test_cdr_event_bus, and the MFAF's -- ADR-0359 step 1) actually run here
       # instead of GTEST_SKIPping. Jobs run on the runner VM, so clients reach the broker at
-      # 127.0.0.1:9092 -- that is the only advertised listener, which is why this block differs
+      # 127.0.0.1:19092 (host port +10000, ADR-0363) -- the only advertised listener, which is why this block differs
       # from the two-listener lab compose service. Apache-2.0 (P1).
       kafka:
         image: apache/kafka:3.9.0
@@ -443,14 +497,14 @@ jobs:
           KAFKA_PROCESS_ROLES: broker,controller
           KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
           KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:19092
           KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
           KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
           KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
           KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
           KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
         ports:
-          - 9092:9092
+          - 19092:9092
         options: >-
           --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
           --health-interval 10s
@@ -465,9 +519,9 @@ jobs:
       doris:
         image: apache/doris:all-in-one-4.1.3
         ports:
-          - 8030:8030
-          - 9030:9030
-          - 8040:8040
+          - 18030:8030
+          - 19030:9030
+          - 18040:8040
         options: >-
           --health-cmd "curl -sf http://localhost:8030/api/health"
           --health-interval 10s
@@ -476,7 +530,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Locate caches and tools for this runner (ADR-0363)
+        # Self-hosted: persistent ccache + vcpkg + binary cache outside the workspace, and a
+        # parallelism the 15 GB box can carry. GitHub-hosted: the original in-workspace layout
+        # and the -j2/-j1 caps (ADR-0222/0225/0229) stay exactly as they were.
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            mkdir -p "$HOME/.cache/5gc-ci"
+            echo "VCPKG_ROOT=$HOME/.cache/5gc-ci/vcpkg" >> "$GITHUB_ENV"
+            echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/5gc-ci/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+            echo "CCACHE_DIR=$HOME/.cache/5gc-ci/ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
+            # that at the persistent cache so asn1c is built once per machine, not per run.
+            mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
+            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
+            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+              command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
+            done
+            ccache -o max_size=20G; ccache -z
+          fi
+
       - name: Cache vcpkg binary cache
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -486,10 +565,13 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
 
       - name: Install Ninja
+        if: runner.environment == \'github-hosted\'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
         # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
@@ -499,9 +581,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y ninja-build libsctp-dev libbpf-dev libcap-dev clang-18 bison flex postgresql-client mariadb-client
 
       - name: Install sbi-codegen Python deps
-        run: pip install -r tools/sbi-codegen/requirements.txt
+        run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
@@ -554,8 +637,8 @@ jobs:
       # evidence-based mitigation, not a proven fix; needs watching across real future runs).
       - name: Build
         run: |
-          JOBS=2
-          if [ "${{ matrix.sanitizer }}" = "asan-ubsan" ]; then
+          JOBS=${CI_JOBS:-2}
+          if [ -z "${CI_JOBS:-}" ] && [ "${{ matrix.sanitizer }}" = "asan-ubsan" ]; then
             JOBS=1
           fi
           for attempt in 1 2 3; do
@@ -578,15 +661,17 @@ jobs:
         run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
-        run: PGPASSWORD=product_catalog psql -h localhost -U product_catalog -d product_catalog -f bss/product-catalog/schema.sql
+        # docker exec into the service container: no psql on the host, and the same command on
+        # GitHub-hosted and self-hosted runners (ADR-0363).
+        run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
 
       - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
         run: |
-          PGPASSWORD=subscriber_management psql -h localhost -p 5435 -U subscriber_management -d subscriber_management -f bss/subscriber-management/schema.sql
-          PGPASSWORD=roaming_interconnect psql -h localhost -p 5436 -U roaming_interconnect -d roaming_interconnect -f bss/roaming-interconnect/schema.sql
+          docker exec -i ${{ job.services.postgres-subscriber.id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
+          docker exec -i ${{ job.services.postgres-roaming.id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
-        run: PGPASSWORD=udr psql -h localhost -p 5437 -U udr -d udr -f nfs/udr/schema.postgres.sql
+        run: docker exec -i ${{ job.services.postgres-udr.id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
@@ -601,11 +686,24 @@ jobs:
         # internals during concurrent handshake cert-chain verification -- not this project's own
         # code. Harmless on the asan-ubsan leg (TSAN_OPTIONS is simply unused there).
         env:
-          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:5432/product_catalog
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:5435/subscriber_management
-          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:5436/roaming_interconnect
-          UDR_DATABASE_URL: postgresql://udr:udr@localhost:5437/udr
-          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:9092
+          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
+          MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
+          AMF_REDIS_URL: tcp://127.0.0.1:16379
+          AUSF_REDIS_URL: tcp://127.0.0.1:16379
+          NWDAF_REDIS_URL: tcp://127.0.0.1:16379
+          NWDAF_FEATURE_STORE_HOST: 127.0.0.1
+          NWDAF_FEATURE_STORE_PORT: "19030"
+          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
+          CHF_REDIS_URL: tcp://127.0.0.1:16379
+          CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:19092
+          CHF_DORIS_HOST: 127.0.0.1
+          CHF_DORIS_PORT: "19030"
           TSAN_OPTIONS: suppressions=${{ github.workspace }}/.tsan-suppressions
         # The -E exclusion that used to live here is GONE (task #165) -- see the build job's own
         # note. Left as a comment rather than deleted so the history of the exclusion is findable
@@ -618,11 +716,36 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, 5gc-lab]
     steps:
       - uses: actions/checkout@v7
 
+      - name: Locate caches and tools for this runner (ADR-0363)
+        # Self-hosted: persistent ccache + vcpkg + binary cache outside the workspace, and a
+        # parallelism the 15 GB box can carry. GitHub-hosted: the original in-workspace layout
+        # and the -j2/-j1 caps (ADR-0222/0225/0229) stay exactly as they were.
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = "self-hosted" ]; then
+            mkdir -p "$HOME/.cache/5gc-ci"
+            echo "VCPKG_ROOT=$HOME/.cache/5gc-ci/vcpkg" >> "$GITHUB_ENV"
+            echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/5gc-ci/vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+            echo "CCACHE_DIR=$HOME/.cache/5gc-ci/ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+            # scripts/setup-asn1c.sh and libs/ngap-generated look in <repo>/build-tools; point
+            # that at the persistent cache so asn1c is built once per machine, not per run.
+            mkdir -p "$HOME/.cache/5gc-ci/build-tools" && rm -rf build-tools && ln -s "$HOME/.cache/5gc-ci/build-tools" build-tools
+            echo "CI_JOBS=4" >> "$GITHUB_ENV"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            echo "$HOME/.local/build-tools-venv/bin" >> "$GITHUB_PATH"
+            for t in ninja cmake clang-18 clang-format-18 clang-tidy-18 bison flex ccache docker; do
+              command -v "$t" >/dev/null || { echo "self-hosted runner is missing $t"; exit 1; }
+            done
+            ccache -o max_size=20G; ccache -z
+          fi
+
       - name: Install clang tooling
+        if: runner.environment == \'github-hosted\'
         # bison/flex: see the build/sanitize jobs' "Install Ninja" step comment -- same libpq
         # (ADR-0054) build-from-source requirement applies here too, since Configure below runs
         # for the whole project including bss/product-catalog.
@@ -635,6 +758,7 @@ jobs:
           find libs nfs tests -name '*.hpp' -o -name '*.cpp' | xargs clang-format-18 --dry-run --Werror
 
       - name: Cache vcpkg binary cache
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -644,13 +768,16 @@ jobs:
 
       - name: Bootstrap vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
 
       - name: Install sbi-codegen Python deps
-        run: pip install -r tools/sbi-codegen/requirements.txt
+        run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
+        if: runner.environment == \'github-hosted\'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
