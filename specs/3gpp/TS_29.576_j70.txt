@@ -1,0 +1,3214 @@
+﻿3GPP TS 29.576 V19.7.0 (2026-06)
+Technical Specification
+3rd Generation Partnership Project;
+Technical Specification Group Core Network and Terminals;
+5G System; Messaging Framework Adaptor Services;
+Stage 3
+(Release 19)
+
+	
+
+
+
+The present document has been developed within the 3rd Generation Partnership Project (3GPP TM) and may be further elaborated for the purposes of 3GPP.
+The present document has not been subject to any approval process by the 3GPP Organizational Partners and shall not be implemented.
+This Specification is provided for future development work within 3GPP only. The Organizational Partners accept no liability for any use of this Specification.
+Specifications and Reports for implementation of the 3GPP TM system should be obtained via the 3GPP Organizational Partners' Publications Offices.
+
+
+
+3GPP
+Postal address
+
+3GPP support office address
+650 Route des Lucioles - Sophia Antipolis
+Valbonne - FRANCE
+Tel.: +33 4 92 94 42 00 Fax: +33 4 93 65 47 16
+Internet
+http://www.3gpp.org
+
+Copyright Notification
+No part may be reproduced except as authorized by written permission.
+The copyright and the foregoing restriction extend to reproduction in all media.
+
+© 2026, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).
+All rights reserved.
+
+UMTS™ is a Trade Mark of ETSI registered for the benefit of its members
+3GPP™ is a Trade Mark of ETSI registered for the benefit of its Members and of the 3GPP Organizational Partners
+LTE™ is a Trade Mark of ETSI registered for the benefit of its Members and of the 3GPP Organizational Partners
+GSM® and the GSM logo are registered and owned by the GSM Association
+
+Contents
+Foreword	6
+Introduction	7
+1	Scope	8
+2	References	8
+3	Definitions, symbols and abbreviations	9
+3.1	Definitions	9
+3.2	Symbols	9
+3.3	Abbreviations	9
+4	Services offered by the MFAF	9
+4.1	Introduction	9
+4.2	Nmfaf_3daDataManagement Service	10
+4.2.1	Service Description	10
+4.2.1.1	Overview	10
+4.2.1.2	Service Architecture	11
+4.2.1.3	Network Functions	11
+4.2.1.3.1	Messaging Framework Adaptor Function (MFAF)	11
+4.2.1.3.2	NF Service Consumers	11
+4.2.2	Service Operations	12
+4.2.2.1	Introduction	12
+4.2.2.2	Nmfaf_3daDataManagement_Configure service operation	12
+4.2.2.2.1	General	12
+4.2.2.2.2	Initial configuration of the MFAF	12
+4.2.2.2.3	Update the configuration of the MFAF	13
+4.2.2.3	Nmfaf_3daDataManagement_Deconfigure service operation	14
+4.2.2.3.1	General	14
+4.2.2.3.2	Remove MFAF configuration	14
+4.3	Nmfaf_3caDataManagement Service	15
+4.3.1	Service Description	15
+4.3.1.1	Overview	15
+4.3.1.2	Service Architecture	15
+4.3.1.3	Network Functions	16
+4.3.1.3.1	Messaging Framework Adaptor Function (MFAF)	16
+4.3.1.3.2	NF Service Consumers	16
+4.3.2	Service Operations	16
+4.3.2.1	Introduction	16
+4.3.2.2	Nmfaf_3caDataManagement_Fetch service operation	17
+4.3.2.2.1	General	17
+4.3.2.2.2	Retrieve data or analytics from the MFAF	17
+4.3.2.2A	Nmfaf_3caDataManagement_Subscribe service operation	17
+4.3.2.3	Nmfaf_3caDataManagement_Notify service operation	18
+4.3.2.3.1	General	18
+4.3.2.3.2	Notification about the subscribed data or analytics	18
+4.4	Nmfaf_ContextManagement Service	19
+4.4.1	Service Description	19
+4.4.1.1	Overview	19
+4.4.1.2	Service Architecture	19
+4.4.1.3	Network Functions	20
+4.4.1.3.1	Messaging Framework Adaptor Function (MFAF)	20
+4.4.1.3.2	NF Service Consumers	20
+4.4.2	Service Operations	20
+4.4.2.1	Introduction	20
+4.4.2.2	Nmfaf_ContextManagement_Transfer service operation	20
+4.4.2.2.1	General	20
+4.4.2.2.2	Transferring  MFAF configurations	20
+5	API Definitions	21
+5.1	Nmfaf_3daDataManagement Service API	21
+5.1.1	Introduction	21
+5.1.2	Usage of HTTP	21
+5.1.2.1	General	21
+5.1.2.2	HTTP standard headers	21
+5.1.2.2.1	General	21
+5.1.2.2.2	Content type	22
+5.1.2.3	HTTP custom headers	22
+5.1.3	Resources	22
+5.1.3.1	Overview	22
+5.1.3.2	Resource: MFAF Configurations	22
+5.1.3.2.1	Description	22
+5.1.3.2.2	Resource Definition	23
+5.1.3.2.3	Resource Standard Methods	23
+5.1.3.2.4	Resource Custom Operations	23
+5.1.3.3	Resource: Individual MFAF Configuration	24
+5.1.3.3.1	Description	24
+5.1.3.3.2	Resource Definition	24
+5.1.3.3.3	Resource Standard Methods	24
+5.1.4	Custom Operations without associated resources	26
+5.1.5	Notifications	26
+5.1.6	Data Model	26
+5.1.6.1	General	26
+5.1.6.2	Structured data types	27
+5.1.6.2.1	Introduction	27
+5.1.6.2.2	Type: MfafConfiguration	27
+5.1.6.2.3	Type: MessageConfiguration	28
+5.1.6.2.4	Type: MfafNotiInfo	28
+5.1.6.2.5	Type: MfafTransferInfo	29
+5.1.6.2.6	Type: TargetMfafNotiInfo	30
+5.1.6.3	Simple data types and enumerations	30
+5.1.6.3.1	Introduction	30
+5.1.6.3.2	Simple data types	30
+5.1.6.4	Data types describing alternative data types or combinations of data types	30
+5.1.6.5	Binary data	30
+5.1.7	Error Handling	30
+5.1.7.1	General	30
+5.1.7.2	Protocol Errors	30
+5.1.7.3	Application Errors	30
+5.1.8	Feature negotiation	31
+5.1.9	Security	31
+5.2	Nmfaf_3caDataManagement Service API	31
+5.2.1	Introduction	31
+5.2.2	Usage of HTTP	32
+5.2.2.1	General	32
+5.2.2.2	HTTP standard headers	32
+5.2.2.2.1	General	32
+5.2.2.2.2	Content type	32
+5.2.2.3	HTTP custom headers	32
+5.2.3	Resources	32
+5.2.4	Custom Operations without associated resources	32
+5.2.5	Notifications	32
+5.2.5.1	General	32
+5.2.5.2	MFAF Notification	33
+5.2.5.2.1	Description	33
+5.2.5.2.2	Target URI	33
+5.2.5.2.3	Standard Methods	33
+5.2.5.3	Fetch Notification	34
+5.2.5.3.1	Description	34
+5.2.5.3.2	Target URI	34
+5.2.5.3.3	Standard Methods	34
+5.2.6	Data Model	35
+5.2.6.1	General	35
+5.2.6.2	Structured data types	36
+5.2.6.2.1	Introduction	36
+5.2.6.2.2	Type: NmfafDataRetrievalNotification	37
+5.2.6.2.3	Type: FetchInstruction	37
+5.2.6.2.4	Type: NmfafDataAnaNotification	38
+5.2.6.3	Simple data types and enumerations	38
+5.2.6.3.1	Introduction	38
+5.2.6.3.2	Simple data types	38
+5.2.6.4	Data types describing alternative data types or combinations of data types	38
+5.2.6.5	Binary data	38
+5.2.7	Error Handling	38
+5.2.7.1	General	38
+5.2.7.2	Protocol Errors	38
+5.2.7.3	Application Errors	39
+5.2.8	Feature negotiation	39
+5.2.9	Security	39
+5.3	Nmfaf_ContextManagement Service API	40
+5.3.1	Introduction	40
+5.3.2	Usage of HTTP	40
+5.3.2.1	General	40
+5.3.2.2	HTTP standard headers	40
+5.3.2.2.1	General	40
+5.3.2.2.2	Content type	40
+5.3.2.3	HTTP custom headers	40
+5.3.3	Resources	40
+5.3.3.1	Overview	40
+5.3.4	Custom Operations without associated resources	41
+5.3.4.2	Operation: transfer	41
+5.3.4.2.1	Description	41
+5.3.4.2.2	Operation Definition	41
+5.3.5	Notifications	42
+5.3.6	Data Model	42
+5.3.6.1	General	42
+5.3.6.2	Structured data types	43
+5.3.6.2.1	Introduction	43
+5.3.6.2.2	Type: ContextTransferReq	43
+5.3.6.2.3	Type: ContextTransferResp	44
+5.3.6.3	Simple data types and enumerations	44
+5.3.6.3.1	Introduction	44
+5.3.6.3.2	Simple data types	44
+5.3.6.4	Data types describing alternative data types or combinations of data types	44
+5.3.6.5	Binary data	44
+5.3.7	Error Handling	45
+5.3.7.1	General	45
+5.3.7.2	Protocol Errors	45
+5.3.7.3	Application Errors	45
+5.3.8	Feature negotiation	45
+5.3.9	Security	45
+Annex A (normative):	OpenAPI specification	46
+A.1	General	46
+A.2	Nmfaf_3daDataManagement API	46
+A.3	Nmfaf_3caDataManagement API	50
+A.4	Nmfaf_ContextManagement API	54
+Annex B (informative):	Change history	55
+
+Foreword
+This Technical Specification has been produced by the 3rd Generation Partnership Project (3GPP).
+The contents of the present document are subject to continuing work within the TSG and may change following formal TSG approval. Should the TSG modify the contents of the present document, it will be re-released by the TSG with an identifying change of release date and an increase in version number as follows:
+Version x.y.z
+where:
+x	the first digit:
+1	presented to TSG for information;
+2	presented to TSG for approval;
+3	or greater indicates TSG approved document under change control.
+y	the second digit is incremented for all changes of substance, i.e. technical enhancements, corrections, updates, etc.
+z	the third digit is incremented when editorial only changes have been incorporated in the document.
+In the present document, modal verbs have the following meanings:
+shall	indicates a mandatory requirement to do something
+shall not	indicates an interdiction (prohibition) to do something
+The constructions "shall" and "shall not" are confined to the context of normative provisions, and do not appear in Technical Reports.
+The constructions "must" and "must not" are not used as substitutes for "shall" and "shall not". Their use is avoided insofar as possible, and they are not used in a normative context except in a direct citation from an external, referenced, non-3GPP document, or so as to maintain continuity of style when extending or modifying the provisions of such a referenced document.
+should	indicates a recommendation to do something
+should not	indicates a recommendation not to do something
+may	indicates permission to do something
+need not	indicates permission not to do something
+The construction "may not" is ambiguous and is not used in normative elements. The unambiguous constructions "might not" or "shall not" are used instead, depending upon the meaning intended.
+can	indicates that something is possible
+cannot	indicates that something is impossible
+The constructions "can" and "cannot" are not substitutes for "may" and "need not".
+will	indicates that something is certain or expected to happen as a result of action taken by an agency the behaviour of which is outside the scope of the present document
+will not	indicates that something is certain or expected not to happen as a result of action taken by an agency the behaviour of which is outside the scope of the present document
+might	indicates a likelihood that something will happen as a result of action taken by some agency the behaviour of which is outside the scope of the present document
+might not	indicates a likelihood that something will not happen as a result of action taken by some agency the behaviour of which is outside the scope of the present document
+In addition:
+is	(or any other verb in the indicative mood) indicates a statement of fact
+is not	(or any other negative verb in the indicative mood) indicates a statement of fact
+The constructions "is" and "is not" do not indicate requirements.
+Introduction
+1	Scope
+The present document specifies the stage 3 protocol and data model for the MFAF Service Based Interface. It provides stage 3 protocol definitions and message flows, and specifies the API for each service offered by the MFAF.
+The 5G System stage 2 architecture and procedures are specified in 3GPP TS 23.501 [2] and 3GPP TS 23.502 [3]. The stage 2 definition and procedures of Messaging Framework Adaptation are contained in 3GPP TS 23.288 [14] and 3GPP TS 23.502 [3].
+The Technical Realization of the Service Based Architecture and the Principles and Guidelines for Services Definition are specified in 3GPP TS 29.500 [4] and 3GPP TS 29.501 [5].
+2	References
+The following documents contain provisions which, through reference in this text, constitute provisions of the present document.
+-	References are either specific (identified by date of publication, edition number, version number, etc.) or non‑specific.
+-	For a specific reference, subsequent revisions do not apply.
+-	For a non-specific reference, the latest version applies. In the case of a reference to a 3GPP document (including a GSM document), a non-specific reference implicitly refers to the latest version of that document in the same Release as the present document.
+[1]	3GPP TR 21.905: "Vocabulary for 3GPP Specifications".
+[2]	3GPP TS 23.501: "System Architecture for the 5G System; Stage 2".
+[3]	3GPP TS 23.502: "Procedures for the 5G System; Stage 2".
+[4]	3GPP TS 29.500: "5G System; Technical Realization of Service Based Architecture; Stage 3".
+[5]	3GPP TS 29.501: "5G System; Principles and Guidelines for Services Definition; Stage 3".
+[6]	OpenAPI: "OpenAPI 3.0.0 Specification", https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md.
+[7]	3GPP TR 21.900: "Technical Specification Group working methods".
+[8]	3GPP TS 33.501: "Security architecture and procedures for 5G system".
+[9]	IETF RFC 6749: "The OAuth 2.0 Authorization Framework".
+[10]	3GPP TS 29.510: "5G System; Network Function Repository Services; Stage 3".
+[11]	IETF RFC 9113: "HTTP/2".
+[12]	IETF RFC 8259: "The JavaScript Object Notation (JSON) Data Interchange Format".
+[13]	IETF RFC 9457: "Problem Details for HTTP APIs".
+[14]	3GPP TS 23.288: "Architecture enhancements for 5G System (5GS) to support network data analytics services"
+[15]	3GPP TS 29.574: "5G System; Data Collection Coordination Services; Stage 3".
+[16]	Void.
+[17]	Void.
+[18]	Void.
+[19]	Void.
+[20]	3GPP TS 29.520: "5G System; Network Data Analytics Services; Stage 3".
+[21]	Void.
+[22]	3GPP TS 29.571: "5G System; Common Data Types for Service Based Interfaces; Stage 3".
+[23] 	3GPP TS 29.575: "5G System; 5G System; Analytics Data Repository Services; Stage 3".
+3	Definitions, symbols and abbreviations
+3.1	Definitions
+For the purposes of the present document, the terms and definitions given in 3GPP TR 21.905 [1] and the following apply. A term defined in the present document takes precedence over the definition of the same term, if any, in 3GPP TR 21.905 [1].
+3.2	Symbols
+For the purposes of the present document, the following symbols apply:
+
+3.3	Abbreviations
+For the purposes of the present document, the abbreviations given in 3GPP TR 21.905 [1] and the following apply. An abbreviation defined in the present document takes precedence over the definition of the same abbreviation, if any, in 3GPP TR 21.905 [1].
+ADRF	Analytics Data Repository Function
+AF	Application Function
+AMF	Access and Mobility Management Function
+DCCF	Data Collection Coordination Function
+LMF	Location Management Function
+MFAF	Messaging Framework Adaptor Function
+NEF	Network Exposure Function
+NF	Network Function
+NRF	Network Repository Function
+NSSF	Network Slice Selection Function
+NWDAF	Network Data Analytics Function
+PCF	Policy Control Function
+SCP	Service Communication Proxy
+SMF	Session Management Function
+UDM	Unified Data Management
+4	Services offered by the MFAF
+4.1	Introduction
+The Messaging Framework Adaptor Services are used for the Messaging Framework Adaptor Function (MFAF) to enable the 5GS to interact with the messaging framework using Nmfaf services. The MFAF offers other NFs the following services:
+-	Nmfaf_3daDataManagement;
+-	Nmfaf_3caDataManagement; and
+-	Nmfaf_ContextManagement.
+Table 4.1-1: Service provided by MFAF
+Service Name
+Description
+Service Operations
+Operation
+Semantics
+Example Consumer(s)
+Nmfaf_3daDataManagement
+The 3GPP DCCF Adaptor (3DA) Data Management Service enables the NF service consumer to convey to the messaging framework information related to the data or analytics that the messaging framework will receive and deliver.
+
+Configure
+Request / Response
+DCCF, NWDAF
+
+
+Deconfigure
+Request / Response
+DCCF, NWDAF
+Nmfaf_3caDataManagement
+The 3GPP Consumer Adaptor (3CA) Data Management Service is used to deliver data or analytics.
+
+Notify
+Subscribe / Notify
+NWDAF, PCF, NSSF, AMF, SMF, NEF, AF, ADRF, LMF, SCP, NRF, UDM
+
+
+Fetch
+Request / Response
+NWDAF, PCF, NSSF, AMF, SMF, NEF, AF, ADRF, LMF, SCP, NRF, UDM
+Nmfaf_ContextManagement
+The MFAF Context Management service enables the transfer of configurations between MFAFs.
+Transfer
+Request / Response
+MFAF
+
+Table 4.1-2 summarizes the corresponding APIs defined for this specification.
+Table 4.1-2: API Descriptions
+Service Name
+Clause
+Description
+OpenAPI Specification File
+apiName
+Annex
+Nmfaf_3daDataManagement
+5.1
+API for Nmfaf_3daDataManagement
+TS29576_Nmfaf_3daDataManagement.yaml
+nmfaf-3dadatamanagement
+A.2
+Nmfaf_3caDataManagement 
+5.2
+API for Nmfaf_3caDataManagement
+TS29576_Nmfaf_3caDataManagement.yaml
+nmfaf-3cadatamanagement
+A.3
+Nmfaf_ContextManagement 
+5.3
+API for Nmfaf_ContextManagement
+TS29576_Nmfaf_ContextManagement.yaml
+nmfaf-contextmanagement
+A.4
+
+4.2	Nmfaf_3daDataManagement Service
+4.2.1	Service Description
+4.2.1.1	Overview
+The Nmfaf_3daDataManagement service as defined in 3GPP TS 23.288 [14], is provided by the Messaging Framework Adaptor Function (MFAF).
+This service:
+-	allows NF consumers to configure or reconfigure the MFAF; and 
+-	allows NF consumers to remove configurations from the MFAF.
+4.2.1.2	Service Architecture
+The 5G System Architecture is defined in 3GPP TS 23.501 [2]. The Network Data Analytics Exposure architecture is defined in 3GPP TS 23.288 [14]. 
+The Nmfaf_3daDataManagement service is part of the Nmfaf service-based interface exhibited by the Messaging Framework Adaptor Function (MFAF).
+Known consumer of the Nmfaf_3daDataManagement service is:
+-	Data Collection Coordination Function (DCCF) 
+
+Figure 4.2.1.2-1: Reference Architecture for the Nmfaf_3daDataManagement Service; SBI representation
+
+Figure 4.2.1.2-2: Reference Architecture for the Nmfaf_3daDataManagement Service; reference point representation
+4.2.1.3	Network Functions
+4.2.1.3.1	Messaging Framework Adaptor Function (MFAF)
+The Messaging Framework Adaptor Function (MFAF) provides the functionality to allow NF consumers to configure the behaviour of the MFAF.
+4.2.1.3.2	NF Service Consumers
+The Data Collection Coordination Function (DCCF) and the NWDAF support:
+-	configuring the MFAF; and
+-	deconfiguring the MFAF.
+4.2.2	Service Operations
+4.2.2.1	Introduction
+Table 4.2.2.1-1: Operations of the Nmfaf_3daDataManagement Service
+Service operation name
+Description
+Initiated by
+Nmfaf_3daDataManagement_Configure
+This service operation is used by an NF to configure or reconfigure the MFAF.
+NF service consumer (DCCF, NWDAF)
+Nmfaf_3daDataManagement_Deconfigure
+This service operation is used by an NF to remove configuration(s) from the MFAF.
+NF service consumer (DCCF, NWDAF)
+
+4.2.2.2	Nmfaf_3daDataManagement_Configure service operation
+4.2.2.2.1	General
+The Nmfaf_3daDataManagement_Configure service operation is used by an NF service consumer to configure or update the configuration of the MFAF.
+4.2.2.2.2	Initial configuration of the MFAF
+Figure 4.2.2.2.2-1 shows a scenario where the NF service consumer (e.g. DCCF) sends a request to the MFAF to request an MFAF configuration.
+
+Figure 4.2.2.2.2-1: NF service consumer create the configuration
+The NF service consumer shall invoke the Nmfaf_3daDataManagement_Configure service operation to create the configuration(s). The NF service consumer shall send an HTTP POST request with "{apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations" as Resource URI representing the "MFAF Configurations", as shown in figure 4.2.2.2.2-1, step 1, to create a configuration for an "Individual MFAF Configuration" according to the information in message body. The MfafConfiguration data structure provided in the request body
+shall include one of the following:
+-	MFAF transfer information within the "mfafTransferInfo" attribute, if the MfafTransfer feature is supported. 
+-	a description of the configurations as "messageConfigurations" attribute that, for each configuration, the MessageConfiguration data type shall include 
+1)	a notification URI of Data Consumer or Analytics Consumer or other endpoint where to receive the requested mapping data or analytics as "notificationURI" attribute; and
+2)-	if the configuration is used for mapping analytics or data collection, a Notification Correlation ID for the Data or Analytics Consumer (or other endpoint) as "correId" attribute;
+and may include:
+1)	 the formatting instructions as "formatInstruct" attribute;
+2)	the processing instructions as "procInstruct" attribute or "multiProcInstructs" attribute if the "MultiProcessingInstruction" feature is supported;
+3)	the MFAF notification information to identify the Event Notifications received from the NWDAF or Data Source NF (e.g. AMF, SMF), which can be sent to the consumer or other notification endpoints, as "mfafNotiInfo" attribute;
+4)	NF instance identifier of the ADRF as "adrfId" attribute; and
+5)	the notification endpoints within the "notifEndpoints" attribute, if the "DataAnaCollect" feature is supported.
+Upon the reception of an HTTP POST request with: "{apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations" as Resource URI and MfafConfiguration data structure as request body, the MFAF shall: 
+-	create a new configuration;
+-	assign a transaction reference id;
+-	if the request was for providing message configurations and no MFAF notification information has been provided in the request, determine the MFAF notification information and add it to the configuration that is created and will be returned to the NF service consumer;
+-	if the request was for triggering MFAF configuration transfer, the MFAF shall execute the transfer invoking the Nmfaf_ContextManagement_Transfer service operation as defined in clause 4.4.2.2;
+-	store the configuration.
+If the MFAF created an "Individual MFAF Configuration" resource, the MFAF shall respond with "201 Created" with the message body containing a representation of the created configuration, as shown in figure 4.2.2.2.2-1, step 2.
+If an error occurs when processing the HTTP POST request, the MFAF shall send an HTTP error response as specified in clause 5.1.7.
+4.2.2.2.3	Update the configuration of the MFAF
+Figure 4.2.2.2.3-1 shows a scenario where the NF service consumer sends a request to the MFAF to update a configuration (as shown in 3GPP TS 23.288 [14])
+
+Figure 4.2.2.2.3-1: NF service consumer updates configuration
+The NF service consumer shall invoke the Nmfaf_3daDataManagement_Configure service operation to update the configuration(s). The NF service consumer shall send an HTTP PUT request with "{apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}" as Resource URI representing the "Individual MFAF Configuration", as shown in figure 4.2.2.2.3-1, step 1, to update an "Individual MFAF Configuration" resource identified by the {transRefId}. This service operation shall not be performed on an "Individual MFAF Configuration" that contains the "mfafTransferInfo" attribute. The MfafConfiguration data structure provided in the request body shall include the same contents as described in 4.2.2.2.2 with the restrictionthat the "mfafTransferInfo" attribute is not applicable here.
+Upon the reception of an HTTP PUT request with: "{apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}" as Resource URI and MfafConfiguration data structure as request body, the MFAF shall:
+-	update the configuration of corresponding transaction reference Id; and
+-	store the configuration.
+If the MFAF successfully processed and accepted the received HTTP PUT request, the MFAF shall update an "Individual MFAF Configuration" resource, and shall respond with:
+a)	HTTP "200 OK" status code with the message body containing a representation of the updated configuration, as shown in figure 4.2.2.2.3-1, step 2a. or
+b)	HTTP "204 No Content" status code, as shown in figure 4.2.2.2.3-1, step 2b.
+If an error occurs when processing the HTTP PUT request, the MFAF shall send an HTTP error response as specified in clause 5.1.7.
+If the MFAF determines the received HTTP PUT request needs to be redirected, the MFAF shall send an HTTP redirect response as specified in clause 6.10.9 of 3GPP TS 29.500 [4].
+4.2.2.3	Nmfaf_3daDataManagement_Deconfigure service operation
+4.2.2.3.1	General
+The Nmfaf_3daDataManagement_Deconfigure service operation is used by an NF service consumer to remove an MFAF configuration.
+4.2.2.3.2	Remove MFAF configuration
+Figure 4.2.2.3.2-1 shows a scenario where the NF service consumer sends a request to the MFAF to remove an MFAF configuration.
+
+Figure 4.2.2.3.2-1: NF service consumer stops mapping data or analytics
+The NF service consumer shall invoke the Nmfaf_3daDataManagement_Deconfigure service operation to remove an MFAF configuration. The NF service consumer shall send an HTTP DELETE request with "{apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}" as Resource URI, where {transRefId} represents the "Individual MFAF Configuration" to be deleted, as shown in figure 4.2.2.3.2-1, step 1. 
+Upon the reception of an HTTP DELETE request and if the MFAF successfully processed and accepted the received HTTP DELETE request from the NF service consumer, the MFAF shall acknowledge the request by sending a "204 No Content" response to the NF service consumer, as shown in figure 4.2.2.3.2-1, step 2. Further, the MFAF shall remove the individual resource linked to the delete request. 
+If errors occur when processing the HTTP DELETE request, the MFAF shall send an HTTP error response as specified in clause 5.1.7.
+If the MFAF determines the received HTTP DELETE request needs to be redirected, the MFAF shall send an HTTP redirect response as specified in clause 6.10.9 of 3GPP TS 29.500 [4].
+4.3	Nmfaf_3caDataManagement Service
+4.3.1	Service Description
+4.3.1.1	Overview
+The Nmfaf_3caDataManagement service as defined in 3GPP TS 23.288 [14], is provided by the Messaging Framework Adaptor Function (MFAF).
+This service:
+-	allows NF consumers to collect the data or analytics from the MFAF.
+4.3.1.2	Service Architecture
+The 5G System Architecture is defined in 3GPP TS 23.501 [2]. The Network Data Analytics Exposure architecture is defined in 3GPP TS 23.288 [14]. 
+The Nmfaf_3caDataManagement service is part of the Nmfaf service-based interface exhibited by the Messaging Framework Adaptor Function (MFAF).
+Known consumers of the Nmfaf_3caDataManagement service are:
+-	Network Data Analytics Function (NWDAF) 
+-	Policy Control Function (PCF) 
+-	Network Slice Selection Function (NSSF)
+-	Access and Mobility Management Function (AMF) 
+-	Session Management Function (SMF) 
+-	Network Exposure Function (NEF) 
+-	Application Function (AF) 
+-	Analytics Data Repository Function (ADRF) 
+-	Location Management Function (LMF)
+-	Service Communication Proxy (SCP)
+-	Unified Data Management (UDM)
+-	Network Repository Function (NRF)
+
+Figure 4.3.1.2-1: Reference Architecture for the Nmfaf_3caDataManagement Service; SBI representation
+
+Figure 4.3.1.2-2: Reference Architecture for the Nmfaf_3caDataManagement Service; reference point
+4.3.1.3	Network Functions
+4.3.1.3.1	Messaging Framework Adaptor Function (MFAF)
+The Messaging Framework Adaptor Function (MFAF) provides the functionality to supply data or analytics, or an indication of availability of data or analytics to notification endpoints configured in Nmfaf_3caDataManagement service as described in clause 4.2.1.
+4.3.1.3.2	NF Service Consumers
+The NWDAF, PCF, NSSF, AMF, SMF, LMF, NEF, ADRF, SCP, NRF, UDM, and AF:
+-	supports retrieving data or analytics from the MFAF.
+4.3.2	Service Operations
+4.3.2.1	Introduction
+Table 4.3.2.1-1: Operations of the Nmfaf_3caDataManagement Service
+Service operation name
+Description
+Initiated by
+Nmfaf_3caDataManagement_Fetch
+This service operation is used by an NF to retrieve stored data or analytics from the MFAF.
+NF service consumer (NWDAF, PCF, NSSF, AMF, SMF, LMF, ADRF, NEF, AF, SCP, NRF, UDM)
+Nmfaf_3caDataManagement_Subscribe
+This is a pseudo operation, the actual subscription is created via Nmfaf_3daDataManagement Service. (NOTE)
+
+Nmfaf_3caDataManagement_Notify
+This service operation is used by an NF with either data or analytics to provide data or analytics or notification of availability of data or analytics to notification endpoints.
+MFAF
+NOTE: 	In the current release OpenAPI 3.0.0 is adopted, with OpenAPI 3.0.0 it is not possible to document a stand-alone callback operation, thus the Notify operation has to be defined in combination with a Subscribe operation.
+
+NOTE:	Nmfaf_3caDataManagement_Subscribe service operation is not used by any NF service consumers in this release.
+4.3.2.2	Nmfaf_3caDataManagement_Fetch service operation
+4.3.2.2.1	General
+The Nmfaf_3caDataManagement_Fetch service operation allows consumer to retrieves data or analytics from the MFAF as indicated by Nmfaf_3caDataManagement_Notify Fetch Instruction.
+4.3.2.2.2	Retrieve data or analytics from the MFAF
+Figure 4.3.2.2.2-1 shows a scenario where the NF service consumer (e.g. NWDAF) sends a request to the MFAF to retrieve the data or analytics as indicated by Nmfaf_3caDataManagement_Notify Fetch Instruction.
+
+Figure 4.3.2.2.2-1: NF service consumer retrieve data or analytics from the MFAF
+The NF service consumer shall invoke the Nmfaf_3caDataManagement_Fetch service operation to retrieve stored data or analytics. The NF service consumer shall send an HTTP POST request to the URI "{fetchUri}" which was previously provided by the MFAF within a FetchInstruction data structure in an MFAF notification, as shown in figure 4.3.2.2.2-1, step 1, to fetch data or analytics from the MFAF.
+The request body shall include fetch correlation identifiers, which were also previously provided by the MFAF in the "fetchCorrIds" attribute within a FetchInstruction data structure in an MFAF notification.
+Upon the reception of the HTTP POST request, the MFAF shall:
+-	find the data or analytics according to the requested parameters.
+If the requested data is found, the MFAF shall respond with "200 OK" status code with the message body containing the NmfafDataAnaNotification data structure. The NmfafDataAnaNotification data structure in the response body shall include one of the following:
+-	information about network data analytics function events that occurred in the "anaNotifications" attribute;
+-	data collected from data sources (e.g. SMF, NEF) in the "dataNotif" attribute;
+-	if the "DataProcess" feature is supported, the summarized data or analytics derived from events notifications which received from the data producer or NWDAF based on the processing and formatting instructions in the "dataReports" attribute.
+If errors occur when processing the HTTP POST request, the NF service consumer shall send an HTTP error response as specified in clause 5.2.7.
+If the MFAF determines the received HTTP POST request needs to be redirected, the MFAF shall send an HTTP redirect response as specified in clause 6.10.9 of 3GPP TS 29.500 [4].
+4.3.2.2A	Nmfaf_3caDataManagement_Subscribe service operation
+This is a pseudo operation, the MFAF does not actually provide Subscribe service operation through Nmfaf_3caDataManagement service. The actual subscription is created via Nmfaf_3daDataManagement Service.
+4.3.2.3	Nmfaf_3caDataManagement_Notify service operation
+4.3.2.3.1	General
+The Nmfaf_3caDataManagement_Notify service operation provides data or analytics or notification of availability of data or analytics to notification endpoints.
+4.3.2.3.2	Notification about the subscribed data or analytics
+Figure 4.3.2.3.2-1 shows a scenario where the MFAF sends a request to the NF service consumer to notify it about data or analytics or fetch instructions.
+The subscription corresponding to the notification is created by the service consumer via Nmfaf_3daDataManagement Service Operation.
+
+Figure 4.3.2.3.2-1: MFAF notifies the NF service consumer about subscribed data or analytics or fetch instructions
+The MFAF shall invoke the Nmfaf_3caDataManagement_Notify service operation to notify about subscribed data or analytics, or notification about the availability of data or analytics. The MFAF shall send an HTTP POST request to the "{notificationURI}" received in the subscription (see clause 5.2.5 for the definition of this notificationURI), as shown in figure 4.3.2.3.2-1, step 1. The NmfafDataRetrievalNotification data structure provided in the request body shall include:
+-	notification correlation Id within the "correId" attribute;
+and shall include one of the following:
+-	fetch instructions indicate whether the data or analytics are to be fetched by the Consumer in the "fetchInstruction" attribute; 
+-	information about the MFAF data or analytics in the "dataAnaNotif" attribute, which contains one of the following:
+-	information about network data analytics function events that occurred in the "anaNotifications" attribute;
+-	data collected from data sources (e.g. SMF, NEF) in the "dataNotif" attribute;
+-	if the "DataProcess" feature is supported, the summarized data or analytics derived from events notifications which received from the data producer or NWDAF based on the processing and formatting instructions in the "dataReports" attribute.
+Upon the reception of an HTTP POST request with "{notificationURI}" as Resource URI and NmfafDataRetrievalNotification data structure as request body, if the NF service consumer successfully processed and accepted the received HTTP POST request, the NF Service Consumer shall: 
+-	store the notification;
+-	respond with HTTP "204 No Content" status code.
+If errors occur when processing the HTTP POST request, the NF service consumer shall send an HTTP error response as specified in clause 5.2.7.
+If the NF service consumer determines the received HTTP POST request needs to be redirected, the NF service consumer shall send an HTTP redirect response as specified in clause 6.10.9 of 3GPP TS 29.500 [4].
+After the successful processing of the HTTP POST request, if the MFAF requests the NF service consumer to retrieve the data or analytics with the "fetchInstruct" attribute, the NF service consumer may invoke the Nmfaf_3caDataManagement_Fetch service operation to retrieve the notified data or analytics as defined in clause 4.3.2.2.
+4.4	Nmfaf_ContextManagement Service
+4.4.1	Service Description
+4.4.1.1	Overview
+The Nmfaf_ContextManagement service is provided by the Messaging Framework Adaptor Function (MFAF).
+This service allows NF consumers to transfer configurations between MFAFs.
+4.4.1.2	Service Architecture
+The 5G System Architecture is defined in 3GPP TS 23.501 [2]. The Network Data Analytics Exposure architecture is defined in 3GPP TS 23.288 [14]. 
+The Nmfaf_ContextManagement service is part of the Nmfaf service-based interface exhibited by the Messaging Framework Adaptor Function (MFAF).
+Known consumer of the Nmfaf_ContextManagement service is:
+-	Messaging Framework Adaptor Function (MFAF)
+
+Figure 4.4.1.2-1: Reference Architecture for the Nmfaf_ContextManagement Service; SBI representation
+
+Figure 4.4.1.2-2: Reference Architecture for the Nmfaf_ContextManagement Service; reference point representation
+4.4.1.3	Network Functions
+4.4.1.3.1	Messaging Framework Adaptor Function (MFAF)
+The Messaging Framework Adaptor Function (MFAF) provides the functionality to allow NF service consumers to transfer configurations between MFAFs.
+4.4.1.3.2	NF Service Consumers
+The Messaging Framework Adaptor Function (MFAF) supports transferring configurations from the NF service producer to the NF service consumer.
+4.4.2	Service Operations
+4.4.2.1	Introduction
+Table 4.4.2.1-1: Operations of the Nmfaf_ContextManagement Service
+Service operation name
+Description
+Initiated by
+Nmfaf_ContextManagement_Transfer
+This service operation is used by an NF service consumer to transfer configurations from the NF service producer to the NF service consumer.
+NF service consumer (MFAF)
+
+4.4.2.2	Nmfaf_ContextManagement_Transfer service operation
+4.4.2.2.1	General
+The Nmfaf_ContextManagement_Transfer service operation is used by an NF service consumer to transfer configurations from the NF service producer to the NF service consumer.
+NOTE:	When the UE data or analytics is being collected via the MFAF, the DCCF can independently configure the MFAF for each UE to enable the relocation of this UE's MFAF context to a new MFAF if the UE moves outside of the serving area of the current MFAF.
+4.4.2.2.2	Transferring  MFAF configurations
+Figure 4.4.2.2.2-1 shows a scenario where the NF service consumer (e.g. MFAF) sends a request to the MFAF to transfer configuration(s) of mapping data or analytics.
+
+Figure 4.4.2.2.2-1: NF service consumer performing MFAF configuration transfer
+The NF service consumer shall invoke the Nmfaf_ContexManagement_Transfer service operation to transfer configuration(s) by sending an HTTP POST request with "{apiRoot}/nmfaf-contextmanagement/<apiVersion>/transfer" as URI, as shown in figure 4.4.2.2.2-1, step 1. The ContextTransferReq data structure provided in the request body shall include: 
+-	the resource URI(s) of the configuration(s) that are requested to be transferred within the "refIds" attribute.
+Upon the reception of an HTTP POST request with: "{apiRoot}/nmfaf-contextmanagement/<apiVersion>/transfer" as URI and ContextTransferReq data structure as request body, the MFAF shall perform the transfer of the indicated configurations, i.e. respond with "200 OK" with the message body containing the ContextTransferResp data structure (see clause 5.3.6.2.3), as shown in figure 4.4.2.2.2-1, step 2, and locally remove the respective Individual MFAF Configuration resources. Upon receiving the response, the NF service consumer shall create an Individual MFAF Configuration resource for each successfully transferred configuration and assign a new transaction reference id (i.e. also a new resource URI) to it.
+If an error occurs when processing the HTTP POST request, the MFAF shall send an HTTP error response as specified in clause 5.3.7.
+5	API Definitions
+5.1	Nmfaf_3daDataManagement Service API
+5.1.1	Introduction
+The Nmfaf_3daDataManagement Service shall use the Nmfaf_3daDataManagement API.
+The API URI of the Nmfaf_3daDataManagement API shall be:
+{apiRoot}/<apiName>/<apiVersion>
+The request URIs used in HTTP requests from the NF service consumer towards the NF service producer shall have the Resource URI structure defined in clause 4.4.1 of 3GPP TS 29.501 [5], i.e.:
+{apiRoot}/<apiName>/<apiVersion>/<apiSpecificResourceUriPart>
+with the following components:
+-	The {apiRoot} shall be set as described in 3GPP TS 29.501 [5].
+-	The <apiName> shall be "nmfaf-3dadatamanagement".
+-	The <apiVersion> shall be "v1".
+-	The <apiSpecificResourceUriPart> shall be set as described in clause 5.1.3.
+5.1.2	Usage of HTTP
+5.1.2.1	General
+HTTP/2, IETF RFC 9113 [11], shall be used as specified in clause 5 of 3GPP TS 29.500 [4].
+HTTP/2 shall be transported as specified in clause 5.3 of 3GPP TS 29.500 [4].
+The OpenAPI [6] specification of HTTP messages and content bodies for the Nmfaf_3daDataManagement API is contained in Annex A.
+5.1.2.2	HTTP standard headers
+5.1.2.2.1	General
+See clause 5.1.2 of 3GPP TS 29.500 [4] for the usage of HTTP standard headers.
+5.1.2.2.2	Content type
+JSON, IETF RFC 8259 [12], shall be used as content type of the HTTP bodies specified in the present specification as specified in clause 5.4 of 3GPP TS 29.500 [4]. The use of the JSON format shall be signalled by the content type "application/json".
+"Problem Details" JSON object shall be used to indicate additional details of the error in a HTTP response body and shall be signalled by the content type "application/problem+json", as defined in IETF RFC 9457 [13].
+5.1.2.3	HTTP custom headers
+The mandatory HTTP custom header fields specified in clause 5.1.3.2 of 3GPP TS 29.500 [4] shall be applicable.
+5.1.3	Resources
+5.1.3.1	Overview
+This clause describes the structure for the Resource URIs, the resources and methods used for the service.
+Figure 5.1.3.1-1 depicts the resource URIs structure for the Nmfaf_3daDataManagement API.
+
+Figure 5.1.3.1-1: Resource URI structure of the Nmfaf_3daDataManagement API
+Table 5.1.3.1-1 provides an overview of the resources and applicable HTTP methods.
+Table 5.1.3.1-1: Resources and methods overview
+Resource name
+Resource URI
+HTTP method or custom operation
+Description
+MFAF Configurations
+/configurations
+POST
+Creates a new individual MFAF Configuration resource.
+Individual MFAF Configuration
+/configurations/{transRefId}
+PUT
+Modifies an existing Individual MFAF Configuration subresource.
+
+
+DELETE
+Deletes an Individual MFAF Configuration identified by subresource {transRefId}.
+
+5.1.3.2	Resource: MFAF Configurations
+5.1.3.2.1	Description
+The MFAF Configurations resource represents all configuration to the Nmfaf_3daDataManagement Service at a given MFAF. The resource allows an NF service consumer to create a new Individual MFAF Configuration resource.
+5.1.3.2.2	Resource Definition
+Resource URI: {apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations
+The <apiVersion> shall be set as described in clause 5.1.1.
+This resource shall support the resource URI variables defined in table 5.1.3.2.2-1.
+Table 5.1.3.2.2-1: Resource URI variables for this resource
+Name
+Data type
+Definition
+apiRoot
+string
+See clause 5.1.1
+
+5.1.3.2.3	Resource Standard Methods
+5.1.3.2.3.1	POST
+This method shall support the URI query parameters specified in table 5.1.3.2.3.1-1.
+Table 5.1.3.2.3.1-1: URI query parameters supported by the POST method on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Applicability
+n/a
+
+
+
+
+
+
+This method shall support the request data structures specified in table 5.1.3.2.3.1-2 and the response data structures and response codes specified in table 5.1.3.2.3.1-3.
+Table 5.1.3.2.3.1-2: Data structures supported by the POST Request Body on this resource
+Data type
+P
+Cardinality
+Description
+MfafConfiguration
+M
+1
+Create a new Individual MFAF Configuration resource.
+
+Table 5.1.3.2.3.1-3: Data structures supported by the POST Response Body on this resource
+Data type
+P
+Cardinality
+Response
+codes
+Description
+MfafConfiguration
+M
+1
+201 Created
+The creation of an Individual MFAF Configuration resource is confirmed and a representation of that resource is returned.
+NOTE:	The manadatory HTTP error status code for the POST method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+
+Table 5.1.3.2.3.1-4: Headers supported by the 201 response code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains the URI of the newly created resource, according to the structure: {apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}
+
+5.1.3.2.4	Resource Custom Operations
+None in this release of the specification.
+5.1.3.3	Resource: Individual MFAF Configuration 
+5.1.3.3.1	Description
+The Individual MFAF Configuration resource represents an individual configuration created in the MFAF and associated with transaction reference Id.
+5.1.3.3.2	Resource Definition
+Resource URI: {apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}
+The <apiVersion> shall be set as described in clause 5.1.1.
+This resource shall support the resource URI variables defined in table 5.1.3.3.2-1.
+Table 5.1.3.3.2-1: Resource URI variables for this resource
+Name
+Data type
+Definition
+apiRoot
+string
+See clause 5.1.1
+transRefId
+string
+Unique identifier of the Individual MFAF Configuration resource.
+
+5.1.3.3.3	Resource Standard Methods
+5.1.3.3.3.1	PUT
+This method shall support the URI query parameters specified in table 5.1.3.3.3.1-1.
+Table 5.1.3.3.3.1-1: URI query parameters supported by the PUT method on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Applicability
+n/a
+
+
+
+
+
+
+This method shall support the request data structures specified in table 5.1.3.3.3.1-2 and the response data structures and response codes specified in table 5.1.3.3.3.1-3.
+Table 5.1.3.3.3.1-2: Data structures supported by the PUT Request Body on this resource
+Data type
+P
+Cardinality
+Description
+MfafConfiguration
+M
+1
+The updated MFAF Configuration.
+
+Table 5.1.3.3.3.1-3: Data structures supported by the PUT Response Body on this resource
+Data type
+P
+Cardinality
+Response
+codes
+Description
+MfafConfiguration
+M
+1
+200 OK
+The update of an Individual MFAF Configuration resource is confirmed and a representation of that resource is returned.
+n/a
+
+
+204 No Content
+Successful case: The Individual MFAF Configuration resource was modified.
+RedirectResponse
+O
+0..1
+307 Temporary Redirect
+Temporary redirection, during resource modification.
+
+(NOTE 2)
+RedirectResponse
+O
+0..1
+308 Permanent Redirect
+Permanent redirection, during resource modification.
+
+(NOTE 2)
+NOTE 1:	The manadatory HTTP error status code for the PUT method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+NOTE 2:	The RedirectResponse data structure may be provided by an SCP (cf. clause 6.10.9.1 of 3GPP TS 29.500 [4]).
+
+Table 5.1.3.3.3.1-4: Headers supported by the 307 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI of the resource located in an alternative NF (service) instance towards which the request is redirected.
+
+For the case where the request is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the request is redirected.
+
+Table 5.1.3.3.3.1-5: Headers supported by the 308 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI of the resource located in an alternative NF (service) instance towards which the request is redirected.
+
+For the case where the request is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the request is redirected.
+
+5.1.3.3.3.2	DELETE
+This method shall support the URI query parameters specified in table 5.1.3.3.3.2-1.
+Table 5.1.3.3.3.2-1: URI query parameters supported by the DELETE method on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Applicability
+n/a
+
+
+
+
+
+
+This method shall support the request data structures specified in table 5.1.3.3.3.2-2 and the response data structures and response codes specified in table 5.1.3.3.3.2-3.
+Table 5.1.3.3.3.2-2: Data structures supported by the DELETE Request Body on this resource
+Data type
+P
+Cardinality
+Description
+n/a
+
+
+
+
+Table 5.1.3.3.3.2-3: Data structures supported by the DELETE Response Body on this resource
+Data type
+P
+Cardinality
+Response
+codes
+Description
+n/a
+
+
+204 No Content
+Successful case: The Individual MFAF Configuration resource matching the transRefId was deleted.
+RedirectResponse
+O
+0..1
+307 Temporary Redirect
+Temporary redirection, during resource deletion
+
+(NOTE 2)
+RedirectResponse
+O
+0..1
+308 Permanent Redirect
+Permanent redirection, during resource deletion
+
+(NOTE 2)
+NOTE 1:	The manadatory HTTP error status code for the DELETE method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+NOTE 2:	The RedirectResponse data structure may be provided by an SCP (cf. clause 6.10.9.1 of 3GPP TS 29.500 [4]).
+
+Table 5.1.3.3.3.2-4: Headers supported by the 307 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI of the resource located in an alternative NF (service) instance towards which the request is redirected.
+
+For the case where the request is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the request is redirected.
+
+Table 5.1.3.3.3.2-5: Headers supported by the 308 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI of the resource located in an alternative NF (service) instance towards which the request is redirected.
+
+For the case where the request is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the request is redirected.
+
+5.1.4	Custom Operations without associated resources
+None in this release of the specification.
+5.1.5	Notifications
+None in this release of the specification.
+5.1.6	Data Model
+5.1.6.1	General
+This clause specifies the application data model supported by the API.
+Table 5.1.6.1-1 specifies the data types defined for the Nmfaf_3daDataManagement service based interface protocol.
+Table 5.1.6.1-1: Nmfaf_3daDataManagement specific Data Types
+Data type
+Clause defined
+Description
+Applicability
+TargetMfafNotiInfo
+5.1.6.2.6
+The target MFAF notification information.
+MfafTransfer
+MfafConfiguration
+5.1.6.2.2
+The description of MFAF configuration
+
+MessageConfiguration
+5.1.6.2.3
+The description of the configurations.
+
+MfafNotiInfo
+5.1.6.2.4
+The MFAF notification information.
+
+MfafTransferInfo
+5.1.6.2.5
+The MFAF transfer information.
+MfafTransfer
+
+Table 5.1.6.1-2 specifies data types re-used by the Nmfaf_3daDataManagement service based interface protocol from other specifications, including a reference to their respective specifications and when needed, a short description of their use within the Nmfaf_3daDataManagement service based interface.
+Table 5.1.6.1-2: Nmfaf_3daDataManagement re-used Data Types
+Data type
+Reference
+Comments
+Applicability
+FormattingInstruction
+3GPP TS 29.574 [15]
+Contains data or analytics formatting Instructions.
+
+NfInstanceId
+3GPP TS 29.571 [22]
+Contains an NF instance identifier.
+MfafTransfer
+NfSetId
+3GPP TS 29.571 [22]
+Contains an NF set identifier.
+MfafTransfer
+NotifyEndpoint
+3GPP TS 29.574 [15]
+The information of notification endpoint.
+DataAnaCollect
+ProcessingInstruction
+3GPP TS 29.574 [15]
+Contains instructions related to the processing
+
+SupportedFeatures
+3GPP TS 29.571 [22]
+Used to negotiate the applicability of the optional features defined in table 5.1.8-1.
+
+Uri
+3GPP TS 29.571 [22]
+URI.
+
+
+5.1.6.2	Structured data types
+5.1.6.2.1	Introduction
+This clause defines the structures to be used in resource representations.
+5.1.6.2.2	Type: MfafConfiguration 
+Table 5.1.6.2.2-1: Definition of type MfafConfiguration
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+messageConfigurations
+array(MessageConfiguration)
+C
+1..N
+The configuration of the MFAF for mapping data or analytics. (NOTE)
+
+mfafTransferInfo
+MfafTransferInfo
+C
+0..1
+Contains MFAF transfer information. (NOTE)
+MfafTransfer
+NOTE:	One of these attributes shall be provided.
+
+5.1.6.2.3	Type: MessageConfiguration		
+Table 5.1.6.2.3-1: Definition of type MessageConfiguration
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+correId
+string
+M
+1
+If the configuration is used for mapping analytics or data collection, representing the Analytics Consumer Notification Correlation ID or Data Consumer Notification Correlation ID.
+
+formatInstruct
+FormattingInstruction
+O
+0..1
+Formatting instructions to be used for sending event notifications.
+
+mfafNotiInfo
+MfafNotiInfo
+C
+0..1
+The MFAF notification information. It shall be provided in a response message if it had not been provided in the respective request message.
+
+notificationURI
+Uri
+M
+1
+The notification URI of Data Consumer or Analytics Consumer or other endpoint where to receive the requested mapping data or analytics
+
+notifEndpoints
+array(NotifyEndpoint)
+O
+1..N
+The notification target address(es) and correlation identifier(s) of additional endpoints that need to be notified, if any. (NOTE 3)
+DataAnaCollect
+procInstruct
+ProcessingInstruction
+O
+0..1
+Processing instructions to be used for sending event notifications. (NOTE 1)
+
+multiProcInstructs
+array(ProcessingInstruction)
+O
+1..N
+Processing instructions to be used for sending event notifications. (NOTE 1)
+MultiProcessingInstruction
+adrfId
+NfInstanceId
+O
+0..1
+NF instance identifier of the ADRF in which data and analytics can be stored.
+
+suppFeat
+SupportedFeatures
+C
+0..1
+This IE represents a list of Supported features as described in clause 5.1.8. (NOTE 2)
+
+NOTE 1:	The "multiProcInstructs" attribute shall be used instead of the "procInstruct" attribute when the "MultiProcessingInstruction" feature is supported.
+NOTE 2	It shall be present if feature negotiation needs to take place.
+NOTE 3	If the "notifCorrId" attribute within the NotifyEndpoint data type is absent, the MFAF shall generate a dummy identifier for this notification endpoint to be used in notifications.
+
+5.1.6.2.4	Type: MfafNotiInfo
+Table 5.1.6.2.4-1: Definition of type MfafNotiInfo
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+mfafNotifUri
+Uri
+M
+1
+The notification URI of MFAF Notification Target Address.
+
+mfafCorreId
+string
+M
+1
+The MFAF Notification Correlation ID
+
+
+5.1.6.2.5	Type: MfafTransferInfo 
+Table 5.1.6.2.5-1: Definition of type MfafTransferInfo
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+mfafId
+NfInstanceId
+C
+0..1
+Identifier of the MFAF currently holding the configuration(s). (NOTE)
+
+mfafSetId
+NfSetId
+C
+0..1
+Identifier of the MFAF Set currently holding the configuration(s). (NOTE)
+
+refIds
+array(Uri)
+M
+1..N
+List of resource URIs of the configurations that are requested to be transferred (i.e. the URIs including the transaction reference identifiers, which had been returned during the creation of the configuration as described in clause 4.2.2.2.2).
+
+tgtMfafNotiInfos
+map(TargetMfafNotiInfo)
+C
+1..N
+The target MFAF notification information. It shall be provided in a response message if it had not been provided in the respective request message.
+In the request, the key used in this map for each entry is one of the values of the "refIds" attribute.
+In the response, the key used in this map for each entry is one of the values of the "newRefIds" attribute.
+
+newRefIds
+map(Uri)
+C
+1..N
+A map of the pre-transfer resource URIs to the post-transfer resource URIs of the configurations that were requested to be transferred. The key used in this map for each entry is one of the values of the "refIds" attribute provided in the request and the value is the resource URI of the configuration after the transfer. It may not be present in the request and it shall be included in the response provided by the NF service producer.
+
+suppFeat
+SupportedFeatures
+C
+0..1
+This IE represents a list of Supported features as described in clause 5.1.8. It shall be present when feature negotiation needs to take place.
+
+NOTE:	One of these attributes shall be provided.
+
+5.1.6.2.6	Type: TargetMfafNotiInfo 
+Table 5.1.6.2.6-1: Definition of type TargetMfafNotiInfo
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+mfafNotiInfos
+map(MfafNotiInfo)
+M
+1..N
+A list of MFAF notification information.
+The key used in this map for each entry is the value of the "correId" attribute within MessageConfiguration data type.
+
+
+5.1.6.3	Simple data types and enumerations
+5.1.6.3.1	Introduction
+This clause defines simple data types and enumerations that can be referenced from data structures defined in the previous clauses.
+5.1.6.3.2	Simple data types
+The simple data types defined in table 5.1.6.3.2-1 shall be supported.
+Table 5.1.6.3.2-1: Simple data types
+Type Name
+Type Definition
+Description
+Applicability
+
+
+
+
+
+5.1.6.4	Data types describing alternative data types or combinations of data types
+None in current specification.
+5.1.6.5	Binary data
+None in current specification.
+5.1.7	Error Handling
+5.1.7.1	General
+For the Nmfaf_3daDataManagement API, HTTP error responses shall be supported as specified in clause 4.8 of 3GPP TS 29.501 [5]. Protocol errors and application errors specified in table 5.2.7.2-1 of 3GPP TS 29.500 [4] shall be supported for an HTTP method if the corresponding HTTP status codes are specified as mandatory for that HTTP method in table 5.2.7.1-1 of 3GPP TS 29.500 [4].
+In addition, the requirements in the following clauses are applicable for the Nmfaf_3daDataManagement API.
+5.1.7.2	Protocol Errors
+No specific procedures for the Nmfaf_3daDataManagement service are specified.
+5.1.7.3	Application Errors
+The application errors defined for the Nmfaf_3daDataManagement service are listed in Table 5.1.7.3-1.
+Table 5.1.7.3-1: Application errors
+Application Error
+HTTP status code
+Description
+
+
+
+
+5.1.8	Feature negotiation
+The optional features in table 5.1.8-1 are defined for the Nmfaf_3daDataManagement API. They shall be negotiated using the extensibility mechanism defined in clause 6.6 of 3GPP TS 29.500 [4].
+Table 5.1.8-1: Supported Features
+Feature number
+Feature Name
+Description
+1
+MultiProcessingInstruction
+Indicates the support of multiple processing instructions.
+2
+DataAnaCollect
+This feature indicates support for the enhancement of data and analytics process.
+3
+MfafTransfer
+This feature indicates support of transferring MFAF configurations.
+
+5.1.9	Security
+As indicated in 3GPP TS 33.501 [8] and 3GPP TS 29.500 [4], the access to the Nmfaf_3daDataManagement API may be authorized by means of the OAuth2 protocol (see IETF RFC 6749 [9]), based on local configuration, using the "Client Credentials" authorization grant, where the NRF (see 3GPP TS 29.510 [10]) plays the role of the authorization server.
+If OAuth2 is used, an NF Service Consumer, prior to consuming services offered by the Nmfaf_3daDataManagement API, shall obtain a "token" from the authorization server, by invoking the Access Token Request service, as described in 3GPP TS 29.510 [10], clause 5.4.2.2.
+NOTE:	When multiple NRFs are deployed in a network, the NRF used as authorization server is the same NRF that the NF Service Consumer used for discovering the Nmfaf_3daDataManagement service.
+The Nmfaf_3daDataManagement API defines a single scope "nmfaf-3dadatamanagement" for the entire service, and it does not define any additional scopes at resource or operation level.
+5.2	Nmfaf_3caDataManagement Service API
+5.2.1	Introduction
+The Nmfaf_3caDataManagement Service shall use the Nmfaf_3caDataManagement API.
+The API URI of the Nmfaf_3caDataManagement API shall be:
+{apiRoot}/<apiName>/<apiVersion>
+The request URIs used in HTTP requests from the NF service consumer towards the NF service producer shall have the Resource URI structure defined in clause 4.4.1 of 3GPP TS 29.501 [5], i.e.:
+{apiRoot}/<apiName>/<apiVersion>/<apiSpecificResourceUriPart>
+with the following components:
+-	The {apiRoot} shall be set as described in 3GPP TS 29.501 [5].
+-	The <apiName> shall be "nmfaf-3cadatamanagement".
+-	The <apiVersion> shall be "v1".
+-	The <apiSpecificResourceUriPart> shall be set as described in clause 5.2.3.
+5.2.2	Usage of HTTP
+5.2.2.1	General
+HTTP/2, IETF RFC 9113 [11], shall be used as specified in clause 5 of 3GPP TS 29.500 [4].
+HTTP/2 shall be transported as specified in clause 5.3 of 3GPP TS 29.500 [4].
+The OpenAPI [6] specification of HTTP messages and content bodies for the Nmfaf_3caDataManagement API is contained in Annex A.
+5.2.2.2	HTTP standard headers
+5.2.2.2.1	General
+See clause 5.2.2 of 3GPP TS 29.500 [4] for the usage of HTTP standard headers.
+5.2.2.2.2	Content type
+JSON, IETF RFC 8259 [12], shall be used as content type of the HTTP bodies specified in the present specification as specified in clause 5.4 of 3GPP TS 29.500 [4]. The use of the JSON format shall be signalled by the content type "application/json".
+"Problem Details" JSON object shall be used to indicate additional details of the error in a HTTP response body and shall be signalled by the content type "application/problem+json", as defined in IETF RFC 9457 [13].
+5.2.2.3	HTTP custom headers
+The mandatory HTTP custom header fields specified in clause 5.2.3.2 of 3GPP TS 29.500 [4] shall be applicable.
+5.2.3	Resources
+There are no resources defined for this API in this release of the specification.
+5.2.4	Custom Operations without associated resources
+There are no custom operations without associated resources defined for this API in this release of the specification.
+5.2.5	Notifications
+5.2.5.1	General
+Notifications shall comply to clause 6.2 of 3GPP TS 29.500 [4] and clause 4.6.2.3 of 3GPP TS 29.501 [5].
+Table 5.2.5.1-1: Notifications overview
+Notification
+Callback URI
+HTTP method or custom operation
+Description
+(service operation)
+MFAF Notification
+{notificationURI}
+(NOTE)
+POST
+Report one or several observed data or analytics.
+Fetch Notification
+{fetchUri}
+POST
+Fetch one or several notified data or analytics.
+NOTE: 	The notificationURI is not provided by NF service consumer via Nmfaf_3caDataManagement API, it is provided via Nmfaf_3daDataManagement API during the configuration for mapping data or analytics.
+
+5.2.5.2	MFAF Notification
+5.2.5.2.1	Description
+The MFAF Notification is used by the MFAF to provide data or analytics or notification of availability of data or analytics to notification endpoints.
+5.2.5.2.2	Target URI
+The Callback URI "{notificationURI}" shall be used with the callback URI variables defined in table 5.2.5.2.2-1.
+Table 5.2.5.2.2-1: Callback URI variables
+Name
+Definition
+notificationURI
+The notification URI of Data Consumer or Analytics Consumer or other endpoint where to receive the requested data or analytics. The notificationURI is not provided by NF service consumer via Nmfaf_3caDataManagement API, it is provided via Nmfaf_3daDataManagement API during the configuration for mapping data or analytics.
+
+5.2.5.2.3	Standard Methods
+5.2.5.2.3.1	POST
+This method shall support the request data structures specified in table 5.2.5.2.3.1-1 and the response data structures and response codes specified in table 5.2.5.2.3.1-2.
+Table 5.2.5.2.3.1-1: Data structures supported by the POST Request Body
+Data type
+P
+Cardinality
+Description
+NmfafDataRetrievalNotification
+M
+1
+The data or analytics or notification of availability of data or analytics to notification endpoints.
+
+Table 5.2.5.2.3.1-2: Data structures supported by the POST Response Body
+Data type
+P
+Cardinality
+Response codes
+Description
+n/a
+
+
+204 No Content
+The MFAF notification is treated successfully.
+RedirectResponse
+O
+0..1
+307 Temporary Redirect
+Temporary redirection, during the retrieval notification. 
+
+(NOTE 2)
+RedirectResponse
+O
+0..1
+308 Permanent Redirect
+Permanent redirection, during the retrieval notification. 
+
+(NOTE 2)
+NOTE 1:	The mandatory HTTP error status codes for the POST method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+NOTE 2:	The RedirectResponse data structure may be provided by an SCP (cf. clause 6.10.9.1 of 3GPP TS 29.500 [4]).
+
+Table 5.2.5.2.3.1-3: Headers supported by the 307 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative NF consumer (service) instance towards which the notification is redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target NF service consumer (service) instance towards which the notification request is redirected.
+
+Table 5.2.5.2.3.1-4: Headers supported by the 308 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative NF consumer (service) instance towards which the notification is redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target NF service consumer (service) instance towards which the notification request is redirected.
+
+5.2.5.3	Fetch Notification
+5.2.5.3.1	Description
+The Fetch Notification is used by the NF service consumer to retrieve data or analytics from the MFAF.
+5.2.5.3.2	Target URI
+The Callback URI "{fetchUri}" shall be used with the callback URI variables defined in table 5.2.5.3.2-1.
+Table 5.2.5.3.2-1: Callback URI variables
+Name
+Data type
+Definition
+fetchUri
+Uri
+Fetch Uri as assigned during the procedure of notification about the subscribed data or analytics within the FetchInstruction data type (see table 5.2.6.2.3-1).
+
+5.2.5.3.3	Standard Methods
+5.2.5.3.3.1	POST
+This method shall support the URI query parameters specified in table 5.2.5.3.3.1-1.
+Table 5.2.5.3.3.1-1: URI query parameters supported by the POST method on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Applicability
+n/a
+
+
+
+
+
+
+This method shall support the request data structures specified in table 5.2.5.3.3.1-2 and the response data structures and response codes specified in table 5.2.5.3.3.1-3.
+Table 5.2.5.3.3.1-2: Data structures supported by the POST Request Body on this resource
+Data type
+P
+Cardinality
+Description
+array(string)
+M
+1..N
+Indicate the fetch correlation identifier(s).
+
+Table 5.2.5.3.3.1-3: Data structures supported by the POST Response Body on this resource
+Data type
+P
+Cardinality
+Response
+codes
+Description
+NmfafDataAnaNotification
+M
+1
+200 OK
+The stored data or analytics related to the fetch correlation identifier(s).
+RedirectResponse
+O
+0..1
+307 Temporary Redirect
+Temporary redirection, during the retrieval notification. 
+
+(NOTE 2)
+RedirectResponse
+O
+0..1
+308 Permanent Redirect
+Permanent redirection, during the retrieval notification. 
+
+(NOTE 2)
+NOTE 1:	The mandatory HTTP error status codes for the POST method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+NOTE 2:	The RedirectResponse data structure may be provided by an SCP (cf. clause 6.10.9.1 of 3GPP TS 29.500 [4]).
+
+Table 5.2.5.3.3.1-4: Headers supported by the by the 307 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative NF consumer (service) instance towards which the notification should be redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target NF service consumer (service) instance towards which the notification request is redirected.
+
+Table 5.2.5.3.3.1-5: Headers supported by the 308 response code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative NF consumer (service) instance towards which the notification should be redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target NF service consumer (service) instance towards which the notification request is redirected.
+
+5.2.6	Data Model
+5.2.6.1	General
+This clause specifies the application data model supported by the API.
+Table 5.2.6.1-1 specifies the data types defined for the Nmfaf_3caDataManagement service based interface protocol.
+Table 5.2.6.1-1: Nmfaf_3caDataManagement specific Data Types
+Data type
+Clause defined
+Description
+Applicability
+FetchInstruction
+5.2.6.2.3
+The fetch instruction indicates whether the data or analytics are to be fetched by the Consumer.
+
+NmfafDataAnaNotification
+5.2.6.2.4
+MFAF data or analytics.
+
+NmfafDataRetrievalNotification
+5.2.6.2.2
+The data or analytics or notification of availability of data or analytics to notification endpoints.
+
+
+Table 5.2.6.1-2 specifies data types re-used by the Nmfaf_3caDataManagement service based interface protocol from other specifications, including a reference to their respective specifications and when needed, a short description of their use within the Nmfaf_3caDataManagement service based interface.
+Table 5.2.6.1-2: Nmfaf_3caDataManagement re-used Data Types
+Data type
+Reference
+Comments
+Applicability
+DataNotification
+3GPP TS 29.575 [23]
+Represents a data subscription notification of one of various possible data sources
+
+DateTime
+3GPP TS 29.571 [22]
+Identifies a specific time.
+
+NnwdafEventsSubscriptionNotification
+3GPP TS 29.520 [20]
+Represents an NWDAF analytics subscription notification.
+
+NotifSummaryReport
+3GPP TS 29.574 [15]
+Contains a summary report of processed notifications.
+DataProcess
+Uri
+3GPP TS 29.571 [22]
+URI.
+
+
+5.2.6.2	Structured data types
+5.2.6.2.1	Introduction
+This clause defines the structures to be used in resource representations.
+5.2.6.2.2	Type: NmfafDataRetrievalNotification
+Table 5.2.6.2.2-1: Definition of type NmfafDataRetrievalNotification
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+correId
+string
+M
+1
+Represents the Analytics Consumer Notification Correlation ID or Data Consumer Notification Correlation ID. It shall be set to the same value as the "correId" attribute of MessageConfiguration data type or the value of "notifCorrId" attribute associated with an entry of the "notifEndpoints" attribute of the MessageConfiguration data type, where the value is either provided by the NF service consumer or provided by the MFAF. (NOTE 2)
+
+dataAnaNotif
+NmfafDataAnaNotification
+C
+0..1
+Represents notifications of analytics and data. (NOTE 1)
+
+fetchInstruction
+FetchInstruction
+C
+0..1
+The fetch instruction indicate whether the data or analytics are to be fetched by the Consumer. (NOTE 1)
+
+NOTE 1:	Exactly one of the "dataAnaNotif" and "fetchInstruction" shall be included.
+NOTE 2:	The NF service consumer shall ignore the "correId" attribute if the "notifCorrId" attribute in the entry of "notifEndpoints" attribute within the MessageConfiguration data type was not provided by the NF service consumer.
+
+5.2.6.2.3	Type: FetchInstruction
+Table 5.2.6.2.3-1: Definition of type FetchInstruction
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+fetchUri
+Uri
+M
+1
+The target address used by a data or analytics consumer to fetch the data or analytics.
+
+fetchCorrIds
+array(string)
+M
+1..N
+The fetch correlation identifier(s) of the MFAF Data or Analytics
+
+expiry
+DateTime
+O
+0..1
+Indicates an expiration time, i.e. a deadline to fetch the data.
+
+
+5.2.6.2.4	Type: NmfafDataAnaNotification
+Table 5.2.6.2.4-1: Definition of type NmfafDataAnaNotification
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+anaNotifications
+array(NnwdafEventsSubscriptionNotification)
+C
+1..N
+List of analytics subscription notifications. (NOTE 1, NOTE 2)
+
+dataNotif
+DataNotification
+C
+0..1
+Data subscription notification. (NOTE 1, NOTE 2)
+
+dataReports
+array(NotifSummaryReport)
+C
+1..N
+List of reports with summarized data or analytics from multiple notifications received from data producer or NWDAF. (NOTE 1)
+DataProcess
+NOTE 1:	Exactly one of these attributes shall be provided.
+NOTE 2:	If the MFAF has received the notifications from another source without a time stamp, then the MFAF adds itself a time stamp based on the time it received the notification in "timeStampGen" attribute contained in the EventNotification data type in the NnwdafEventsSubscriptionNotification data type, or in "timeStamp" attribute contained in DataNotification data type.
+
+5.2.6.3	Simple data types and enumerations
+5.2.6.3.1	Introduction
+This clause defines simple data types and enumerations that can be referenced from data structures defined in the previous clauses.
+5.2.6.3.2	Simple data types
+None in this release of the specification.
+5.2.6.4	Data types describing alternative data types or combinations of data types
+None in this release of the specification.
+5.2.6.5	Binary data
+None in this release of the specification.
+5.2.7	Error Handling
+5.2.7.1	General
+For the Nmfaf_3caDataManagement API, HTTP error responses shall be supported as specified in clause 4.8 of 3GPP TS 29.501 [5]. Protocol errors and application errors specified in table 5.2.7.2-1 of 3GPP TS 29.500 [4] shall be supported for an HTTP method if the corresponding HTTP status codes are specified as mandatory for that HTTP method in table 5.2.7.1-1 of 3GPP TS 29.500 [4].
+In addition, the requirements in the following clauses are applicable for the Nmfaf_3caDataManagement API.
+5.2.7.2	Protocol Errors
+No specific procedures for the Nmfaf_3caDataManagement service are specified.
+5.2.7.3	Application Errors
+The application errors defined for the Nmfaf_3caDataManagement service are listed in Table 5.2.7.3-1.
+Table 5.2.7.3-1: Application errors
+Application Error
+HTTP status code
+Description
+
+
+
+
+5.2.8	Feature negotiation
+The optional features in table 5.2.8-1 are defined for the Nmfaf_3caDataManagement API. They shall be negotiated using the extensibility mechanism defined in clause 6.6 of 3GPP TS 29.500 [4].
+Table 5.2.8-1: Supported Features
+Feature number
+Feature Name
+Description
+1
+DataProcess
+This feature indicates the support of the processing of the data or analytics, including:
+-	providing summary reports of the event notifications received from the data producer or NWDAF based on the processing and formatting instructions.
+
+5.2.9	Security
+As indicated in 3GPP TS 33.501 [8] and 3GPP TS 29.500 [4], the access to the Nmfaf_3caDataManagement API may be authorized by means of the OAuth2 protocol (see IETF RFC 6749 [9]), based on local configuration, using the "Client Credentials" authorization grant, where the NRF (see 3GPP TS 29.510 [10]) plays the role of the authorization server.
+If OAuth2 is used, an NF Service Consumer, prior to consuming services offered by the Nmfaf_3caDataManagement API, shall obtain a "token" from the authorization server, by invoking the Access Token Request service, as described in 3GPP TS 29.510 [10], clause 5.4.2.2.
+NOTE:	When multiple NRFs are deployed in a network, the NRF used as authorization server is the same NRF that the NF Service Consumer used for discovering the Nmfaf_3caDataManagement service.
+The Nmfaf_3caDataManagement API defines a single scope "nmfaf-3cadatamanagement" for the entire service, and it does not define any additional scopes at resource or operation level.
+5.3	Nmfaf_ContextManagement Service API
+5.3.1	Introduction
+The Nmfaf_ContextManagement Service shall use the Nmfaf_ContextManagement API.
+The API URI of the Nmfaf_ContextManagement API shall be:
+{apiRoot}/<apiName>/<apiVersion>
+The request URIs used in HTTP requests from the NF service consumer towards the NF service producer shall have the Resource URI structure defined in clause 4.4.1 of 3GPP TS 29.501 [5], i.e.:
+{apiRoot}/<apiName>/<apiVersion>/<apiSpecificResourceUriPart>
+with the following components:
+-	The {apiRoot} shall be set as described in 3GPP TS 29.501 [5].
+-	The <apiName> shall be "nmfaf-contextmanagement".
+-	The <apiVersion> shall be "v1".
+-	The <apiSpecificResourceUriPart> shall be set as described in clause 5.3.3.
+5.3.2	Usage of HTTP
+5.3.2.1	General
+HTTP/2, IETF RFC 9113 [11], shall be used as specified in clause 5 of 3GPP TS 29.500 [4].
+HTTP/2 shall be transported as specified in clause 5.3 of 3GPP TS 29.500 [4].
+The OpenAPI [6] specification of HTTP messages and content bodies for the Nmfaf_ContextManagement API is contained in Annex A.4.
+5.3.2.2	HTTP standard headers
+5.3.2.2.1	General
+See clause 5.1.2 of 3GPP TS 29.500 [4] for the usage of HTTP standard headers.
+5.3.2.2.2	Content type
+JSON, IETF RFC 8259 [12], shall be used as content type of the HTTP bodies specified in the present specification as specified in clause 5.4 of 3GPP TS 29.500 [4]. The use of the JSON format shall be signalled by the content type "application/json".
+"Problem Details" JSON object shall be used to indicate additional details of the error in a HTTP response body and shall be signalled by the content type "application/problem+json", as defined in IETF RFC 9457 [13].
+5.3.2.3	HTTP custom headers
+The mandatory HTTP custom header fields specified in clause 5.1.3.2 of 3GPP TS 29.500 [4] shall be applicable.
+5.3.3	Resources
+5.3.3.1	Overview
+None in this release of the specification.
+5.3.4	Custom Operations without associated resources
+The structure of the custom operation URIs of the Nmfaf_ContextManagement service is shown in Figure 5.3.4.1-1.
+
+Figure 5.3.4.1-1: Custom operation URI structure of the Nmfaf_ContextManagement API
+Table 5.3.4.1-1 provides an overview of the custom operations and applicable HTTP methods.
+Table 5.3.4.1-1: Custom operations without associated resources
+Custom operation URI
+Mapped HTTP method
+Description
+{apiRoot}/nmfaf-contextmanagement/<apiVersion>/transfer
+POST
+Transfers configuration(s) from another MFAF.
+
+5.3.4.2	Operation: transfer
+5.3.4.2.1	Description
+The operation is used by the NF service consumer to transfer MFAF configuration(s) from another MFAF.
+5.3.4.2.2	Operation Definition
+This operation shall support the request data structures shown in Table 5.3.4.2.2-1 and the response data structures and error codes specified in Tables 5.3.4.2.2-2.
+Table 5.3.4.2.2-1: Data structures supported by the POST Request Body on this resource
+Data type
+P
+Cardinality
+Description
+ContextTransferReq
+M
+1
+Information about the MFAF configuration(s) to be transferred to this MFAF.
+
+Table 5.3.4.2.2-2: Data structures supported by the POST Response Body on this resource
+Data type
+P
+Cardinality
+Response
+codes
+Description
+ContextTransferResp
+M
+1
+200 OK
+Successful transfer of MFAF configuration(s) to this MFAF.
+RedirectResponse
+O
+0..1
+307 Temporary Redirect
+Temporary redirection during the transfer request.
+
+(NOTE 2)
+RedirectResponse
+O
+0..1
+308 Permanent Redirect
+Permanent redirection, during the transfer request.
+
+(NOTE 2)
+NOTE 1:	The mandatory HTTP error status code for the POST method listed in Table 5.2.7.1-1 of 3GPP TS 29.500 [4] also apply.
+NOTE 2:	The RedirectResponse data structure may be provided by an SCP (cf. clause 6.10.9.1 of 3GPP TS 29.500 [4]).
+
+Table 5.3.4.2.2-3: Headers supported by the 307 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative MFAF (service) instance towards which the notification is redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the notification request is redirected.
+
+Table 5.3.4.2.2-4: Headers supported by the 308 Response Code on this resource
+Name
+Data type
+P
+Cardinality
+Description
+Location
+string
+M
+1
+Contains an alternative URI representing the end point of an alternative MFAF (service) instance towards which the notification is redirected.
+
+For the case where the notification is redirected to the same target via a different SCP, refer to clause 6.10.9.1 of 3GPP TS 29.500 [4].
+3gpp-Sbi-Target-Nf-Id
+string
+O
+0..1
+Identifier of the target MFAF (service) instance towards which the notification request is redirected.
+
+5.3.5	Notifications
+None in this release of the specification.
+5.3.6	Data Model
+5.3.6.1	General
+This clause specifies the application data model supported by the API.
+Table 5.3.6.1-1 specifies the data types defined for the Nmfaf_ContextManagement service based interface protocol.
+Table 5.3.6.1-1: Nmfaf_ContextManagement specific Data Types
+Data type
+Clause defined
+Description
+Applicability
+ContextTransferReq
+5.3.6.2.2
+Represents the contents of an MFAF context transfer request.
+
+ContextTransferResp
+5.3.6.2.3
+Represents the contents of an MFAF context transfer response.
+
+
+Table 5.3.6.1-2 specifies data types re-used by the Nmfaf_ContextManagement service based interface protocol from other specifications, including a reference to their respective specifications and when needed, a short description of their use within the Nmfaf_ContextManagement service based interface.
+Table 5.3.6.1-2: Nmfaf_ContextManagement re-used Data Types
+Data type
+Reference
+Comments
+Applicability
+MfafConfiguration
+5.1.6.2.2
+Contains the description of an MFAF configuration.
+
+NmfafDataAnaNotification
+5.2.6.2.4
+Contains a data or analytics notification.
+
+NnwdafEventsSubscriptionNotification
+3GPP TS 29.520 [20]
+Represents an NWDAF analytics subscription notification.
+
+SupportedFeatures
+3GPP TS 29.571 [22]
+Used to negotiate the applicability of the optional features defined in table 5.3.8-1.
+
+Uri
+3GPP TS 29.571 [22]
+Represents a URI.
+
+
+5.3.6.2	Structured data types
+5.3.6.2.1	Introduction
+This clause defines the structures to be used in resource representations.
+5.3.6.2.2	Type: ContextTransferReq 
+Table 5.3.6.2.2-1: Definition of type ContextTransferReq
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+refIds
+array(Uri)
+M
+1..N
+List of resource URIs of the configurations to be transferred (i.e. the URIs including the transaction reference identifiers, which had been returned during the creation of the configuration as described in clause 4.2.2.2.2).
+
+suppFeat
+SupportedFeatures
+C
+0..1
+This attribute represents a list of supported features as described in clause 5.3.8. It shall be present if feature negotiation needs to take place.
+
+
+5.3.6.2.3	Type: ContextTransferResp
+Table 5.3.6.2.3-1: Definition of type ContextTransferResp
+Attribute name
+Data type
+P
+Cardinality
+Description
+Applicability
+configs
+map(MfafConfiguration)
+M
+1..N
+A map of the configurations that are transferred. The key used in this map for each entry is one of the values of the "refIds" attribute provided in the request and the value is the respective configuration.
+(NOTE)
+
+bufferedNotifs
+map(NmfafDataAnaNotification)
+O
+1..N
+A map of the buffered notifications that had not yet been delivered by the MFAF to the consumer. The key used in this map for each entry is one of the values of the "refIds" attribute provided in the request and the value is the respective buffered notifications.
+
+suppFeat
+SupportedFeatures
+C
+0..1
+This attribute represents a list of supported features as described in clause 5.3.8. It shall be present if feature negotiation needs to take place.
+
+NOTE:	The "mfafNotiInfo" and "suppFeat" attributes within the MfafConfiguration data type are not applicable.
+
+5.3.6.3	Simple data types and enumerations
+5.3.6.3.1	Introduction
+This clause defines simple data types and enumerations that can be referenced from data structures defined in the previous clauses.
+5.3.6.3.2	Simple data types
+The simple data types defined in table 5.3.6.3.2-1 shall be supported.
+Table 5.3.6.3.2-1: Simple data types
+Type Name
+Type Definition
+Description
+Applicability
+
+
+
+
+
+5.3.6.4	Data types describing alternative data types or combinations of data types
+None in this release of the specification.
+5.3.6.5	Binary data
+None in this release of the specification.
+5.3.7	Error Handling
+5.3.7.1	General
+For the Nmfaf_ContextManagement API, HTTP error responses shall be supported as specified in clause 4.8 of 3GPP TS 29.501 [5]. Protocol errors and application errors specified in table 5.1.7.2-1 of 3GPP TS 29.500 [4] shall be supported for an HTTP method if the corresponding HTTP status codes are specified as mandatory for that HTTP method in table 5.2.7.1-1 of 3GPP TS 29.500 [4].
+In addition, the requirements in the following clauses are applicable for the Nmfaf_ContextManagement API.
+5.3.7.2	Protocol Errors
+No specific procedures for the Nmfaf_ContextManagement service are specified.
+5.3.7.3	Application Errors
+The application errors defined for the Nmfaf_ContextManagement service are listed in Table 5.3.7.3-1.
+Table 5.3.7.3-1: Application errors
+Application Error
+HTTP status code
+Description
+
+
+
+
+5.3.8	Feature negotiation
+The optional features in table 5.3.8-1 are defined for the Nmfaf_ContextManagement API. They shall be negotiated using the extensibility mechanism defined in clause 6.6 of 3GPP TS 29.500 [4].
+Table 5.3.8-1: Supported Features
+Feature number
+Feature Name
+Description
+
+
+
+
+5.3.9	Security
+As indicated in 3GPP TS 33.501 [8] and 3GPP TS 29.500 [4], the access to the Nmfaf_ContextManagement API may be authorized by means of the OAuth2 protocol (see IETF RFC 6749 [9]), based on local configuration, using the "Client Credentials" authorization grant, where the NRF (see 3GPP TS 29.510 [10]) plays the role of the authorization server.
+If OAuth2 is used, an NF Service Consumer, prior to consuming services offered by the Nmfaf_ContextManagement API, shall obtain a "token" from the authorization server, by invoking the Access Token Request service, as described in 3GPP TS 29.510 [10], clause 5.4.2.2.
+NOTE:	When multiple NRFs are deployed in a network, the NRF used as authorization server is the same NRF that the NF Service Consumer used for discovering the Nmfaf_ContextManagement service.
+The Nmfaf_ContextManagement API defines a single scope "nmfaf-contextmanagement" for the entire service, and it does not define any additional scopes at resource or operation level.
+Annex A (normative):
+OpenAPI specification
+A.1	General
+This Annex specifies the formal definition of the API(s) defined in the present specification. It consists of OpenAPI 3.0.0 specifications in YAML format.
+This Annex takes precedence when being discrepant to other parts of the specification with respect to the encoding of information elements and methods within the API(s).
+NOTE 1:	The semantics and procedures, as well as conditions, e.g. for the applicability and allowed combinations of attributes or values, not expressed in the OpenAPI definitions but defined in other parts of the specification also apply.
+Informative copies of the OpenAPI specification files contained in this 3GPP Technical Specification are available on a Git-based repository that uses the GitLab software version control system (see 3GPP TS 29.501 [5] clause 5.3.1 and 3GPP TR 21.900 [7] clause 5B).
+A.2	Nmfaf_3daDataManagement API
+openapi: 3.0.0
+
+info:
+  version: 1.2.0
+  title: Nmfaf_3daDataManagement
+  description: |
+    MFAF 3GPP DCCF Adaptor (3DA) Data Management Service.  
+    © 2025, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).  
+    All rights reserved.
+
+externalDocs:
+  description: 3GPP TS 29.576 V19.5.0; 5G System; Messaging Framework Adaptor Services; Stage 3.
+  url: 'https://www.3gpp.org/ftp/Specs/archive/29_series/29.576/'
+
+servers:
+  - url: '{apiRoot}/nmfaf-3dadatamanagement/v1'
+    variables:
+      apiRoot:
+        default: https://example.com
+        description: apiRoot as defined in clause 4.4 of 3GPP TS 29.501.
+
+security:
+  - oAuth2ClientCredentials:
+    - nmfaf-3dadatamanagement
+  - {}
+
+paths:
+
+  /configurations:
+    post:
+      summary: Creates a new Individual MFAF Configuration resource.
+      operationId: CreateMFAFConfiguration
+      tags:
+        - MFAF Configuration(Collection)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfafConfiguration'
+        required: true
+        description: >
+          Contains the information for the creation of a new Individual MFAF
+          Configuration resource.
+      responses:
+        '201':
+          description: Successful creation of new Individual MFAF Configuration resource.
+          headers:
+            Location:
+              description: >
+                Contains the URI of the newly created resource, according to the structure
+                {apiRoot}/nmfaf-3dadatamanagement/<apiVersion>/configurations/{transRefId}
+              required: true
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfafConfiguration'
+        '400':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+        '401':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+        '403':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+        '404':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+        '411':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/411'
+        '413':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/413'
+        '415':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/415'
+        '429':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+        '500':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+        '502':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+        '503':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+        default:
+          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+
+  /configurations/{transRefId}:
+    put:
+      summary: Updates an existing Individual MFAF Configuration resource.
+      operationId: UpdateMFAFConfiguration
+      tags:
+        - Individual MFAF Configuration (Document)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfafConfiguration'
+      parameters:
+        - name: transRefId
+          in: path
+          description: Unique identifier of the Individual MFAF Configuration resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated Individual MFAF Configuration resource is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfafConfiguration'
+        '204':
+          description: The Individual MFAF Configuration resource was modified successfully.
+        '307':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/307'
+        '308':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/308'
+        '400':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+        '401':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+        '403':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+        '404':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+        '411':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/411'
+        '413':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/413'
+        '415':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/415'
+        '429':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+        '500':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+        '501':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/501'
+        '502':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+        '503':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+        default:
+          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+    delete:
+      summary: Deletes an existing Individual MFAF Configuration resource.
+      operationId: DeleteMFAFConfiguration
+      tags:
+        - Individual MFAF Configuration (Document)
+      parameters:
+        - name: transRefId
+          in: path
+          description: Unique identifier of the Individual MFAF Configuration resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: >
+            No Content. The Individual MFAF Configuration resource matching
+            the transRefId was deleted.
+        '307':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/307'
+        '308':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/308'
+        '400':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+        '401':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+        '403':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+        '404':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+        '429':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+        '500':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+        '502':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+        '503':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+        default:
+          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+components:
+  securitySchemes:
+    oAuth2ClientCredentials:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: '{nrfApiRoot}/oauth2/token'
+          scopes:
+            nmfaf-3dadatamanagement: Access to the nmfaf-3dadatamanagement API
+
+  schemas:
+
+    MfafConfiguration:
+      description: Represents an Individual MFAF Configuration.
+      type: object
+      oneOf:
+        - required: [messageConfigurations]
+        - required: [mfafTransferInfo]
+      properties:
+        messageConfigurations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageConfiguration'
+          minItems: 1
+          description: The configuration of the MFAF for mapping data or analytics.
+        mfafTransferInfo:
+          $ref: '#/components/schemas/MfafTransferInfo'
+
+    MessageConfiguration:
+      description: Represents the message configuration.
+      type: object
+      required:
+        - notificationURI
+        - correId
+      properties:
+        correId:
+          type: string
+          description: >
+            If the configuration is used for mapping analytics or data collection,
+            representing the Analytics Consumer Notification Correlation ID or
+            Data Consumer Notification Correlation ID.
+        formatInstruct:
+          $ref: 'TS29574_Ndccf_DataManagement.yaml#/components/schemas/FormattingInstruction'
+        mfafNotiInfo:
+          $ref: '#/components/schemas/MfafNotiInfo'
+        notificationURI:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+        notifEndpoints:
+          type: array
+          items:
+            $ref: 'TS29574_Ndccf_DataManagement.yaml#/components/schemas/NotifyEndpoint'
+          minItems: 1
+          description: The information of notification endpoints.
+        procInstruct:
+          $ref: 'TS29574_Ndccf_DataManagement.yaml#/components/schemas/ProcessingInstruction'
+        multiProcInstructs:
+          type: array
+          items:
+            $ref: 'TS29574_Ndccf_DataManagement.yaml#/components/schemas/ProcessingInstruction'
+          minItems: 1
+          description: Processing instructions to be used for sending event notifications.
+        adrfId:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/NfInstanceId'
+        suppFeat:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/SupportedFeatures'
+
+    MfafNotiInfo:
+      description: >
+        The MFAF notification information. It shall be provided in a response message
+        if it had not been provided in the respective request message.
+      type: object
+      required:
+        - mfafNotifUri
+        - mfafCorreId
+      properties:
+        mfafNotifUri:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+        mfafCorreId:
+          type: string
+
+    MfafTransferInfo:
+      description: MFAF transfer information.
+      type: object
+      properties:
+        mfafId:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/NfInstanceId'
+        mfafSetId:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/NfSetId'
+        refIds:
+          type: array
+          items:
+            $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+          minItems: 1
+          description: The resource URIs of the MFAF configurations to be transfered.
+        newRefIds:
+          type: object
+          additionalProperties:
+            $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+          minProperties: 1
+          description: >
+            A map of the pre-transfer resource URis to the post-transfer resource
+            URIs of the configurations that were requested to be transferred.
+        tgtMfafNotiInfos:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/TargetMfafNotiInfo'
+          minProperties: 1
+          description: The target MFAF notification information.
+        suppFeat:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/SupportedFeatures'
+      required:
+        - refIds
+      oneOf:
+        - required: [mfafId]
+        - required: [mfafSetId]
+
+    TargetMfafNotiInfo:
+      description: A list of target MFAF notification information.
+      type: object
+      required:
+        - mfafNotiInfos
+      properties:
+        mfafNotiInfos:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MfafNotiInfo'
+          minProperties: 1
+          description: The MFAF notification information.
+A.3	Nmfaf_3caDataManagement API
+openapi: 3.0.0
+
+info:
+  version: 1.2.2
+  title: Nmfaf_3caDataManagement
+  description: |
+    MFAF 3GPP Consumer Adaptor (3CA) Data Management Service.  
+    © 2026, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).  
+    All rights reserved.
+
+externalDocs:
+  description: 3GPP TS 29.576 V19.7.0; 5G System; Messaging Framework Adaptor Services; Stage 3.
+  url: 'https://www.3gpp.org/ftp/Specs/archive/29_series/29.576/'
+
+servers:
+  - url: '{apiRoot}/nmfaf-3cadatamanagement/v1'
+    variables:
+      apiRoot:
+        default: https://example.com
+        description: apiRoot as defined in clause 4.4 of 3GPP TS 29.501.
+
+security:
+  - oAuth2ClientCredentials:
+    - nmfaf-3cadatamanagement
+  - {}
+
+paths:
+  /mfaf-data-analytics:
+    post:
+    # This is a pseudo operation, clients shall NOT invoke this method!
+      requestBody:
+        required: true
+        content:
+          application/json:
+            # Unspecified schema for the JSON body, since this is used by neither the NF service consumer nor the MFAF.
+            schema: {}
+      responses:
+        default:
+          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+      callbacks:
+        Notification:
+          '{notificationURI}':
+          # The URI in {notificationURI} is obtained out of band by the MFAF, i.e. it is provided via the Nmfaf_3daDataManagement API during the configuration for mapping data or analytics.
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/NmfafDataRetrievalNotification'
+              responses:
+                '204':
+                  description: The receipt of the Notification is acknowledged.
+                '307':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/307'
+                '308':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/308'
+                '400':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+                '401':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+                '403':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+                '404':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+                '411':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/411'
+                '413':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/413'
+                '415':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/415'
+                '429':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+                '500':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+                '502':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+                '503':
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+                default:
+                  $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+              callbacks:
+                Fetch:
+                  '{$request.body#/fetchInstruction/fetchUri}':
+                    post:
+                      requestBody:
+                        required: true
+                        content:
+                          application/json:
+                            schema: 
+                              type: array
+                              items:
+                                type: string
+                              minItems: 1
+                              description: Indicate the fetch correlation identifier.
+                      responses:
+                        '200':
+                          description: Expected response to a valid request.
+                          content:
+                            application/json:
+                              schema:
+                                $ref: '#/components/schemas/NmfafDataAnaNotification'
+                        '307':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/307'
+                        '308':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/308'
+                        '400':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+                        '401':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+                        '403':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+                        '404':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+                        '411':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/411'
+                        '413':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/413'
+                        '415':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/415'
+                        '429':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+                        '500':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+                        '502':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+                        '503':
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+                        default:
+                          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+
+
+components:
+  securitySchemes:
+    oAuth2ClientCredentials:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: '{nrfApiRoot}/oauth2/token'
+          scopes:
+            nmfaf-3cadatamanagement: Access to the nmfaf-3cadatamanagement API
+
+  schemas:
+    NmfafDataRetrievalNotification:
+      description: >
+        Represents the data or analytics or notification of availability of data or analytics
+        to notification endpoints.
+      type: object
+      required:
+        - correId
+      oneOf:
+        - required: [dataAnaNotif]
+        - required: [fetchInstruction]
+      properties:
+        correId:
+          type: string
+          description: >
+            Represents the Analytics Consumer Notification Correlation ID
+            or Data Consumer Notification Correlation ID. It shall be set to the same
+            value as the "correId" attribute of MessageConfiguration data type.
+        dataAnaNotif:
+          $ref: '#/components/schemas/NmfafDataAnaNotification'
+        fetchInstruction:
+          $ref: '#/components/schemas/FetchInstruction'
+
+    FetchInstruction:
+      description: >
+        The fetch instructions indicate whether the data or analytics are to be fetched by the
+        consumer.
+      type: object
+      required:
+        - fetchUri
+        - fetchCorrIds
+      properties:
+        fetchUri:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+        fetchCorrIds:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: The fetch correlation identifier(s) of the MFAF Data or Analytics.
+        expiry:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/DateTime'
+
+    NmfafDataAnaNotification:
+      description: MFAF data or analytics.
+      type: object
+      oneOf:
+        - required: [anaNotifications]
+        - required: [dataNotif]
+        - required: [dataReports]
+      properties:
+        anaNotifications:
+          type: array
+          items:
+            $ref: 'TS29520_Nnwdaf_EventsSubscription.yaml#/components/schemas/NnwdafEventsSubscriptionNotification'
+          minItems: 1
+          description: List of analytics subscription notifications.
+        dataNotif:
+          $ref: 'TS29575_Nadrf_DataManagement.yaml#/components/schemas/DataNotification'
+        dataReports:
+          type: array
+          items:
+            $ref: 'TS29574_Ndccf_DataManagement.yaml#/components/schemas/NotifSummaryReport'
+          minItems: 1
+          description: >
+            List of reports with summarized data or analytics from multiple notifications.
+
+A.4	Nmfaf_ContextManagement API
+openapi: 3.0.0
+
+info:
+  version: 1.0.2
+  title: Nmfaf_ContextManagement
+  description: |
+    MFAF Context Management Service.  
+    © 2026, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).  
+    All rights reserved.
+
+externalDocs:
+  description: 3GPP TS 29.576 V19.7.0; 5G System; Messaging Framework Adaptor Services; Stage 3.
+  url: 'https://www.3gpp.org/ftp/Specs/archive/29_series/29.576/'
+
+servers:
+  - url: '{apiRoot}/nmfaf-contextmanagement/v1'
+    variables:
+      apiRoot:
+        default: https://example.com
+        description: apiRoot as defined in clause 4.4 of 3GPP TS 29.501.
+
+security:
+  - oAuth2ClientCredentials:
+    - nmfaf-contextmanagement
+  - {}
+
+paths:
+
+  /transfer:
+    post:
+      summary: Performs the transfer of MFAF configuration(s).
+      operationId: MFAFTransfer
+      tags:
+        - MFAF Transfer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContextTransferReq'
+        required: true
+      responses:
+        '200':
+          description: >
+            Successful MFAF configuration(s) transfer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextTransferResp'
+        '307':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/307'
+        '308':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/308'
+        '400':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/400'
+        '401':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/401'
+        '403':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/403'
+        '404':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/404'
+        '411':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/411'
+        '413':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/413'
+        '415':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/415'
+        '429':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/429'
+        '500':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/500'
+        '502':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/502'
+        '503':
+          $ref: 'TS29571_CommonData.yaml#/components/responses/503'
+        default:
+          $ref: 'TS29571_CommonData.yaml#/components/responses/default'
+
+components:
+  securitySchemes:
+    oAuth2ClientCredentials:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: '{nrfApiRoot}/oauth2/token'
+          scopes:
+            nmfaf-contextmanagement: Access to the nmfaf-contextmanagement API
+
+  schemas:
+
+    ContextTransferReq:
+      description: The contents of an MFAF configuration transfer request.
+      type: object
+      properties:
+        refIds:
+          type: array
+          items:
+            $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+          minItems: 1
+          description: The resource URIs of the MFAF configurations to be transfered.
+        suppFeat:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/SupportedFeatures'
+      required:
+        - refIds
+
+    ContextTransferResp:
+      description: The contents of an MFAF configuration transfer response.
+      type: object
+      properties:
+        configs:
+          type: object
+          additionalProperties:
+            $ref: 'TS29576_Nmfaf_3daDataManagement.yaml#/components/schemas/MfafConfiguration'
+          minProperties: 1
+          description: >
+            A map of the configurations that are transferred.
+            The key used in this map for each entry is one of the values of the "refIds" attribute
+            provided in the request and the value is the respective configuration.
+        bufferedNotifs:
+          type: object
+          additionalProperties:
+            $ref: 'TS29576_Nmfaf_3caDataManagement.yaml#/components/schemas/NmfafDataAnaNotification'
+          minProperties: 1
+          description: >
+            A map of the buffered notifications that had not yet been delivered.
+            The key used in this map for each entry is one of the values of the "refIds" attribute
+            provided in the request and the value is the respective buffered notifications.
+        suppFeat:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/SupportedFeatures'
+      required:
+        - configs
+Annex B (informative):
+Change history
+Change history
+Date
+Meeting
+TDoc
+CR
+Rev
+Cat
+Subject/Comment
+New version
+2021-06
+CT3#116e
+
+
+
+
+TS skeleton of Messaging Framework Adaptor Services specification
+0.0.0
+2021-06
+CT3#116e
+C3-213502
+
+
+
+Inclusion of documents agreed in CT3#116e C3-213377.
+0.1.0
+2021-08
+CT3#117e
+C3-214580
+
+
+
+Inclusion of documents agreed in CT3#117e C3-214479, 
+C3-214358, C3-214359, C3-214360, C3-214361, C3-214362, 
+C3-214363 and C3-214480.
+0.2.0
+2021-11
+CT3#119e
+C3-216522
+
+
+
+Inclusion of documents agreed in CT3#119e C3-216422, 
+C3-216423, C3-216441, C3-216465, C3-216467.
+0.3.0
+2022-01
+CT3#119bis-e
+C3-220455
+
+
+
+Inclusion of documents agreed in CT3#119bis-e C3-220294, 
+C3-220464, C3-220319, C3-220504, C3-220321, C3-220505.
+0.4.0
+2022-02
+CT3#120e
+C3-221516
+
+
+
+Inclusion of documents agreed in CT3#120e C3-221289, 
+C3-221299, C3-221424, C3-221602, C3-221603, 
+C3-221604, C3-221605.
+0.5.0
+2022-03
+CT#95e
+CP-220161
+
+
+
+Presentation to TSG CT for approval
+1.0.0
+2022-03
+CT#95e
+CP-220161
+
+
+
+Approved by TSG CT 
+17.0.0
+2022-06
+CT#96
+CP-221132
+0001
+1
+F
+Adding 3XX and error response handling support for MFAF services
+17.1.0
+2022-06
+CT#96
+CP-221132
+0002
+1
+F
+Corrections in the MFAF 3caDataManagement API
+17.1.0
+2022-06
+CT#96
+CP-221129
+0003
+
+F
+Correct the Cardinality and Presence of some attributes
+17.1.0
+2022-06
+CT#96
+CP-221132
+0004
+1
+B
+Support carrying ADRF ID in Nmfaf_3daDataManagement_Configure service operation
+17.1.0
+2022-06
+CT#96
+CP-221129
+0005
+
+F
+Nmfaf_3daDataManagement API corrections
+17.1.0
+2022-06
+CT#96
+CP-221131
+0006
+1
+F
+Nmfaf_3caDataManagement API corrections
+17.1.0
+2022-06
+CT#96
+CP-221130
+0007
+
+F
+Handling of the redirection responses
+17.1.0
+2022-06
+CT#96
+CP-221134
+0009
+2
+F
+Correction on DataNotification type
+17.1.0
+2022-06
+CT#96
+CP-221133
+0011
+
+F
+Removing UDM from the list of MFAF service consumers
+17.1.0
+2022-06
+CT#96
+CP-221135
+0012
+1
+F
+Update inputs of Nmfaf_3caDataManagement_Notify service
+17.1.0
+2022-06
+CT#96
+CP-221134
+0014
+
+F
+Correction to MFAF notification information
+17.1.0
+2022-06
+CT#96
+CP-221134
+0015
+
+F
+add CEF and OAM as consumers of Ndccf_DataManagement Service
+17.1.0
+2022-06
+CT#96
+CP-221134
+0016
+
+F
+update of Abbreviations
+17.1.0
+2022-06
+CT#96
+CP-221155
+0018
+1
+F
+Update the apiVersion placeholder
+17.1.0
+2022-06
+CT#96
+CP-221152
+0019
+
+F
+Update of info and externalDocs fields
+17.1.0
+2022-09
+CT#97e
+CP-222104
+0021
+2
+F
+Add expiry attribute to the fetch instructions
+17.2.0
+2022-09
+CT#97e
+CP-222104
+0022
+1
+F
+Corrections related to callback functions in MFAF
+17.2.0
+2022-09
+CT#97e
+CP-222104
+0023
+1
+F
+Add NWDAF hosting DCCF as consumer of the Nmfaf_3daDataManagement service
+17.2.0
+2022-09
+CT#97e
+CP-222101
+0024
+
+F
+Clean up References
+17.2.0
+2022-09
+CT#97e
+CP-222101
+0025
+
+F
+Corrections related to NmfafDataRetrievalNotification data type
+17.2.0
+2022-09
+CT#97e
+CP-222101
+0026
+
+F
+Corrections to Fetch Notification
+17.2.0
+2022-09
+CT#97e
+CP-222102
+0028
+1
+F
+Miscellaneous corrections
+17.2.0
+2022-09
+CT#97e
+CP-222101
+0029
+
+F
+Corrections to NF service consumer
+17.2.0
+2022-09
+CT#97e
+CP-222121
+0030
+
+F
+Update of info and externalDocs fields
+17.2.0
+2022-12
+CT#98e
+CP-223172
+0034
+
+F
+Correcting procedure description for dataNotif attribute
+17.3.0
+2022-12
+CT#98e
+CP-223172
+0036
+
+F
+Corrections to data type in POST header
+17.3.0
+2022-12
+CT#98e
+CP-223237
+0037
+1
+F
+The time stamp of data and analytics notification
+17.3.0
+2022-12
+CT#98e
+CP-223188
+0041
+
+F
+Update of info and externalDocs fields
+17.3.0
+2022-12
+CT#98e
+CP-223191
+0031
+
+F
+Adding the mandatory error code 502 Bad Gateway
+18.0.0
+2022-12
+CT#98e
+CP-223176
+0035
+1
+F
+Correction of data type of procInstruct
+18.0.0
+2022-12
+CT#98e
+CP-223190
+0040
+
+F
+Update of info and externalDocs fields
+18.0.0
+2023-03
+CT#99
+CP-230149
+0042
+1
+F
+Handling of fetch Instruction
+18.1.0
+2023-03
+CT#99
+CP-230148
+0044
+
+B
+Support of multiple notification endpoints
+18.1.0
+2023-03
+CT#99
+CP-230162
+0045
+
+F
+Update of info and externalDocs fields
+18.1.0
+2023-06
+CT#100
+CP-231131
+0046
+1
+F
+Corrections to the dummy POST based operation of the Nmfaf_3caDataManagement API
+18.2.0
+2023-06
+CT#100
+CP-231132
+0047
+1
+F
+Corrections to the redirection mechanism description
+18.2.0
+2023-06
+CT#100
+CP-231142
+0048
+
+F
+Update of info and externalDocs fields
+18.2.0
+2023-12
+CT#102
+CP-233229
+0049
+1
+F
+IETF RFC 7540, RFC 7807 obsoleted by RFC 9113 and RFC 9457 respectively
+18.3.0
+2024-06
+CT#104
+CP-241101
+0050
+
+F
+Callback correction
+18.4.0
+2024-06
+CT#104
+CP-241105
+0052
+
+A
+Corrections on the attribute names in the service description
+18.4.0
+2024-06
+CT#104
+CP-241101
+0053
+1
+F
+MFAF service consumers
+18.4.0
+2024-06
+CT#104
+CP-241101
+0054
+1
+F
+MFAF API names corrections
+18.4.0
+2024-06
+CT#104
+CP-241101
+0057
+
+F
+MFAF 3daDataManagement API corrections
+18.4.0
+2024-06
+CT#104
+CP-241101
+0058
+
+F
+MFAF 3caDataManagement API corrections
+18.4.0
+2024-06
+CT#104
+CP-241105
+0060
+1
+A
+Corrections on attribute name
+18.4.0
+2024-06
+CT#104
+CP-241086
+0061
+
+F
+Update of info and externalDocs fields
+18.4.0
+2024-09
+CT#105
+CP-242124
+0063
+　
+F
+Correction to API Descriptions table
+19.0.0
+2024-09
+CT#105
+CP-242128
+0065
+1
+A
+Adding ADRF as a consumer of Nmfaf_3caDataManagement_Fetch
+18.5.0
+2024-09
+CT#105
+CP-242124
+0070
+　
+F
+MFAF API corrections
+19.0.0
+2024-12
+CT#106
+CP-243088
+0071
+1
+B
+Support event notification processing based on the processing and formatting instructions
+19.1.0
+2024-12
+CT#106
+CP-243088
+0072
+　
+B
+Adding LMF as a consumer of Nmfaf_3caDataManagement Service
+19.1.0
+2024-12
+CT#106
+CP-243089
+0073
+1
+B
+MFAF ContextManagement API service descripiton
+19.1.0
+2024-12
+CT#106
+CP-243089
+0074
+1
+B
+MFAF ContextManagement API data model
+19.1.0
+2024-12
+CT#106
+CP-243278
+0075
+2
+B
+MFAF ContextManagement API OpenAPI
+19.1.0
+2024-12
+CT#106
+CP-243255
+0076
+2
+B
+MFAF 3daDataManagement updates to support MFAF transfer
+19.1.0
+2024-12
+CT#106
+CP-243147
+0077
+　
+F
+Update of info and externalDocs fields
+19.1.0
+2025-03
+CT#107
+CP-250084
+0078
+1
+B
+target MFAF Notification Information
+19.2.0
+2025-03
+CT#107
+CP-250086
+0079
+1
+F
+Incorrect resource name
+19.2.0
+2025-03
+CT#107
+CP-250084
+0080
+1
+B
+Clarification on the MFAF Configuration transfer
+19.2.0
+2025-03
+CT#107
+CP-250130
+0082
+
+F
+Update of info and externalDocs fields
+19.2.0
+2025-06
+CT#108
+CP-251086
+0083
+1
+B
+Signalling Storm analytics consumers
+19.3.0
+2025-06
+CT#108
+CP-251088
+0084
+　
+F
+Using Maps for MFAF configurations transfer
+19.3.0
+2025-06
+CT#108
+CP-251232
+0085
+
+F
+Update of info and externalDocs fields
+19.3.0
+2025-09
+CT#109
+CP-252114
+0086
+
+F
+Update of info and externalDocs fields
+19.4.0
+2025-12
+CT#110
+CP-253022
+0087
+　
+F
+Signalling Storm analytics consumers
+19.5.0
+2025-12
+CT#110
+CP-253065
+0088
+　
+F
+Update of info and externalDocs fields
+19.5.0
+2026-03
+CT#111
+CP-260081
+0091
+　
+F
+Update of info and externalDocs fields
+19.6.0
+2026-06
+CT#112
+CP-261205
+0098
+2
+A
+Multiple notification endpoints correction
+19.7.0
+2026-06
+CT#112
+CP-261250
+0099
+　
+F
+Update of info and externalDocs fields
+19.7.0
+

@@ -344,18 +344,33 @@ file(GLOB_RECURSE SBI_CODEGEN_TOOL_SOURCES
 # here and in the build-time add_custom_command below, makes every regeneration a clean one --
 # this was already flagged as a known limitation in this file's own header comment before being
 # actually hit; fixed properly (clean-slate regeneration) rather than left as a recurring trap.
-file(REMOVE_RECURSE ${SBI_GENERATED_DIR})
+#
+# Refined 2026-09-14 (ADR-0360, found while it cost an hour): the clean slate is now achieved by
+# generating into a staging directory and syncing it over the real one with
+# tools/sbi-codegen/sync_generated.py -- stale files are still deleted, but files whose bytes did
+# not change keep their timestamps, so a reconfigure no longer forces Ninja to recompile every
+# generated translation unit and every NF that links them.
+set(SBI_GENERATED_STAGING_DIR ${SBI_GENERATED_DIR}.staging)
+set(SBI_CODEGEN_SYNC ${CMAKE_SOURCE_DIR}/tools/sbi-codegen/sync_generated.py)
+file(REMOVE_RECURSE ${SBI_GENERATED_STAGING_DIR})
 
 # Run once at configure time so the file(GLOB) below has output to find.
 execute_process(
     COMMAND python3 ${SBI_CODEGEN_SCRIPT}
             ${SBI_CODEGEN_PILOT_FILES}
             --specs-dir ${SBI_CODEGEN_SPECS_DIR}
-            --out ${SBI_GENERATED_DIR}
+            --out ${SBI_GENERATED_STAGING_DIR}
     RESULT_VARIABLE SBI_CODEGEN_RESULT
 )
 if(NOT SBI_CODEGEN_RESULT EQUAL 0)
     message(FATAL_ERROR "tools/sbi-codegen/generate.py failed at configure time (see output above)")
+endif()
+execute_process(
+    COMMAND python3 ${SBI_CODEGEN_SYNC} ${SBI_GENERATED_STAGING_DIR} ${SBI_GENERATED_DIR}
+    RESULT_VARIABLE SBI_CODEGEN_SYNC_RESULT
+)
+if(NOT SBI_CODEGEN_SYNC_RESULT EQUAL 0)
+    message(FATAL_ERROR "tools/sbi-codegen/sync_generated.py failed at configure time")
 endif()
 
 file(GLOB SBI_GENERATED_SOURCES ${SBI_GENERATED_DIR}/*.cpp)
@@ -365,13 +380,14 @@ file(GLOB SBI_GENERATED_HEADERS ${SBI_GENERATED_DIR}/*.hpp)
 # the pilot YAML change.
 add_custom_command(
     OUTPUT ${SBI_GENERATED_DIR}/.stamp
-    COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBI_GENERATED_DIR}
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBI_GENERATED_STAGING_DIR}
     COMMAND python3 ${SBI_CODEGEN_SCRIPT}
             ${SBI_CODEGEN_PILOT_FILES}
             --specs-dir ${SBI_CODEGEN_SPECS_DIR}
-            --out ${SBI_GENERATED_DIR}
+            --out ${SBI_GENERATED_STAGING_DIR}
+    COMMAND python3 ${SBI_CODEGEN_SYNC} ${SBI_GENERATED_STAGING_DIR} ${SBI_GENERATED_DIR}
     COMMAND ${CMAKE_COMMAND} -E touch ${SBI_GENERATED_DIR}/.stamp
-    DEPENDS ${SBI_CODEGEN_TOOL_SOURCES} ${SBI_CODEGEN_PILOT_PATHS}
+    DEPENDS ${SBI_CODEGEN_TOOL_SOURCES} ${SBI_CODEGEN_PILOT_PATHS} ${SBI_CODEGEN_SYNC}
     COMMENT "Regenerating SBI DTOs from 3GPP R19 OpenAPI YAML (tools/sbi-codegen)"
 )
 add_custom_target(sbi_codegen_run DEPENDS ${SBI_GENERATED_DIR}/.stamp)

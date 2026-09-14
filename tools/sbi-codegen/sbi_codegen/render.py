@@ -175,7 +175,15 @@ def _referenced_names(t) -> list[str]:
 
 
 def _tarjan_scc(nodes: list[str], edges: dict[str, set[str]]) -> list[list[str]]:
-    """Standard Tarjan's algorithm, iterative order preserved via index/lowlink."""
+    """Standard Tarjan's algorithm, iterative order preserved via index/lowlink.
+
+    Edge sets are iterated in sorted order. They are sets of str, and Python randomises str
+    hashing per process (PYTHONHASHSEED), so iterating them raw made the SCC discovery order --
+    and with it the topological order of every type in a merged group -- differ from one run to
+    the next. The output was still correct C++ each time, but never byte-identical, which
+    defeated the timestamp-preserving sync in libs/sbi-generated/CMakeLists.txt (2026-09-14):
+    every reconfigure recompiled all ~130 generated translation units for no change in meaning.
+    """
     index_counter = [0]
     stack: list[str] = []
     on_stack: set[str] = set()
@@ -190,7 +198,7 @@ def _tarjan_scc(nodes: list[str], edges: dict[str, set[str]]) -> list[list[str]]
         stack.append(v)
         on_stack.add(v)
 
-        for w in edges.get(v, ()):
+        for w in sorted(edges.get(v, ())):
             if w not in indices:
                 strongconnect(w)
                 lowlink[v] = min(lowlink[v], lowlink[w])
@@ -304,7 +312,7 @@ def _topo_sort_types(
         if i in visited:
             return
         temp_mark.add(i)
-        for dep_i in condensed_edges[i]:
+        for dep_i in sorted(condensed_edges[i]):
             visit(dep_i)
         temp_mark.discard(i)
         visited.add(i)

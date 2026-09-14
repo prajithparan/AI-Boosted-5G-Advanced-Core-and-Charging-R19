@@ -78,6 +78,14 @@ def main() -> int:
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     manifest = out / "MANIFEST.tsv"
+    # Merge into the existing manifest rather than overwrite it (2026-09-14): every earlier run
+    # replaced the file wholesale, so fetching 29.500 silently dropped the 23.288 row, which had
+    # itself dropped the 33-series rows. A manifest is only an inventory if it keeps every entry.
+    existing: dict[str, str] = {}
+    if manifest.exists():
+        for line in manifest.read_text().splitlines()[1:]:
+            if line.strip():
+                existing[line.split("\t", 1)[0]] = line
     rows = ["spec\tversion\trelease\tnote"]
 
     for spec in args.spec:
@@ -109,6 +117,9 @@ def main() -> int:
             rows.append(f"{spec}\t-\t-\tFAILED: {exc}")
             print(f"{spec}: FAILED {exc}", file=sys.stderr)
 
+    for row in rows[1:]:
+        existing[row.split("\t", 1)[0]] = row
+    rows = rows[:1] + [existing[k] for k in sorted(existing)]
     manifest.write_text("\n".join(rows) + "\n")
     print(f"manifest: {manifest}", file=sys.stderr)
     return 0
