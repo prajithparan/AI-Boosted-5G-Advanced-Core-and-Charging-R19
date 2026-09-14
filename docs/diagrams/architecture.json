@@ -1,0 +1,1722 @@
+{
+ "_comment": "Source of truth for docs/diagrams/architecture{,-dark}.svg (rendered by tools/diagrams/render_architecture.py, checked in CI). Every tile is a directory under nfs/ or bss/, a service under deploy/docker/docker-compose.yml, or a documented planned item; every edge is a call that exists in code, named by its TS 23.501 clause 4.2.7 reference point. Services and TS numbers per tile come from the API roots each NF serves (servers[0].url of the YAML it was generated from). Change this file, re-render, commit all three -- ADR-0361.",
+ "canvas": [
+  1700,
+  1290
+ ],
+ "title": "AI-Boosted 5G-Advanced Core and Charging — Release 19 · architecture",
+ "title_right": [
+  "SBI: HTTP/2 + JSON · TLS 1.3 mTLS · OAuth2 from NRF · TS 29.500",
+  "APIs generated from 3GPP Forge 5G_APIs, REL-19 (bca84b6) — never hand-written"
+ ],
+ "subtitle": "Solid tiles exist in this repository and are tested; dashed tiles are in scope and not built. Every reference point drawn is a call wired in code (config/*.json), named per TS 23.501 clause 4.2.7. Chip = services served from generated YAML.",
+ "legend": {
+  "built": "built and tested",
+  "planned": "in scope, not built",
+  "edge": "reference point wired in code (TS 23.501 §4.2.7 name · service · TS)",
+  "chip": "services generated from R19 YAML",
+  "footer": "docs/diagrams/architecture.json → render_architecture.py · checked in CI · updated as part of every NF's definition of done"
+ },
+ "areas": [
+  {
+   "id": "access",
+   "title": "Access · test harness",
+   "x": 20,
+   "y": 96,
+   "w": 180,
+   "h": 526,
+   "pitch": [
+    150,
+    148
+   ],
+   "head": 70,
+   "color": "#7c3aed"
+  },
+  {
+   "id": "cp",
+   "title": "5GC control plane — TS 23.501 / 23.502",
+   "x": 220,
+   "y": 96,
+   "w": 1060,
+   "h": 526,
+   "pitch": [
+    148,
+    148
+   ],
+   "head": 70,
+   "color": "#d62828",
+   "note": [
+    "every NF: Nnrf register · heartbeat · discover · OAuth2 (ES256 JWT)",
+    "3gpp-Sbi-* headers · ProblemDetails · OpenTelemetry · Prometheus"
+   ]
+  },
+  {
+   "id": "sbi",
+   "title": "SBI framework · support · interconnect",
+   "x": 1300,
+   "y": 96,
+   "w": 380,
+   "h": 526,
+   "pitch": [
+    120,
+    148
+   ],
+   "head": 70,
+   "color": "#2563eb"
+  },
+  {
+   "id": "chg",
+   "title": "Charging — CHF + online charging",
+   "x": 20,
+   "y": 646,
+   "w": 560,
+   "h": 220,
+   "pitch": [
+    135,
+    150
+   ],
+   "head": 56,
+   "color": "#c2410c"
+  },
+  {
+   "id": "ds",
+   "title": "Datastores — all self-hosted open source",
+   "x": 600,
+   "y": 646,
+   "w": 680,
+   "h": 220,
+   "pitch": [
+    165,
+    150
+   ],
+   "head": 56,
+   "color": "#4338ca",
+   "note": [
+    "licenses: README product table (P1: OSI-only)"
+   ]
+  },
+  {
+   "id": "obs",
+   "title": "Observability · ops",
+   "x": 1300,
+   "y": 646,
+   "w": 380,
+   "h": 220,
+   "pitch": [
+    120,
+    150
+   ],
+   "head": 56,
+   "color": "#0f766e"
+  },
+  {
+   "id": "bss",
+   "title": "BSS — TM Forum SID / Open APIs",
+   "x": 20,
+   "y": 896,
+   "w": 560,
+   "h": 340,
+   "pitch": [
+    135,
+    150
+   ],
+   "head": 56,
+   "color": "#b45309"
+  },
+  {
+   "id": "ai",
+   "title": "AI plane",
+   "x": 600,
+   "y": 896,
+   "w": 1080,
+   "h": 340,
+   "pitch": [
+    152,
+    150
+   ],
+   "head": 56,
+   "color": "#047857",
+   "note": [
+    "inference in-process C++ (ONNX Runtime) · training in a Python sidecar (MLflow)"
+   ]
+  }
+ ],
+ "texts": [
+  {
+   "x": 1314,
+   "y": 480,
+   "size": 9.5,
+   "lines": [
+    "Every NF registers with the NRF (PUT nf-instances, heartbeat PATCH),",
+    "discovers peers (Nnrf_NFDiscovery) and fetches OAuth2 tokens",
+    "(Nnrf_AccessToken, ES256-signed JWT verified per request).",
+    "SCP: Nscp_EventExposure served; indirect routing is not on the",
+    "wired path today. SEPP/N32, AKMA and NSSAA are in scope, not built."
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "gnb",
+   "area": "access",
+   "col": 0,
+   "row": 0,
+   "acronym": "gNB (test)",
+   "name": [
+    "NGAP over SCTP"
+   ],
+   "ts": [
+    "TS 38.413 · TS 38.412"
+   ],
+   "svc": [
+    "registration · PDU session",
+    "handover · GTP-U to N3"
+   ],
+   "glyph": "antenna",
+   "color": "#7c3aed",
+   "source": "tests/integration/ngap_test_gnb.cpp"
+  },
+  {
+   "id": "ue",
+   "area": "access",
+   "col": 0,
+   "row": 1,
+   "acronym": "UE (test)",
+   "name": [
+    "NAS 5GMM / 5GSM"
+   ],
+   "ts": [
+    "TS 24.501 · TS 33.501"
+   ],
+   "svc": [
+    "SUCI · 5G-AKA · EAP-AKA'",
+    "NAS security (NEA/NIA)"
+   ],
+   "glyph": "phone",
+   "color": "#7c3aed",
+   "source": "tests/integration/ngap_test_gnb.cpp"
+  },
+  {
+   "id": "upf",
+   "area": "cp",
+   "col": 0,
+   "row": 0,
+   "acronym": "UPF",
+   "name": [
+    "User Plane Function"
+   ],
+   "ts": [
+    "TS 29.244 PFCP · TS 29.564"
+   ],
+   "svc": [
+    "Nupf_EventExposure",
+    "Nupf_GetUEPrivateIPaddr",
+    "eBPF/XDP GTP-U datapath"
+   ],
+   "glyph": "tree",
+   "color": "#6f42c1",
+   "chip": "2 svc",
+   "source": "nfs/upf"
+  },
+  {
+   "id": "smf",
+   "area": "cp",
+   "col": 1,
+   "row": 0,
+   "acronym": "SMF",
+   "name": [
+    "Session Management"
+   ],
+   "ts": [
+    "TS 29.502 · 29.508 · 29.542"
+   ],
+   "svc": [
+    "Nsmf_PDUSession · Nsmf_NIDD",
+    "Nsmf_EventExposure",
+    "PFCP client · NAS 5GSM"
+   ],
+   "glyph": "route",
+   "color": "#d63384",
+   "chip": "3 svc",
+   "source": "nfs/smf"
+  },
+  {
+   "id": "pcf",
+   "area": "cp",
+   "col": 2,
+   "row": 0,
+   "acronym": "PCF",
+   "name": [
+    "Policy Control Function"
+   ],
+   "ts": [
+    "TS 29.507/512/514/523/525",
+    "TS 29.534/537/543/554"
+   ],
+   "svc": [
+    "Npcf_SMPolicyControl",
+    "AMPolicyControl · PolicyAuth",
+    "UEPolicy · EE · BDT · PDTQ · MBS"
+   ],
+   "glyph": "sliders",
+   "color": "#1f5fbf",
+   "chip": "10 svc",
+   "source": "nfs/pcf"
+  },
+  {
+   "id": "amf",
+   "area": "cp",
+   "col": 3,
+   "row": 0,
+   "acronym": "AMF",
+   "name": [
+    "Access & Mobility Mgmt"
+   ],
+   "ts": [
+    "TS 29.518 · 38.413 · 24.501"
+   ],
+   "svc": [
+    "Namf_Communication",
+    "EventExposure · Location · MT",
+    "MBS · AIoT · NGAP/SCTP · NAS"
+   ],
+   "glyph": "user",
+   "color": "#d62828",
+   "chip": "7 svc",
+   "source": "nfs/amf"
+  },
+  {
+   "id": "ausf",
+   "area": "cp",
+   "col": 4,
+   "row": 0,
+   "acronym": "AUSF",
+   "name": [
+    "Authentication Server"
+   ],
+   "ts": [
+    "TS 29.509 · TS 33.501"
+   ],
+   "svc": [
+    "Nausf_UEAuthentication",
+    "SoRProtection · UPUProtection",
+    "5G-AKA · EAP-AKA'"
+   ],
+   "glyph": "shield",
+   "color": "#1e88e5",
+   "chip": "3 svc",
+   "source": "nfs/ausf"
+  },
+  {
+   "id": "udm",
+   "area": "cp",
+   "col": 5,
+   "row": 0,
+   "acronym": "UDM",
+   "name": [
+    "Unified Data Management"
+   ],
+   "ts": [
+    "TS 29.503 · TS 33.501"
+   ],
+   "svc": [
+    "Nudm_SDM · UECM · UEAU · EE",
+    "PP · MT · NIDDAU · RSDS",
+    "SSAU · UEID · SIDF (SUCI)",
+    "MAP server (SS7)"
+   ],
+   "glyph": "db",
+   "color": "#2f3f9f",
+   "chip": "10 svc",
+   "source": "nfs/udm"
+  },
+  {
+   "id": "udr",
+   "area": "cp",
+   "col": 6,
+   "row": 0,
+   "acronym": "UDR",
+   "name": [
+    "Unified Data Repository"
+   ],
+   "ts": [
+    "TS 29.504 · 29.505 · 29.519"
+   ],
+   "svc": [
+    "Nudr_DataRepository",
+    "Nudr_GroupIDmap",
+    "subscription · policy · app data"
+   ],
+   "glyph": "db",
+   "color": "#1d3c8f",
+   "chip": "2 svc",
+   "source": "nfs/udr"
+  },
+  {
+   "id": "nsacf",
+   "area": "cp",
+   "col": 0,
+   "row": 1,
+   "acronym": "NSACF",
+   "name": [
+    "Slice Admission Control"
+   ],
+   "ts": [
+    "TS 29.536"
+   ],
+   "svc": [
+    "Nnsacf_NSAC",
+    "Nnsacf_SliceEventExposure"
+   ],
+   "glyph": "scales",
+   "color": "#c62828",
+   "chip": "2 svc",
+   "source": "nfs/nsacf"
+  },
+  {
+   "id": "bsf",
+   "area": "sbi",
+   "col": 2,
+   "row": 1,
+   "acronym": "BSF",
+   "name": [
+    "Binding Support Function"
+   ],
+   "ts": [
+    "TS 29.521"
+   ],
+   "svc": [
+    "Nbsf_Management"
+   ],
+   "glyph": "link",
+   "color": "#0d9488",
+   "chip": "1 svc",
+   "source": "nfs/bsf"
+  },
+  {
+   "id": "nssf",
+   "area": "cp",
+   "col": 0,
+   "row": 2,
+   "acronym": "NSSF",
+   "name": [
+    "Network Slice Selection"
+   ],
+   "ts": [
+    "TS 29.531"
+   ],
+   "svc": [
+    "Nnssf_NSSelection",
+    "Nnssf_NSSAIAvailability"
+   ],
+   "glyph": "asterisk",
+   "color": "#e8590c",
+   "chip": "2 svc",
+   "source": "nfs/nssf"
+  },
+  {
+   "id": "smsf",
+   "area": "cp",
+   "col": 1,
+   "row": 2,
+   "acronym": "SMSF",
+   "name": [
+    "SMS Function"
+   ],
+   "ts": [
+    "TS 29.540"
+   ],
+   "svc": [
+    "Nsmsf_SMService"
+   ],
+   "glyph": "chat",
+   "color": "#2e7d32",
+   "chip": "1 svc",
+   "source": "nfs/smsf"
+  },
+  {
+   "id": "eir",
+   "area": "cp",
+   "col": 2,
+   "row": 2,
+   "acronym": "5G-EIR",
+   "name": [
+    "Equipment Identity Register"
+   ],
+   "ts": [
+    "TS 29.511"
+   ],
+   "svc": [
+    "N5g-eir_EquipmentIdentityCheck"
+   ],
+   "glyph": "idcard",
+   "color": "#f57c00",
+   "chip": "1 svc",
+   "source": "nfs/eir"
+  },
+  {
+   "id": "lmf",
+   "area": "cp",
+   "col": 3,
+   "row": 2,
+   "acronym": "LMF",
+   "name": [
+    "Location Management"
+   ],
+   "ts": [
+    "TS 29.572"
+   ],
+   "svc": [
+    "Nlmf_Location · Nlmf_Broadcast",
+    "Nlmf_DataExposure"
+   ],
+   "glyph": "pin",
+   "color": "#00897b",
+   "chip": "3 svc",
+   "source": "nfs/lmf"
+  },
+  {
+   "id": "gmlc",
+   "area": "cp",
+   "col": 4,
+   "row": 2,
+   "acronym": "GMLC",
+   "name": [
+    "Gateway Mobile Location"
+   ],
+   "ts": [
+    "TS 29.515"
+   ],
+   "svc": [
+    "Ngmlc_Location"
+   ],
+   "glyph": "pin",
+   "color": "#e91e63",
+   "chip": "1 svc",
+   "source": "nfs/gmlc"
+  },
+  {
+   "id": "nef",
+   "area": "cp",
+   "col": 5,
+   "row": 2,
+   "acronym": "NEF",
+   "name": [
+    "Network Exposure Function"
+   ],
+   "ts": [
+    "TS 29.522 · 29.591",
+    "TS 29.122 · 29.256"
+   ],
+   "svc": [
+    "EventExposure · PFDManagement",
+    "SMService · TrafficInfluence",
+    "DNAI · EAS · ECS · UEId · Auth",
+    "Inference · Training · VFL"
+   ],
+   "glyph": "api",
+   "color": "#8d6e63",
+   "chip": "14 svc",
+   "source": "nfs/nef"
+  },
+  {
+   "id": "nrf",
+   "area": "sbi",
+   "col": 0,
+   "row": 0,
+   "acronym": "NRF",
+   "name": [
+    "NF Repository"
+   ],
+   "ts": [
+    "TS 29.510"
+   ],
+   "svc": [
+    "Nnrf_NFManagement",
+    "NFDiscovery · AccessToken",
+    "Bootstrapping"
+   ],
+   "glyph": "registry",
+   "color": "#2563eb",
+   "chip": "4 svc",
+   "source": "nfs/nrf"
+  },
+  {
+   "id": "scp",
+   "area": "sbi",
+   "col": 1,
+   "row": 0,
+   "acronym": "SCP",
+   "name": [
+    "Service Comm. Proxy"
+   ],
+   "ts": [
+    "TS 29.570"
+   ],
+   "svc": [
+    "Nscp_EventExposure"
+   ],
+   "glyph": "hub",
+   "color": "#5b6770",
+   "chip": "1 svc",
+   "source": "nfs/scp"
+  },
+  {
+   "id": "sepp",
+   "area": "sbi",
+   "col": 2,
+   "row": 0,
+   "acronym": "SEPP",
+   "name": [
+    "Security Edge Proxy"
+   ],
+   "ts": [
+    "TS 29.573 · 33.501"
+   ],
+   "svc": [
+    "N32-c / N32-f"
+   ],
+   "glyph": "lock",
+   "color": "#7c3aed",
+   "planned": true
+  },
+  {
+   "id": "aanf",
+   "area": "sbi",
+   "col": 0,
+   "row": 1,
+   "acronym": "AAnF",
+   "name": [
+    "AKMA Anchor"
+   ],
+   "ts": [
+    "TS 29.535 · 33.535"
+   ],
+   "svc": [
+    "Naanf_AKMA"
+   ],
+   "glyph": "key",
+   "color": "#b91c1c",
+   "planned": true
+  },
+  {
+   "id": "nssaaf",
+   "area": "sbi",
+   "col": 1,
+   "row": 1,
+   "acronym": "NSSAAF",
+   "name": [
+    "Slice-specific AuthN"
+   ],
+   "ts": [
+    "TS 29.526"
+   ],
+   "svc": [
+    "Nnssaaf_NSSAA"
+   ],
+   "glyph": "shield",
+   "color": "#84a614",
+   "planned": true
+  },
+  {
+   "id": "diam",
+   "area": "chg",
+   "col": 0,
+   "row": 0,
+   "acronym": "Diameter",
+   "name": [
+    "Gy · Rf · Sy"
+   ],
+   "ts": [
+    "RFC 4006 · TS 32.299",
+    "TS 29.219 (Sy)"
+   ],
+   "svc": [
+    "credit-control · quota",
+    "re-auth · spending limits"
+   ],
+   "glyph": "card",
+   "color": "#b45309",
+   "source": "libs/diameter-core"
+  },
+  {
+   "id": "ss7",
+   "area": "chg",
+   "col": 1,
+   "row": 0,
+   "acronym": "SS7 stack",
+   "name": [
+    "M3UA · SCCP · TCAP"
+   ],
+   "ts": [
+    "RFC 4666 · Q.713 · Q.773"
+   ],
+   "svc": [
+    "over SCTP · libs/ss7-core",
+    "tcap-core · map-core"
+   ],
+   "glyph": "stream",
+   "color": "#6d4c41",
+   "source": "libs/ss7-core"
+  },
+  {
+   "id": "cap",
+   "area": "chg",
+   "col": 2,
+   "row": 0,
+   "acronym": "CAMEL / CAP",
+   "name": [
+    "gsmSCF for legacy voice"
+   ],
+   "ts": [
+    "TS 29.078"
+   ],
+   "svc": [
+    "InitialDP · ApplyCharging",
+    "ApplyChargingReport"
+   ],
+   "glyph": "handset",
+   "color": "#9c27b0",
+   "source": "libs/cap-core"
+  },
+  {
+   "id": "chf",
+   "area": "chg",
+   "col": 3,
+   "row": 0,
+   "acronym": "CHF",
+   "name": [
+    "Charging Function"
+   ],
+   "ts": [
+    "TS 32.290 · 32.291 · 29.594"
+   ],
+   "svc": [
+    "Nchf_ConvergedCharging v3",
+    "OfflineOnlyCharging",
+    "SpendingLimitControl",
+    "rating · quota · CDRs"
+   ],
+   "glyph": "coin",
+   "color": "#e8890c",
+   "chip": "3 svc",
+   "source": "nfs/chf"
+  },
+  {
+   "id": "kafka",
+   "area": "ds",
+   "col": 0,
+   "row": 0,
+   "acronym": "Apache Kafka",
+   "name": [
+    "event bus (KRaft)"
+   ],
+   "ts": [
+    "3.9 · Apache-2.0"
+   ],
+   "svc": [
+    "topic chf.cdr · acks=all",
+    "idempotent producer"
+   ],
+   "glyph": "stream",
+   "color": "#1f2937",
+   "source": "compose:kafka"
+  },
+  {
+   "id": "doris",
+   "area": "ds",
+   "col": 1,
+   "row": 0,
+   "acronym": "Apache Doris",
+   "name": [
+    "CDR analytics · feature store"
+   ],
+   "ts": [
+    "4.1.3 · Apache-2.0"
+   ],
+   "svc": [
+    "CDRs 3M+ · 404-day partitions",
+    "Routine Load from Kafka",
+    "chf_features.subscriber_features"
+   ],
+   "glyph": "bars",
+   "color": "#0e7490",
+   "source": "compose:doris"
+  },
+  {
+   "id": "pg",
+   "area": "ds",
+   "col": 2,
+   "row": 0,
+   "acronym": "PostgreSQL ×6",
+   "name": [
+    "relational state"
+   ],
+   "ts": [
+    "16 · PostgreSQL License"
+   ],
+   "svc": [
+    "UDR · catalog · balance",
+    "subscriber · roaming",
+    "CHF rating audit · MCP audit"
+   ],
+   "glyph": "db",
+   "color": "#336791",
+   "source": "compose:postgres"
+  },
+  {
+   "id": "valkey",
+   "area": "ds",
+   "col": 3,
+   "row": 0,
+   "acronym": "Valkey",
+   "name": [
+    "hot-path state, shared by replicas"
+   ],
+   "ts": [
+    "8 · BSD-3-Clause"
+   ],
+   "svc": [
+    "AMF UE security ctx · AUSF",
+    "CHF refs · idempotency keys",
+    "NWDAF subscriptions"
+   ],
+   "glyph": "bolt",
+   "color": "#7c3aed",
+   "source": "compose:valkey"
+  },
+  {
+   "id": "otel",
+   "area": "obs",
+   "col": 0,
+   "row": 0,
+   "acronym": "OpenTelemetry",
+   "name": [
+    "Prometheus · Grafana"
+   ],
+   "ts": [
+    "every NF"
+   ],
+   "svc": [
+    "spans + metrics, every NF",
+    "alarms: CDR sequence gaps,",
+    "shed requests"
+   ],
+   "glyph": "gauge",
+   "color": "#0f766e",
+   "source": "libs/sbi-core/src/otel.cpp"
+  },
+  {
+   "id": "li",
+   "area": "obs",
+   "col": 1,
+   "row": 0,
+   "acronym": "LI",
+   "name": [
+    "Lawful Interception"
+   ],
+   "ts": [
+    "TS 33.127 · TS 33.128"
+   ],
+   "svc": [
+    "POIs · IRI / CC · SIRF",
+    "production blocker #0"
+   ],
+   "glyph": "eye",
+   "color": "#374151",
+   "planned": true
+  },
+  {
+   "id": "gui",
+   "area": "obs",
+   "col": 2,
+   "row": 0,
+   "acronym": "Operator GUI",
+   "name": [
+    "JSON-schema driven"
+   ],
+   "ts": [
+    "REST + WebSocket"
+   ],
+   "svc": [
+    "React + JSON Forms"
+   ],
+   "glyph": "monitor",
+   "color": "#0891b2",
+   "planned": true
+  },
+  {
+   "id": "cat",
+   "area": "bss",
+   "col": 0,
+   "row": 0,
+   "acronym": "Product Catalog",
+   "name": [
+    "offering · price · SID"
+   ],
+   "ts": [
+    "TMF620"
+   ],
+   "svc": [
+    "rating lookup from CHF"
+   ],
+   "glyph": "tag",
+   "color": "#b45309",
+   "source": "bss/product-catalog"
+  },
+  {
+   "id": "bal",
+   "area": "bss",
+   "col": 1,
+   "row": 0,
+   "acronym": "Balance Mgmt",
+   "name": [
+    "prepay · bill run"
+   ],
+   "ts": [
+    "TMF654 · TMF678"
+   ],
+   "svc": [
+    "BalanceTopUp · CustomerBill",
+    "AppliedCustomerBillingRate"
+   ],
+   "glyph": "wallet",
+   "color": "#c2410c",
+   "source": "bss/balance-management"
+  },
+  {
+   "id": "subm",
+   "area": "bss",
+   "col": 2,
+   "row": 0,
+   "acronym": "Subscriber Mgmt",
+   "name": [
+    "Customer · Party"
+   ],
+   "ts": [
+    "TMF632"
+   ],
+   "svc": [
+    "Individual · Organization"
+   ],
+   "glyph": "users",
+   "color": "#a16207",
+   "source": "bss/subscriber-management"
+  },
+  {
+   "id": "roam",
+   "area": "bss",
+   "col": 3,
+   "row": 0,
+   "acronym": "Roaming",
+   "name": [
+    "interconnect · TAP OUT"
+   ],
+   "ts": [
+    "TMF651 · TAP3 (TD.57)"
+   ],
+   "svc": [
+    "libs/tap3-core codec",
+    "settlement batches"
+   ],
+   "glyph": "globe",
+   "color": "#0f766e",
+   "source": "bss/roaming-interconnect"
+  },
+  {
+   "id": "mfaf",
+   "area": "ai",
+   "col": 0,
+   "row": 1,
+   "dx": 6.5,
+   "acronym": "MFAF",
+   "name": [
+    "Messaging Framework Adaptor"
+   ],
+   "ts": [
+    "TS 29.576 · 23.288 §5A.3.2"
+   ],
+   "svc": [
+    "Nmfaf_3da · 3ca · Context",
+    "over Kafka · ADR-0359 step 1"
+   ],
+   "glyph": "swap",
+   "color": "#047857",
+   "planned": true
+  },
+  {
+   "id": "dccf",
+   "area": "ai",
+   "col": 1,
+   "row": 1,
+   "dx": 19.5,
+   "acronym": "DCCF",
+   "name": [
+    "Data Collection Coordination"
+   ],
+   "ts": [
+    "TS 29.574 · 23.288 §5A.2"
+   ],
+   "svc": [
+    "Ndccf_DataManagement",
+    "Ndccf_ContextManagement"
+   ],
+   "glyph": "funnel",
+   "color": "#047857",
+   "planned": true
+  },
+  {
+   "id": "adrf",
+   "area": "ai",
+   "col": 2,
+   "row": 1,
+   "acronym": "ADRF",
+   "name": [
+    "Analytics Data Repository"
+   ],
+   "ts": [
+    "TS 29.575 · 23.288 §5B"
+   ],
+   "svc": [
+    "Nadrf_DataManagement (Doris)",
+    "Nadrf_MLModelManagement"
+   ],
+   "glyph": "archive",
+   "color": "#047857",
+   "planned": true
+  },
+  {
+   "id": "feat",
+   "area": "ai",
+   "col": 1,
+   "row": 0,
+   "dx": 19.5,
+   "acronym": "Feature store",
+   "name": [
+    "Doris · chf_features"
+   ],
+   "ts": [
+    "extract_features.py"
+   ],
+   "svc": [
+    "subscriber_features per day",
+    "input to training and NWDAF"
+   ],
+   "glyph": "grid",
+   "color": "#0e7490",
+   "source": "tools/chf-features"
+  },
+  {
+   "id": "train",
+   "area": "ai",
+   "col": 2,
+   "row": 0,
+   "acronym": "Training sidecar",
+   "name": [
+    "Python · training only"
+   ],
+   "ts": [
+    "MLflow lineage"
+   ],
+   "svc": [
+    "swappable backend/executor",
+    "exports ONNX artefacts"
+   ],
+   "glyph": "flask",
+   "color": "#047857",
+   "source": "nfs/chf/training"
+  },
+  {
+   "id": "onnx",
+   "area": "ai",
+   "col": 3,
+   "row": 0,
+   "acronym": "ONNX Runtime",
+   "name": [
+    "in-process C++ inference"
+   ],
+   "ts": [
+    "1.23 · MIT"
+   ],
+   "svc": [
+    "quota sizing in CHF",
+    "kill switch, default OFF"
+   ],
+   "glyph": "chip",
+   "color": "#065f46",
+   "source": "nfs/chf/src/ai_inference.cpp"
+  },
+  {
+   "id": "mcp",
+   "area": "ai",
+   "col": 4,
+   "row": 0,
+   "acronym": "MCP server",
+   "name": [
+    "agent tools, read-only"
+   ],
+   "ts": [
+    "ADR-0331"
+   ],
+   "svc": [
+    "PII access audit (PostgreSQL)",
+    "agent scoping · reads Doris/PG"
+   ],
+   "glyph": "robot",
+   "color": "#7c3aed",
+   "source": "tools/mcp-server"
+  },
+  {
+   "id": "nwdaf",
+   "area": "ai",
+   "col": 5,
+   "row": 0,
+   "acronym": "NWDAF · AnLF",
+   "name": [
+    "Network Data Analytics"
+   ],
+   "ts": [
+    "TS 29.520 · TS 23.288"
+   ],
+   "svc": [
+    "Nnwdaf_AnalyticsInfo",
+    "Nnwdaf_EventsSubscription",
+    "NF_LOAD · ABNORMAL_BEHAVIOUR"
+   ],
+   "glyph": "chart",
+   "color": "#059669",
+   "chip": "2 svc",
+   "source": "nfs/nwdaf"
+  },
+  {
+   "id": "mtlf",
+   "area": "ai",
+   "col": 5,
+   "row": 1,
+   "acronym": "NWDAF · MTLF",
+   "name": [
+    "model training (MTLF)"
+   ],
+   "ts": [
+    "TS 29.520 · TS 23.288 §7.5"
+   ],
+   "svc": [
+    "Nnwdaf_MLModelProvision",
+    "MLModelTraining · MLModelMonitor"
+   ],
+   "glyph": "flask",
+   "color": "#059669",
+   "planned": true
+  },
+  {
+   "id": "agents",
+   "area": "ai",
+   "col": 6,
+   "row": 0,
+   "acronym": "Agents",
+   "name": [
+    "network analytics · care",
+    "tech-ops"
+   ],
+   "ts": [
+    "MCP tools"
+   ],
+   "svc": [
+    "read-only by default",
+    "writes need human approval"
+   ],
+   "glyph": "robot",
+   "color": "#7c3aed",
+   "planned": true
+  }
+ ],
+ "edges": [
+  {
+   "from": "ue",
+   "to": "gnb",
+   "route": "s",
+   "label": [
+    "Uu (simulated)"
+   ],
+   "label_dx": 8,
+   "label_at": 0.12
+  },
+  {
+   "from": "gnb",
+   "to": "upf",
+   "route": "s",
+   "label": [
+    "N3",
+    "GTP-U",
+    "TS 29.281"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "gnb",
+   "to": "amf",
+   "via": [
+    [
+     109,
+     142
+    ],
+    [
+     766,
+     142
+    ]
+   ],
+   "from_side": "top",
+   "to_side": "top",
+   "to_off": 14,
+   "label": [
+    "N2 · NGAP/SCTP · TS 38.413  —  N1 · NAS · TS 24.501 (carried over N2)"
+   ],
+   "label_at": 0.4,
+   "label_dy": -5
+  },
+  {
+   "from": "smf",
+   "to": "upf",
+   "route": "s",
+   "label": [
+    "N4",
+    "PFCP",
+    "TS 29.244"
+   ]
+  },
+  {
+   "from": "smf",
+   "to": "pcf",
+   "route": "s",
+   "label": [
+    "N7",
+    "Npcf_SMPolicyControl",
+    "TS 29.512"
+   ]
+  },
+  {
+   "from": "amf",
+   "to": "pcf",
+   "route": "s",
+   "label": [
+    "N15",
+    "Npcf_AMPolicyControl",
+    "TS 29.507"
+   ]
+  },
+  {
+   "from": "amf",
+   "to": "smf",
+   "via": [
+    [
+     752,
+     152
+    ],
+    [
+     456,
+     152
+    ]
+   ],
+   "from_side": "top",
+   "to_side": "top",
+   "label": [
+    "N11 · Nsmf_PDUSession / Namf_Communication · TS 29.502 / 29.518"
+   ],
+   "label_at": 0.5,
+   "label_dy": -5,
+   "both": true
+  },
+  {
+   "from": "amf",
+   "to": "ausf",
+   "route": "s",
+   "label": [
+    "N12",
+    "Nausf_UEAuthentication",
+    "TS 29.509"
+   ]
+  },
+  {
+   "from": "ausf",
+   "to": "udm",
+   "route": "s",
+   "label": [
+    "N13",
+    "Nudm_UEAuthentication",
+    "TS 29.503"
+   ]
+  },
+  {
+   "from": "udm",
+   "to": "udr",
+   "route": "s",
+   "label": [
+    "N35",
+    "Nudr_DataRepository",
+    "TS 29.504"
+   ]
+  },
+  {
+   "from": "amf",
+   "to": "nsacf",
+   "via": [
+    [
+     690,
+     226
+    ],
+    [
+     690,
+     364
+    ]
+   ],
+   "from_side": "left",
+   "from_off": 24,
+   "to_side": "right",
+   "to_off": 14,
+   "label": [
+    "N80 · Nnsacf_NSAC · TS 29.536"
+   ],
+   "label_at": 0.72,
+   "label_dy": -5
+  },
+  {
+   "from": "smf",
+   "to": "nsacf",
+   "via": [
+    [
+     442,
+     352
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": -14,
+   "to_side": "right",
+   "label": [
+    "N81 · Nnsacf_NSAC"
+   ],
+   "label_at": 0.7,
+   "label_dx": 0,
+   "label_dy": -5
+  },
+  {
+   "from": "pcf",
+   "to": "udr",
+   "via": [
+    [
+     590,
+     376
+    ],
+    [
+     1240,
+     376
+    ],
+    [
+     1240,
+     216
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": -14,
+   "to_side": "right",
+   "to_off": 14,
+   "label": [
+    "N36 · Nudr_DataRepository · policy data · TS 29.519"
+   ],
+   "label_at": 0.55,
+   "label_dy": -5
+  },
+  {
+   "from": "smf",
+   "to": "udr",
+   "via": [
+    [
+     470,
+     388
+    ],
+    [
+     1254,
+     388
+    ],
+    [
+     1254,
+     188
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": 14,
+   "to_side": "right",
+   "to_off": -14,
+   "label": [
+    "Nudr_DataRepository · influenceData (ADR-0320 shortcut)"
+   ],
+   "label_at": 0.6,
+   "label_dy": 12
+  },
+  {
+   "from": "nef",
+   "to": "udm",
+   "route": "s",
+   "label": [
+    "N52",
+    "Nudm_EE · TS 29.503"
+   ],
+   "label_at": 0.62
+  },
+  {
+   "from": "nef",
+   "to": "udr",
+   "via": [
+    [
+     1196,
+     498
+    ]
+   ],
+   "from_side": "right",
+   "to_side": "bottom",
+   "label": [
+    "N37 · Nudr_DataRepository",
+    "application data · TS 29.519"
+   ],
+   "label_at": 0.15,
+   "label_dy": -5
+  },
+  {
+   "from": "nef",
+   "to": "pcf",
+   "via": [
+    [
+     1034,
+     352
+    ],
+    [
+     618,
+     352
+    ]
+   ],
+   "from_side": "top",
+   "from_off": -14,
+   "to_side": "bottom",
+   "to_off": 14,
+   "label": [
+    "N30 · Npcf_PolicyAuthorization · TS 29.514"
+   ],
+   "label_at": 0.5,
+   "label_dy": -5
+  },
+  {
+   "from": "smf",
+   "to": "chf",
+   "via": [
+    [
+     530,
+     216
+    ],
+    [
+     530,
+     708
+    ],
+    [
+     520.5,
+     708
+    ]
+   ],
+   "from_side": "right",
+   "from_off": 14,
+   "to_side": "top",
+   "to_off": 14,
+   "label": [
+    "N40 · Nchf_ConvergedCharging · TS 32.291"
+   ],
+   "label_at": 0.5,
+   "label_dx": 6
+  },
+  {
+   "from": "pcf",
+   "to": "chf",
+   "via": [
+    [
+     678,
+     216
+    ],
+    [
+     678,
+     636
+    ],
+    [
+     496.5,
+     636
+    ]
+   ],
+   "from_side": "right",
+   "from_off": 14,
+   "to_side": "top",
+   "to_off": -10,
+   "label": [
+    "N28 · Nchf_SpendingLimitControl · TS 29.594"
+   ],
+   "label_at": 0.85,
+   "label_dx": 0,
+   "label_dy": -5
+  },
+  {
+   "from": "diam",
+   "to": "chf",
+   "via": [
+    [
+     101.5,
+     700
+    ],
+    [
+     486.5,
+     700
+    ]
+   ],
+   "from_side": "top",
+   "to_side": "top",
+   "to_off": -20,
+   "label": [
+    "Gy · Rf · Sy (Diameter, SCTP/TCP)"
+   ],
+   "label_at": 0.5,
+   "label_dy": -5
+  },
+  {
+   "from": "ss7",
+   "to": "cap",
+   "route": "s",
+   "label": [
+    "TCAP dialogues"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "cap",
+   "to": "chf",
+   "route": "s",
+   "label": [
+    "CAP · TS 29.078"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "chf",
+   "to": "kafka",
+   "via": [
+    [
+     560,
+     762
+    ],
+    [
+     660,
+     762
+    ]
+   ],
+   "from_side": "right",
+   "from_off": 24,
+   "to_side": "left",
+   "to_off": 24,
+   "label": [
+    "CDR events · chf.cdr"
+   ],
+   "label_at": 0.5,
+   "label_dy": 12
+  },
+  {
+   "from": "kafka",
+   "to": "doris",
+   "route": "s",
+   "label": [
+    "Doris Routine Load"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "doris",
+   "to": "feat",
+   "route": "s",
+   "label": [
+    "extract_features.py"
+   ],
+   "label_dx": 6
+  },
+  {
+   "from": "feat",
+   "to": "train",
+   "route": "s",
+   "label": [
+    "features"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "train",
+   "to": "onnx",
+   "route": "s",
+   "label": [
+    "ONNX artefact"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "onnx",
+   "to": "chf",
+   "via": [
+    [
+     1146,
+     858
+    ],
+    [
+     560,
+     858
+    ],
+    [
+     560,
+     752
+    ]
+   ],
+   "from_side": "top",
+   "to_side": "right",
+   "to_off": 14,
+   "label": [
+    "in-process quota sizing (kill switch, default OFF)"
+   ],
+   "label_at": 0.15,
+   "label_dy": -5
+  },
+  {
+   "from": "doris",
+   "to": "nwdaf",
+   "via": [
+    [
+     875.5,
+     866
+    ],
+    [
+     1450,
+     866
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": 14,
+   "to_side": "top",
+   "label": [
+    "feature store rows → ABNORMAL_BEHAVIOUR"
+   ],
+   "label_at": 0.8,
+   "label_dy": -5
+  },
+  {
+   "from": "nwdaf",
+   "to": "valkey",
+   "via": [
+    [
+     1436,
+     850
+    ],
+    [
+     1290,
+     850
+    ],
+    [
+     1290,
+     752
+    ]
+   ],
+   "from_side": "top",
+   "from_off": -14,
+   "to_side": "right",
+   "to_off": 14,
+   "label": [
+    "subscription state (ADR-0360)"
+   ],
+   "label_at": 0.05,
+   "label_dx": 6,
+   "label_dy": -6
+  },
+  {
+   "from": "chf",
+   "to": "cat",
+   "via": [
+    [
+     492.5,
+     876
+    ],
+    [
+     115.5,
+     876
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": -14,
+   "to_side": "top",
+   "to_off": 14,
+   "label": [
+    "TMF620 · offering / price lookup"
+   ],
+   "label_at": 0.6,
+   "label_dy": -5
+  },
+  {
+   "from": "chf",
+   "to": "bal",
+   "via": [
+    [
+     520.5,
+     888
+    ],
+    [
+     250.5,
+     888
+    ]
+   ],
+   "from_side": "bottom",
+   "from_off": 14,
+   "to_side": "top",
+   "to_off": 14,
+   "label": [
+    "TMF654 · balance debit / top-up"
+   ],
+   "label_at": 0.6,
+   "label_dy": -5
+  },
+  {
+   "from": "kafka",
+   "to": "mfaf",
+   "route": "s",
+   "planned": true,
+   "label": [
+    "messaging framework"
+   ],
+   "label_dx": 6
+  },
+  {
+   "from": "dccf",
+   "to": "mfaf",
+   "route": "s",
+   "planned": true,
+   "label": [
+    "Nmfaf_3da",
+    "DataManagement"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "mtlf",
+   "to": "nwdaf",
+   "route": "s",
+   "planned": true,
+   "label": null,
+   "label_dx": 6
+  },
+  {
+   "from": "nwdaf",
+   "to": "agents",
+   "route": "s",
+   "planned": true,
+   "label": [
+    "read-only analytics"
+   ],
+   "label_at": 0.5
+  }
+ ]
+}

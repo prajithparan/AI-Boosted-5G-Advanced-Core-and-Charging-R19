@@ -1,14 +1,17 @@
 # Diagrams
 
-One directory for every diagram the project has or owes. Sources are Mermaid (`.mmd`): text,
-diffable, rendered natively by GitHub in the viewer's theme. Conventions (solid = built and tested,
-dashed = in scope and not built) are in `../ARCHITECTURE.md`.
+One directory for every diagram the project has or owes. The architecture diagram's source is
+`architecture.json` (tiles, services, reference points), rendered to SVG by
+`../../tools/diagrams/render_architecture.py` in the visual language of the project's own
+R19 poster (icon tiles per NF grouped by area, reference points labelled with their TS) -- ADR-0361.
+Pending diagrams may use the same renderer or Mermaid, whichever fits. Conventions (solid = built
+and tested, dashed = in scope and not built) are in `../ARCHITECTURE.md`.
 
 ## Present
 
 | File | What it shows | Published in | Owner of truth |
 |---|---|---|---|
-| `architecture.mmd` | System architecture: NFs, charging, BSS, datastores, event bus, AI plane, observability, with built/planned distinguished | `README.md` (embedded verbatim) | this file; `tools/diagrams/check_readme_sync.py` fails if README's copy drifts |
+| `architecture.json` → `architecture.svg`, `architecture-dark.svg` | System architecture: access harness, 5GC control plane with wired reference points, SBI framework, charging, datastores, BSS, AI plane, observability, built/planned distinguished | `README.md` (`<picture>` embed, light + dark) | the JSON; `tools/diagrams/check_readme_sync.py` fails if the SVGs are stale, README does not embed them, or a solid tile's `source` does not exist |
 
 ## Pending -- recorded as tasks, 2026-09-14 (user-directed)
 
