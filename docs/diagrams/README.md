@@ -26,6 +26,6 @@ that is not built is a roadmap slide, and would be labelled as one.
 | D7 | **Sequence -- 5G-AKA + NAS SMC + registration** | `test_amf_ngap_handover.cpp`'s real flow | nothing |
 | D8 | **Sequence -- N28/Sy spending-limit change reaching SMF** | ADR-0328 | nothing |
 | D9 | **Data-plane -- event bus and AI pipeline** | ADR-0350/0355: CHF -> Kafka -> Doris -> feature store -> training -> ONNX -> CHF | nothing; extend when NWDAF lands |
-| D10 | **NWDAF internal (AnLF / MTLF)** | TS 23.288 + the ten Nnwdaf YAML files | Phase A of NWDAF |
+| D10 | **NWDAF ecosystem -- AnLF, MTLF, DCCF, ADRF, MFAF** and their stores (Valkey, Doris, Postgres+MLflow, Kafka) | ADR-0359's architecture; TS 23.288 5.1/5A/5B/5C; the 17 Nnwdaf/Ndccf/Nadrf/Nmfaf YAML files | draw now from ADR-0359 as design (dashed), solidify per function as each lands |
 
 Adding a diagram type not listed here is expected -- this table is the queue, not the ceiling.
