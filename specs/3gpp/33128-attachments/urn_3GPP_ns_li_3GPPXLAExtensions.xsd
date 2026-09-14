@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:3GPP:ns:li:3GPPXLAExtensions:r19:v2" xmlns:x1="http://uri.etsi.org/03221/X1/2017/10" xmlns:common="http://uri.etsi.org/03280/common/2017/07" xmlns:liqr="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1" targetNamespace="urn:3GPP:ns:li:3GPPXLAExtensions:r19:v2" elementFormDefault="qualified">
+
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"/>
+  <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"/>
+  <xs:import namespace="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1"/>
+
+  <xs:complexType name="LocationAcquisitionRequest">
+    <xs:complexContent>
+      <xs:extension base="liqr:LIQueryRequest">
+        <xs:sequence>
+          <xs:element name="LocationInformation" type="xs:boolean" minOccurs="0"/>
+          <xs:element name="ReqCurrentLoc" type="xs:boolean" minOccurs="0"/>
+          <xs:element name="ECIDMeasurements" type="xs:boolean" minOccurs="0"/>
+          <xs:element name="RANOnly" type="xs:boolean" minOccurs="0"/>
+          <xs:element name="HILADelivery" type="xs:boolean" minOccurs="0"/>
+          <xs:element name="HI2Delivery" type="MDF2DeliveryStructure" minOccurs="0"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="LocationAcquisitionResponse">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="ResponseDetails" type="LocationResponseDetails" minOccurs="0"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+<xs:complexType name="MDF2DeliveryStructure">
+    <xs:sequence>
+        <xs:element name="XID" type="x1:XId"/>
+        <xs:element name="ListOfDestinations" type="ListOfDestinations"/>
+    </xs:sequence>
+  </xs:complexType>
+
+<xs:element name="LIHILAResponse" type="LocationResponseDetails"/>
+
+<xs:complexType name="ListOfDestinations">
+    <xs:sequence>
+        <xs:element name="Destination" type="x1:DestinationDetails" maxOccurs="unbounded"/>
+    </xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="LocationResponseDetails">
+    <xs:sequence>
+      <xs:element name="LocationOutcomes" type="LocationOutcomes" minOccurs="0"/>
+      <xs:element name="EPCLocationOutcomes" type="EPCLocationOutcomes" minOccurs="0"/>
+      <xs:element name="ECIDMeasurementsOutcomes" type="ECIDMeasurementsOutcomes" minOccurs="0"/>
+      <xs:element name="EPCECIDMeasurementsOutcomes" type="EPCECIDMeasurementsOutcomes" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="LocationOutcomes">
+    <xs:sequence>
+      <xs:element name="LocationOutcome" type="LocationOutcome" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EPCLocationOutcomes">
+    <xs:sequence>
+      <xs:element name="EPCLocationOutcome" type="EPCLocationOutcome" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ECIDMeasurementsOutcomes">
+    <xs:sequence>
+      <xs:element name="ECIDMeasurementsOutcome" type="ECIDMeasurementsOutcome" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EPCECIDMeasurementsOutcomes">
+    <xs:sequence>
+      <xs:element name="EPCECIDMeasurementsOutcome" type="EPCECIDMeasurementsOutcome" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="LocationOutcome">
+    <xs:sequence>
+      <xs:element name="SUPI" type="liqr:SUPI"/>
+      <xs:element name="GPSI" type="liqr:ListOfGPSI"/>
+      <xs:element name="Location" type="liqr:TS29518Location" minOccurs="0"/>
+      <xs:element name="FailureCause" type="liqr:ErrorInformation" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EPCLocationOutcome">
+    <xs:sequence>
+      <xs:element name="IMSI" type="common:IMSI"/>
+      <xs:element name="MSISDNs" type="liqr:ListOfMSISDNs"/>
+      <xs:element name="Location" type="liqr:TS29272Location" minOccurs="0"/>
+      <xs:element name="FailureCause" type="liqr:ErrorInformation" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ECIDMeasurementsOutcome">
+    <xs:sequence>
+      <xs:element name="SUPI" type="liqr:SUPI"/>
+      <xs:element name="GPSI" type="liqr:ListOfGPSI"/>
+      <xs:element name="ECIDMeasurements" type="liqr:ExternalASNType" minOccurs="0"/>
+      <xs:element name="FailureCause" type="liqr:ExternalASNType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EPCECIDMeasurementsOutcome">
+    <xs:sequence>
+      <xs:element name="IMSI" type="common:IMSI"/>
+      <xs:element name="MSISDNs" type="liqr:ListOfMSISDNs"/>
+      <xs:element name="ECIDMeasurements" type="liqr:ExternalASNType" minOccurs="0"/>
+      <xs:element name="FailureCause" type="liqr:ExternalASNType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>

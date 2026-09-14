@@ -35,6 +35,8 @@ add_fuzz_target(fuzz_dialogue_portion SOURCES fuzz_dialogue_portion.cpp LIBS tca
 add_fuzz_target(fuzz_map_operations SOURCES fuzz_map_operations.cpp LIBS map_core tcap_core)
 add_fuzz_target(fuzz_cap_operations SOURCES fuzz_cap_operations.cpp LIBS cap_core tcap_core)
 add_fuzz_target(fuzz_ss7_transport SOURCES fuzz_ss7_transport.cpp LIBS ss7_core)
+# ADR-0364: X2/X3 PDU framing + BER XIRIPayload -- what the MDF2 will parse off the wire.
+add_fuzz_target(fuzz_li_x2x3 SOURCES fuzz_li_x2x3.cpp LIBS li_core)
 
 # Not yet fuzzed, real disclosed gap: libs/pfcp-core (N4/Sx, Phase 3) and libs/ngap-generated
 # (asn1c-generated Aligned PER, Phase "AMF/NGAP") both also decode untrusted wire bytes but are

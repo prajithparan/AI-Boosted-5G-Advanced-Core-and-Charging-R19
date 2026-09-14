@@ -1,0 +1,529 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1" xmlns:x1="http://uri.etsi.org/03221/X1/2017/10" xmlns:common="http://uri.etsi.org/03280/common/2017/07" xmlns:etsi103120common="http://uri.etsi.org/03120/common/2016/02/Common" targetNamespace="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1" elementFormDefault="qualified">
+
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"/>
+  <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2016/02/Common"/>
+
+  <xs:complexType name="LIQueryRequest">
+    <xs:complexContent>
+      <xs:extension base="x1:X1RequestMessage">
+        <xs:sequence>
+          <xs:element name="RequestDetails" type="RequestDetails"/>
+          <xs:element name="Flags" type="TaskFlags"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="RequestDetails">
+    <xs:sequence>
+      <xs:element name="Type" type="DictionaryEntry"/>
+      <xs:element name="ObservedTime" type="common:QualifiedDateTime"/>
+      <xs:element name="RequestValues" type="RequestValues"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TaskFlags">
+    <xs:sequence>
+      <xs:element name="TaskFlag" type="etsi103120common:DictionaryEntry" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RequestValues">
+    <xs:sequence>
+      <xs:element name="RequestValue" type="RequestValue" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RequestValue">
+    <xs:sequence>
+      <xs:element name="FormatType" type="FormatType"/>
+      <xs:element name="Value" type="common:LongString"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="FormatType">
+    <xs:sequence>
+      <xs:element name="FormatOwner" type="common:ShortString"/>
+      <xs:element name="FormatName" type="common:ShortString"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ErrorResponse">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="errorInformation" type="ErrorInformation"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="ErrorInformation">
+    <xs:sequence>
+      <xs:element name="errorCode" type="xs:integer" minOccurs="0"/>
+      <xs:element name="errorDescription" type="xs:string"/>
+      <xs:element name="errorDetails" type="TS29571ProblemDetails" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DictionaryEntry">
+    <xs:sequence>
+      <xs:element name="Owner" type="common:ShortString"/>
+      <xs:element name="Name" type="common:ShortString"/>
+      <xs:element name="Value" type="common:ShortString"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="SUPI">
+    <xs:choice>
+      <xs:element name="SUPIIMSI" type="common:SUPIIMSI"/>
+      <xs:element name="SUPINAI" type="common:SUPINAI"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:simpleType name="SUCI">
+    <xs:restriction base="xs:string"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="FiveGGUTI">
+    <xs:restriction base="xs:string"/>
+  </xs:simpleType>
+
+  <xs:complexType name="PEI">
+    <xs:choice>
+      <xs:element name="PEIIMEI" type="common:PEIIMEI"/>
+      <xs:element name="PEIIMEISV" type="common:PEIIMEISV"/>
+      <xs:element name="PEIMAC" type="common:MACAddress"/>
+      <xs:element name="PEIEUI64" type="common:EUI64"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="FiveGSTAIList">
+    <xs:sequence>
+      <xs:element name="FiveGSTAI" type="FiveGSTAI" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="FiveGSTAI">
+    <xs:sequence>
+      <xs:element name="MCC" type="MCC"/>
+      <xs:element name="MNC" type="MNC"/>
+      <xs:element name="TAC" type="TAC"/>
+      <xs:element name="NID" type="NID" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="GPSI">
+    <xs:choice>
+      <xs:element name="GPSIMSISDN" type="common:GPSIMSISDN"/>
+      <xs:element name="GPSINAI" type="common:GPSINAI"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="ListOfGPSI">
+    <xs:sequence>
+      <xs:element name="GPSI" type="GPSI" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ListOfMSISDNs">
+    <xs:sequence>
+      <xs:element name="MSISDN" type="common:InternationalE164" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="MCC">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="MNC">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{2,3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TAC">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{2}){2,3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="NID">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Fa-f0-9]{11}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TS29571ProblemDetails">
+    <xs:restriction base="xs:base64Binary"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="TS29518Location">
+    <xs:restriction base="xs:base64Binary"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="TS29272Location">
+    <xs:restriction base="xs:base64Binary"/>
+  </xs:simpleType>
+
+  <xs:complexType name="ExternalASNType">
+    <xs:sequence>
+      <xs:element name="ModuleIdentifier" type="ASN1OID"/>
+      <xs:element name="ExternalASNReference" type="ExternalASNReference" minOccurs="0"/>
+      <xs:element name="EncodedASNValue" type="ExternalASNValue"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="ASN1OID">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="255"/>
+      <xs:pattern value="[0-2](\.(0|[1-9][0-9]*))*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ExternalASNReference">
+    <xs:restriction base="xs:string"/>
+  </xs:simpleType>
+
+  <xs:complexType name="ExternalASNValue">
+    <xs:choice>
+      <xs:element name="BER" type="BER"/>
+      <xs:element name="AlignedPER" type="AlignedPER"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:simpleType name="AlignedPER">
+    <xs:restriction base="xs:base64Binary"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="BER">
+    <xs:restriction base="xs:base64Binary"/>
+  </xs:simpleType>
+
+  <xs:complexType name="NCGI">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="NRCellID" type="NRCellID"/>
+      <xs:element name="NID" type="NID" minOccurs="0"/>
+      <xs:element name="NCGITime" type="common:QualifiedMicrosecondDateTime"/>
+      <xs:element name="CellSupplementalInformation" type="CellSupplementalInformation" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PLMNID">
+    <xs:sequence>
+      <xs:element name="MCC" type="MCC"/>
+      <xs:element name="MNC" type="MNC"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="NRCellID">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{9})"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="AdditionalCGIList">
+    <xs:sequence>
+      <xs:element name="AdditionalCGI" type="AdditionalCGI" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="AdditionalCGI">
+    <xs:choice>
+      <xs:element name="NCGIWithoutAssociationTime" type="NCGIWithoutAssociationTime"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="NCGIWithoutAssociationTime">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="NRCellID" type="NRCellID"/>
+      <xs:element name="NID" type="NID" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CellSupplementalInformation">
+    <xs:sequence>
+      <xs:element name="RANCGI" type="RANCGI" minOccurs="0"/>
+      <xs:element name="CellSiteInformation" type="CellSiteInformation" minOccurs="0"/>
+      <xs:element name="CellRadioRelatedInformation" type="CellRadioRelatedInformation" minOccurs="0"/>
+      <xs:element name="Band" type="RFBand" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RANCGI">
+    <xs:choice>
+      <xs:element name="RANNCGI" type="NCGIWithoutAssociationTime"/>
+      <xs:element name="CGI" type="CGI"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="CGI">
+    <xs:sequence>
+      <xs:element name="LAI" type="LAI"/>
+      <xs:element name="CellID" type="CellID"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="LAI">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="LAC" type="LAC"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="LAC">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{2}){2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CellID">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{2}){2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="CellSiteInformation">
+    <xs:sequence>
+      <xs:element name="GeographicalCoordinates" type=" GeographicalCoordinates"/>
+      <xs:element name="Azimuth" type="Azimuth" minOccurs="0"/>
+      <xs:element name="OperatorSpecificInformation" type="OperatorSpecificInformation" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="Azimuth">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="359"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="OperatorSpecificInformation">
+    <xs:restriction base="common:LongString"/>
+  </xs:simpleType>
+
+  <xs:complexType name="GeographicalCoordinates">
+    <xs:sequence>
+      <xs:element name="Latitude" type="common:ShortString"/>
+      <xs:element name="Longitude" type="common:ShortString"/>
+      <xs:element name="MapDatumInformation" type="OGCURN" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="OGCURN">
+    <xs:restriction base="common:LongString"/>
+  </xs:simpleType>
+
+  <xs:complexType name="CellRadioRelatedInformation">
+    <xs:choice>
+      <xs:element name="NGInformation" type="NGInformation"/>
+      <xs:element name="F1Information" type="F1Information"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="NGInformation">
+    <xs:sequence>
+      <xs:element name="GlobalRANNodeID" type="GlobalRANNodeID"/>
+      <xs:element name="RANNodeName" type="RANNodeName" minOccurs="0"/>
+      <xs:element name="SupportedTAList" type="SupportedTAList" minOccurs="0"/>
+      <xs:element name="ExtendedRANNodeName" type="RANNodeName" minOccurs="0"/>
+      <xs:element name="PLMNSupportList" type="PLMNSupportList"/>
+      <xs:element name="IABSupported" type="xs:boolean" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="GlobalRANNodeID">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="ANNodeID" type="ANNodeID"/>
+      <xs:element name="NID" type="NID" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ANNodeID">
+    <xs:choice>
+      <xs:element name="N3IWFID" type="N3IWFIDSBI"/>
+      <xs:element name="GNbID" type="GNbID"/>
+      <xs:element name="NGENbID" type="NGENbID"/>
+      <xs:element name="ENbID" type="ENbID"/>
+      <xs:element name="WAGFID" type="WAGFID"/>
+      <xs:element name="TNGFID" type="TNGFID"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:simpleType name="N3IWFIDSBI">
+    <xs:restriction base="common:ShortString">
+      <xs:pattern value="([A-Fa-f0-9])"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="GNbID">
+    <xs:sequence>
+      <xs:element name="BitLength" type="GNbIDLength"/>
+      <xs:element name="GNbValue" type="GNbValue"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="GNbIDLength">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="22"/>
+      <xs:maxInclusive value="32"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="GNbValue">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{6,8})"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="NGENbID">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(MacroNGeNB-[A-Fa-f0-9]{5}|ShortMacroNGeNB-[A-Fa-f0-9]{5}|LongMacroNGeNB-[A-Fa-f0-9]{6})"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ENbID">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(MacroENB-[A-Fa-f0-9]{5}|HomeENB-[A-Fa-f0-9]{7}|ShortMacroENB-[A-Fa-f0-9]{5}|LongMacroENB-[A-Fa-f0-9]{6})"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="WAGFID">
+    <xs:restriction base="common:LongString"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="TNGFID">
+    <xs:restriction base="common:LongString"/>
+  </xs:simpleType>
+
+  <xs:complexType name="RANNodeName">
+    <xs:choice>
+      <xs:element name="RANNodeNameVisible" type="RANNodeNameVisible"/>
+      <xs:element name="RANNodeNameString" type="common:LongString"/>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:simpleType name="RANNodeNameVisible">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9])"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="SupportedTAList">
+    <xs:sequence>
+      <xs:element name="TAItem" type="TAItem" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TAItem">
+    <xs:sequence>
+      <xs:element name="TAC" type="TAC"/>
+      <xs:element name="BroadcastPLMNItem" type="BroadcastPLMNItem" minOccurs="1" maxOccurs="unbounded"/>
+      <xs:element name="RATInformation" type="RATInformation" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="BroadcastPLMNItem">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="TAISliceSupportList" type="TAISliceSupportList"/>
+      <xs:element name="NID" type="NID"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="RATInformation">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Unlicensed"/>
+      <xs:enumeration value="NBIoT"/>
+      <xs:enumeration value="NRLEO"/>
+      <xs:enumeration value="NRMEO"/>
+      <xs:enumeration value="NRGEO"/>
+      <xs:enumeration value="NROTHERSAT"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="TAISliceSupportList">
+    <xs:sequence>
+      <xs:element name="SNSSAI" type="SNSSAI" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="SNSSAI">
+    <xs:sequence>
+      <xs:element name="SliceServiceType" type="SliceServiceType"/>
+      <xs:element name="SliceDifferentiator" type="SliceDifferentiator" minOccurs="0"/>
+      <xs:element name="MappedHPLMNSliceServiceType" type="MappedHPLMNSliceServiceType" minOccurs="0"/>
+      <xs:element name="MappedHPLMNSliceDifferentiator" type="MappedHPLMNSliceDifferentiator" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="SliceServiceType">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="255"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SliceDifferentiator">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{2}){3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="MappedHPLMNSliceServiceType">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="255"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="MappedHPLMNSliceDifferentiator">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="([A-Fa-f0-9]{2}){3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="PLMNSupportList">
+    <xs:sequence>
+      <xs:element name="PLMNSupportItem" type="PLMNSupportItem" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PLMNSupportItem">
+    <xs:sequence>
+      <xs:element name="PLMNID" type="PLMNID"/>
+      <xs:element name="NPNSupport" type="NID" minOccurs="0"/>
+      <xs:element name="OnboardingSupport" type="xs:boolean" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="F1Information">
+    <xs:sequence>
+      <xs:element name="GNBDUID" type="GNBDUID"/>
+      <xs:element name="GNBDUName" type="xs:string" minOccurs="0"/>
+      <xs:element name="GNBCUName" type="xs:string" minOccurs="0"/>
+      <xs:element name="GNBDUServedCells" type="RANCGI" minOccurs="1" maxOccurs="unbounded"/>
+      <xs:element name="ExtendedGNBDUName" type="xs:string" minOccurs="0"/>
+      <xs:element name="ExtendedGNBCUName" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="GNBDUID">
+    <xs:restriction base="xs:integer">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="68719476735"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="RFBand">
+    <xs:restriction base="common:ShortString"/>
+  </xs:simpleType>
+
+</xs:schema>

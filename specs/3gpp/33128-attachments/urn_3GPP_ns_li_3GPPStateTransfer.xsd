@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:etsiX1="http://uri.etsi.org/03221/X1/2017/10" xmlns="urn:3GPP:ns:li:3GPPStateTransfer:r19:v0" targetNamespace="urn:3GPP:ns:li:3GPPStateTransfer:r19:v0" elementFormDefault="qualified">
+
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"/>
+
+  <xs:element name="TFLIState" type="TFLIState"/>
+  <xs:complexType name="TFLIState">
+    <xs:sequence>
+      <xs:element name="PDUSessionID" type="PDUSessionID"/>
+      <xs:element name="XID" type="etsiX1:XId"/>
+      <xs:element name="CorrelationID" type="xs:nonNegativeInteger"/>
+      <xs:element name="TriggeredTasks" type="ListOfTriggeredTasks"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:element name="POILIState" type="POILIState"/>
+  <xs:complexType name="POILIState">
+    <xs:sequence>
+      <xs:element name="PDUSessionID" type="PDUSessionID"/>
+      <xs:element name="XID" type="etsiX1:XId"/>
+      <xs:element name="SequenceNumber" type="xs:unsignedInt"/>
+      <xs:element name="CorrelationID" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ListOfTriggeredTasks">
+    <xs:sequence>
+      <xs:element name="TriggeredTask" type="TriggeredTask" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TriggeredTask">
+    <xs:sequence>
+      <xs:element name="XID" type="etsiX1:XId"/>
+      <xs:element name="NEID" type="etsiX1:NeIdentifier"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="PDUSessionID">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="255"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

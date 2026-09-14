@@ -51,3 +51,7 @@ nfs/chf/training/mlruns/
 # they were committed once already.
 /guami.json
 /nftype_unknown.json
+
+# ETSI deliverables (TS PDFs/text) may not be redistributed -- specs/etsi/SOURCES.md, tools/specs/fetch_etsi_specs.py
+specs/etsi/*.pdf
+specs/etsi/*.txt

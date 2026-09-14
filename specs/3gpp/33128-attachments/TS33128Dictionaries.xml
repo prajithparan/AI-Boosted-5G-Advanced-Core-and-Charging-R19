@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Dictionaries xmlns="http://uri.etsi.org/03280/common/2019/10/Dictionaries">
+    <Dictionary>                                               <!--ServiceType: see Clause 5.4.2 Table 5.4.2-1 -->
+        <Owner>3GPP</Owner>
+        <Name>ServiceType</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>Voice</Value>
+                <Meaning>Service scoping shall include the Voice service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>Data</Value>
+                <Meaning>Service scoping shall include the Data service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>Messaging</Value>
+                <Meaning>Service scoping shall include the Messaging service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>PTC</Value>
+                <Meaning>Service scoping shall include the Push-to-Talk service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>LALS</Value>
+                <Meaning>Service scoping shall include the LALS service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>RCS</Value>
+                <Meaning>Service scoping shall include the RCS service type as defined in clause 4.4.2</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+    <Dictionary>                                               <!--LATaskFlag: see Clause 5.4.3 Table 5.4.3-1 -->
+        <Owner>3GPP</Owner>
+        <Name>LATaskFlag</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>HILADelivery</Value>
+                <Meaning>The location information shall be delivered via the LI_HILA interface.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>HI2Delivery</Value>
+                <Meaning>The location information shall be delivered via the LI_HI2 interface.</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+    <Dictionary>                                               <!--RequestType: see Clause 5.7.2 Table 5.7.2-3 and Clause 5.11.2.1 Table 5.11.2.1-3-->
+        <Owner>3GPP</Owner>
+        <Name>RequestType</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>IdentityAssociation</Value>
+                <Meaning>A request for a single IdentityResponseDetails response to the query provided.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>OngoingIdentityAssociation</Value>
+                <Meaning>A request for an ongoing series of IdentityResponseDetails responses matching the query provided.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>LocationAcquisition</Value>
+                <Meaning>A request for location acquisition information of the target.</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+    <Dictionary>                                               <!--LIHIQRFlags: see Clause 5.7.2 Table 5.7.2-4A -->
+        <Owner>3GPP</Owner>
+        <Name>LIHIQRFlags</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>IncludeNCGIInResponse</Value>
+                <Meaning>A request for returning the NCGI and additional CGIs in the response.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>IncludeCSIInResponse</Value>
+                <Meaning>A request for returning CellSupplementalInformation in the response.</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+    <Dictionary>                                               <!--LIHILAFlags: see Clause 5.11.2.2 Table 5.11.2.2-1 -->
+        <Owner>3GPP</Owner>
+        <Name>LIHILAFlags</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>LocationInformation</Value>
+                <Meaning>Indicates whether location information of the UE is requested.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>ReqCurrentLoc</Value>
+                <Meaning>Indicates whether the current location of the UE is requested in case location information of the UE is requested.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>ECIDMeasurements</Value>
+                <Meaning>Indicates whether E-CID measurements of the UE are requested.</Meaning>
+            </DictionaryEntry>
+            <DictionaryEntry>
+                <Value>RANOnly</Value>
+                <Meaning>Indicates whether only measurements that do not require active UE involvement are requested in case E-CID measurements of the UE are requested (see clause 7.3.5.4.2 and clause 7.3.5.4.3).</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+    <Dictionary>                                               <!--ManifestSpecification: see Clause 5.7.2 Table 5.7.2-6 -->
+        <Owner>3GPP</Owner>
+        <Name>ManifestSpecification</Name>
+        <DictionaryEntries>
+            <DictionaryEntry>
+                <Value>LIHIQRResponse</Value>
+                <Meaning>The delivery contains IdentityResponseDetails (see Annex E).</Meaning>
+            </DictionaryEntry>
+        </DictionaryEntries>
+    </Dictionary>
+</Dictionaries>

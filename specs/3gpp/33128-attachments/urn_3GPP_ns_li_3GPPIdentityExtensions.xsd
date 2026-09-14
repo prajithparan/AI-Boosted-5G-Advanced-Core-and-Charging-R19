@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:3GPP:ns:li:3GPPIdentityExtensions:r19:v1" xmlns:x1="http://uri.etsi.org/03221/X1/2017/10" xmlns:common="http://uri.etsi.org/03280/common/2017/07" xmlns:liqr="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1" targetNamespace="urn:3GPP:ns:li:3GPPIdentityExtensions:r19:v1" elementFormDefault="qualified">
+
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"/>
+  <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"/>
+  <xs:import namespace="urn:3GPP:ns:li:3GPPLIQueryExtensions:r19:v1"/>
+
+  <xs:complexType name="IdentityAssociationRequest">
+    <xs:complexContent>
+      <xs:extension base="liqr:LIQueryRequest"/>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="IdentityAssociationResponse">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="ResponseDetails" type="IdentityResponseDetails"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+<xs:element name="LIHIQRResponse" type="IdentityResponseDetails"/>
+
+<xs:complexType name="IdentityResponseDetails">
+    <xs:sequence>
+      <xs:element name="Associations" type="IdentityAssociationRecords"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="IdentityAssociationRecords">
+    <xs:sequence>
+      <xs:element name="IdentityAssociationRecord" type="IdentityAssociationRecord" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="IdentityAssociationRecord">
+    <xs:sequence>
+      <xs:element name="SUPI" type="liqr:SUPI"/>
+      <xs:element name="SUCI" type="liqr:SUCI" minOccurs="0"/>
+      <xs:element name="FiveGGUTI" type="liqr:FiveGGUTI"/>
+      <xs:element name="PEI" type="liqr:PEI" minOccurs="0"/>
+      <xs:element name="AssociationStartTime" type="common:QualifiedMicrosecondDateTime"/>
+      <xs:element name="AssociationEndTime" type="common:QualifiedMicrosecondDateTime" minOccurs="0"/>
+      <xs:element name="FiveGSTAIList" type="liqr:FiveGSTAIList" minOccurs="0"/>
+      <xs:element name="GPSI" type="liqr:GPSI" minOccurs="0"/>
+      <xs:element name="NCGI" type="liqr:NCGI" minOccurs="0"/>
+      <xs:element name="AdditionalCGIs" type="liqr:AdditionalCGIList" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ActivateAssociationUpdates">
+    <xs:complexContent>
+      <xs:extension base="x1:X1RequestMessage">
+        <xs:sequence>
+          <xs:element name="OngoingAssociationTaskID" type="common:UUID"/>
+          <xs:element name="SUPI" type="liqr:SUPI"/>
+          <xs:element name="Flags" type="liqr:TaskFlags" minOccurs="0"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="ActivateAssociationUpdatesAcknowledgement">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="oK" type="x1:OKAckAndComplete"/>
+          <xs:element name="CurrentAssociations" type="IdentityResponseDetails"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="DeactivateAssociationUpdates">
+    <xs:complexContent>
+      <xs:extension base="x1:X1RequestMessage">
+        <xs:sequence>
+          <xs:element name="OngoingAssociationTaskID" type="common:UUID"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="DeactivateAssociationUpdatesAcknowledgement">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="oK" type="x1:OKAckAndComplete"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="IdentityAssociationUpdate">
+    <xs:complexContent>
+      <xs:extension base="x1:X1RequestMessage">
+        <xs:sequence>
+          <xs:element name="OngoingAssociationTaskID" type="common:UUID"/>
+          <xs:element name="UpdateDetails" type="IdentityResponseDetails"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="IdentityAssociationUpdateAcknowledgement">
+    <xs:complexContent>
+      <xs:extension base="x1:X1ResponseMessage">
+        <xs:sequence>
+          <xs:element name="oK" type="x1:OKAckAndComplete"/>
+        </xs:sequence>
+      </xs:extension>
+    </xs:complexContent>
+  </xs:complexType>
+
+  <xs:complexType name="LatestAssociationRequest">
+      <xs:complexContent>
+        <xs:extension base="x1:X1RequestMessage">
+          <xs:sequence>
+            <xs:element name="SUPI" type="liqr:SUPI"/>
+            <xs:element name="Flags" type="liqr:TaskFlags"/>
+          </xs:sequence>
+        </xs:extension>
+      </xs:complexContent>
+  </xs:complexType>
+
+</xs:schema>

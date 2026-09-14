@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="urn:etsi:li:103221-2:configuration-details:v1" xmlns:etsi104000="urn:etsi:li:104000:xsdns:v2" targetNamespace="urn:etsi:li:103221-2:configuration-details:v1" elementFormDefault="qualified" attributeFormDefault="unqualified">
+    <xs:import namespace="urn:etsi:li:104000:xsdns:v2"/>
+    <xs:complexType name="X2ConfigurationDetails">
+        <xs:complexContent>
+            <xs:extension base="etsi104000:ConfigurationDetails">
+                <xs:sequence>
+                    <xs:element name="keepAliveDetails" type="KeepAliveDetails"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+    <xs:complexType name="X3ConfigurationDetails">
+        <xs:complexContent>
+            <xs:extension base="etsi104000:ConfigurationDetails">
+                <xs:sequence>
+                    <xs:element name="keepAliveDetails" type="KeepAliveDetails"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+    <xs:complexType name="KeepAliveDetails">
+            <xs:sequence>
+                <xs:element name="keepaliveEnabled" type="xs:boolean"/>
+                <xs:element name="keepaliveTimeP1" type="KeepaliveTimeP1" minOccurs="0"/>
+                <xs:element name="keepaliveTimeP2" type="KeepaliveTimeP2" minOccurs="0"/>
+            </xs:sequence>
+    </xs:complexType>
+    <xs:simpleType name="KeepaliveTimeP1">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="1"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="KeepaliveTimeP2">
+        <xs:restriction base="xs:integer">
+            <xs:minInclusive value="1"/>
+        </xs:restriction>
+    </xs:simpleType>
+</xs:schema>
