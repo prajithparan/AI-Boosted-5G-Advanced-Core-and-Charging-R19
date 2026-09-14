@@ -207,7 +207,7 @@ jobs:
           fi
 
       - name: Cache vcpkg binary cache
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -229,7 +229,7 @@ jobs:
           fi
 
       - name: Install Ninja
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
         # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
@@ -241,7 +241,7 @@ jobs:
         run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
@@ -552,7 +552,7 @@ jobs:
           fi
 
       - name: Cache vcpkg binary cache
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -568,7 +568,7 @@ jobs:
           fi
 
       - name: Install Ninja
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         # bison/flex: needed to build vcpkg's libpq port from source (ADR-0054 added libpqxx,
         # transitively libpq) -- real gap hit locally first (this sandbox had neither and no sudo
         # password to self-install), fixed here so CI doesn't hit the same wall.
@@ -581,7 +581,7 @@ jobs:
         run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
@@ -742,7 +742,7 @@ jobs:
           fi
 
       - name: Install clang tooling
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         # bison/flex: see the build/sanitize jobs' "Install Ninja" step comment -- same libpq
         # (ADR-0054) build-from-source requirement applies here too, since Configure below runs
         # for the whole project including bss/product-catalog.
@@ -755,7 +755,7 @@ jobs:
           find libs nfs tests -name '*.hpp' -o -name '*.cpp' | xargs clang-format-18 --dry-run --Werror
 
       - name: Cache vcpkg binary cache
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.vcpkg-cache
@@ -774,7 +774,7 @@ jobs:
         run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
-        if: runner.environment == \'github-hosted\'
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/build-tools/asn1c
