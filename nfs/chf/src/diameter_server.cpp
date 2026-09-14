@@ -1,10 +1,10 @@
 #include "diameter_server.hpp"
 
-#include <sys/socket.h>
-
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 #include <spdlog/spdlog.h>
+
+#include <sys/socket.h>
 
 #include "diameter_core/avp.hpp"
 #include "diameter_core/dictionary.hpp"

@@ -28,11 +28,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <pqxx/pqxx>
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <pqxx/pqxx>
 
 #include "../../bss/product-catalog/src/store.hpp"
 #include "cap_core/cap_dictionary.hpp"
@@ -222,7 +221,8 @@ int decisions_for_price(const std::string& price_name, const std::string& since)
         const auto row = tx.exec_params1(
             "SELECT COUNT(*) FROM rating_decision "
             "WHERE input_snapshot->>'priceName' = $1 AND decided_at >= $2::timestamptz",
-            price_name, since);
+            price_name,
+            since);
         return row[0].as<int>();
     } catch (const std::exception&) {
         return -1; // unreachable store -- reported as a distinct failure, never as "no decisions"
