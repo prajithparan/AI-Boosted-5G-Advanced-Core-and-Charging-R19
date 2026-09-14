@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "cdr_asn1.hpp"
+#include "cdr_event_producer.hpp"
 
 namespace chf {
 
@@ -70,6 +71,24 @@ CdrWriter::CdrWriter(const DorisOptions& options) {
     // ADR-0338: batching is opt-in. A default of 1 preserves the exact durability every existing
     // deployment has: one CDR, one INSERT, already on disk when write() returns.
     batch_size_ = options.batch_size > 0 ? options.batch_size : 1;
+    direct_insert_ = options.direct_insert;
+    // ADR-0355: the bus is built even when Doris is unreachable -- the two sinks are independent,
+    // and a deployment running bus-only has no Doris connection here at all.
+    try {
+        CdrEventBusOptions bus;
+        bus.brokers = options.event_bus_brokers;
+        bus.topic = options.event_bus_topic;
+        events_ = std::make_unique<CdrEventProducer>(bus);
+    } catch (const std::exception& e) {
+        spdlog::error("chf: CDR event bus could not start ({}); continuing with direct insert only",
+                      e.what());
+    }
+    if (!direct_insert_ && !(events_ && events_->enabled())) {
+        spdlog::error(
+            "chf: cdr_direct_insert is false and the event bus is not running -- CDRs "
+            "have NO sink. Refusing to silently drop billing data: direct insert forced on.");
+        direct_insert_ = true;
+    }
     flush_interval_ =
         std::chrono::milliseconds(options.flush_interval_ms > 0 ? options.flush_interval_ms : 1000);
 
@@ -110,6 +129,11 @@ CdrWriter::CdrWriter(const DorisOptions& options) {
 }
 
 CdrWriter::~CdrWriter() {
+    // ADR-0355: the bus first -- events_ is reset by the unique_ptr destructor after this body,
+    // but flushing explicitly here keeps the shutdown log honest about what was delivered.
+    if (events_) {
+        events_->flush(10000);
+    }
     // ADR-0338: flush BEFORE closing the connection. A clean shutdown that dropped buffered rows
     // would lose billing data on the one path where losing it is entirely avoidable.
     {
@@ -123,7 +147,22 @@ CdrWriter::~CdrWriter() {
     }
 }
 
+std::uint64_t CdrWriter::events_delivered() const {
+    return events_ ? events_->delivered() : 0;
+}
+std::uint64_t CdrWriter::events_failed() const {
+    return events_ ? events_->failed() : 0;
+}
+
 void CdrWriter::write(const CdrRecord& record) {
+    // ADR-0355: the event goes out first. It is the durable path (acks=all), so it must not be
+    // gated on the Doris connection being up.
+    if (events_) {
+        events_->publish(record);
+    }
+    if (!direct_insert_) {
+        return;
+    }
     if (conn_ == nullptr) {
         spdlog::warn("chf: CDR write skipped for ChargingDataRef={} -- Doris not connected",
                      record.charging_data_ref);

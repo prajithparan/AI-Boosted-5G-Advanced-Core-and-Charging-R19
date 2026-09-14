@@ -90,7 +90,18 @@ struct DorisOptions {
     std::string user;
     std::string password;
     std::string database;
+
+    // ADR-0355: the event bus. `event_bus_brokers` empty keeps today's behaviour exactly. When
+    // set, every CDR is also published to Kafka. `direct_insert` false makes the bus the ONLY
+    // sink -- Doris then receives rows through its Routine Load from the topic (see
+    // routine_load.doris.sql) rather than from this process. Defaults are chosen so that a
+    // deployment that has not opted in changes nothing.
+    std::string event_bus_brokers;
+    std::string event_bus_topic = "chf.cdr";
+    bool direct_insert = true;
 };
+
+class CdrEventProducer;
 
 class CdrWriter {
 public:
@@ -164,7 +175,13 @@ public:
     // are already safe to call regardless.
     bool is_connected() const { return conn_ != nullptr; }
 
+    // ADR-0355: how many events the bus has acknowledged / failed, for a status line and tests.
+    std::uint64_t events_delivered() const;
+    std::uint64_t events_failed() const;
+
 private:
+    std::unique_ptr<CdrEventProducer> events_; // ADR-0355; null when the bus is not configured
+    bool direct_insert_ = true;
     std::mutex mutex_;
     // nullptr if construction failed to connect -- see this file's own header for why that's a
     // real, deliberate degraded state, not an error CdrWriter itself surfaces to its caller.

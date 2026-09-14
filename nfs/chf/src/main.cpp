@@ -277,6 +277,15 @@ chf::DorisOptions chf_doris_options(const nlohmann::json& config) {
     // working unchanged AND keep their current durability -- batch_size 1 means every CDR is on
     // disk when write() returns, which is what every deployment has today.
     options.batch_size = config.value("cdr_batch_size", 1);
+    // ADR-0355: the event bus. All three default to "nothing changes"; CHF_CDR_EVENT_BUS_BROKERS
+    // in the environment is the one-line way to turn it on for a lab instance.
+    options.event_bus_brokers = nf_config::optional<std::string>(
+                                    config, "cdr_event_bus_brokers", "CHF_CDR_EVENT_BUS_BROKERS")
+                                    .value_or("");
+    options.event_bus_topic = config.value("cdr_event_bus_topic", std::string("chf.cdr"));
+    options.direct_insert =
+        nf_config::optional<bool>(config, "cdr_direct_insert", "CHF_CDR_DIRECT_INSERT")
+            .value_or(true);
     options.flush_interval_ms = config.value("cdr_flush_interval_ms", 1000);
     if (const char* env = std::getenv("CHF_CDR_BATCH_SIZE"); env != nullptr && *env != 0) {
         options.batch_size = std::atoi(env);

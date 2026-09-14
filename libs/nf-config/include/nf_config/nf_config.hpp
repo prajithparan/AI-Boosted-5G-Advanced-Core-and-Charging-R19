@@ -20,6 +20,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -68,6 +69,29 @@ T require(const nlohmann::json& config, const std::string& key, const char* env_
     }
     if (!config.contains(key)) {
         throw std::runtime_error("nf_config: missing required config key: " + key);
+    }
+    return config.at(key).get<T>();
+}
+
+// ADR-0355: the same precedence as require<> -- environment first, then the config file -- for a
+// key that is allowed to be absent. Returns nullopt only when NEITHER supplies it, so a caller's
+// .value_or(default) is the single place the default lives. Added rather than reaching for
+// config.value(): that ignores the environment, which is precisely what left the 3M-CDR run's
+// CHF instances on a dead PostgreSQL port (ADR-0352).
+template <typename T>
+std::optional<T>
+optional(const nlohmann::json& config, const std::string& key, const char* env_name = nullptr) {
+    if (env_name != nullptr) {
+        if (const char* env = std::getenv(env_name)) {
+            if constexpr (std::is_same_v<T, std::string>) {
+                return T(env);
+            } else {
+                return nlohmann::json::parse(env).template get<T>();
+            }
+        }
+    }
+    if (!config.contains(key)) {
+        return std::nullopt;
     }
     return config.at(key).get<T>();
 }
