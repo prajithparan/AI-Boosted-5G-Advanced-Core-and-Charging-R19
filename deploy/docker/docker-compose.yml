@@ -42,7 +42,7 @@ services:
         condition: service_completed_successfully
       nrf:
         condition: service_started
-      redis:
+      valkey:
         condition: service_healthy
     # docs/DECISIONS.md ADR-0077: config/amf.json's own defaults (127.0.0.1) are for direct
     # binary/lab runs; these two env vars override per-key for compose's own bridge-network
@@ -431,12 +431,15 @@ services:
       timeout: 10s
       retries: 20
 
-  redis:
-    image: redis:7-alpine
+  # ADR-0044 mandated Valkey; the lab was still on redis:7-alpine, which resolves to Redis 7.4 --
+  # the first version under RSALv2/SSPL, not OSI-approved (P1). Caught by the architecture
+  # diagram's license table (ADR-0356). Valkey is BSD-3-Clause and RESP-compatible: no client change.
+  valkey:
+    image: valkey/valkey:8-alpine
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -489,7 +492,7 @@ services:
         condition: service_completed_successfully
       nrf:
         condition: service_started
-      redis:
+      valkey:
         condition: service_healthy
       doris-schema-init:
         condition: service_completed_successfully

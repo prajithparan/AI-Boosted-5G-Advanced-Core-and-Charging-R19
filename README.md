@@ -30,6 +30,122 @@ not implement it, and a title should not need a footnote to be true.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
 original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what that changed).
+### Architecture
+
+Solid boxes exist and are tested. **Dashed boxes are in scope and not built** — the diagram is
+kept honest, so it doubles as the roadmap. Updated as part of every NF's definition of done
+(`CLAUDE.md`); conventions in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+```mermaid
+flowchart TB
+  classDef planned stroke-dasharray: 6 4,stroke:#b45309,color:#b45309
+  classDef store fill:#eef2ff,stroke:#4338ca,color:#1e1b4b
+  classDef ai fill:#ecfdf5,stroke:#047857,color:#064e3b
+  classDef bss fill:#fff7ed,stroke:#c2410c,color:#431407
+
+  UE[UE / test gNB<br/>NGAP over SCTP, NAS] --> AMF
+
+  subgraph CP["5GC control plane — TS 23.501/23.502, SBI = HTTP/2 + TLS 1.3 mTLS + OAuth2"]
+    NRF[NRF<br/>registry · OAuth2 AS]
+    AMF[AMF] --- SMF[SMF]
+    AUSF[AUSF] --- UDM[UDM<br/>SIDF · MAP server]
+    UDR[UDR] --- PCF[PCF]
+    NSSF[NSSF] --- NEF[NEF]
+    SCP[SCP] --- BSF[BSF]
+    SMSF[SMSF] --- EIR[5G-EIR]
+    NSACF[NSACF] --- LMF[LMF]
+    GMLC[GMLC]
+    SEPP[SEPP / N32]:::planned
+    AANF[AAnF · AKMA]:::planned
+    NSSAAF[NSSAAF]:::planned
+  end
+
+  SMF -- "N4 / PFCP" --> UPF[UPF<br/>eBPF/XDP datapath]
+
+  subgraph CHG["Charging — CHF + Online Charging (Gy/CAP)"]
+    CHF[CHF<br/>Nchf converged/offline/spending-limit<br/>25 TS 32.291 charging types<br/>rating engine · quota · re-auth]
+    GY[Diameter Gy/Rf/Sy<br/>RFC 4006 · TS 32.299 · TS 29.219]
+    CAP[CAMEL/CAP over M3UA/SCTP<br/>gsmSCF]
+    TAP[TAP3 roaming settlement]
+  end
+  SMF -- "N40" --> CHF
+  PCF -- "N28" --> CHF
+  GY --> CHF
+  CAP --> CHF
+  CHF --> TAP
+
+  subgraph BSS["BSS — TM Forum SID / Open APIs"]
+    CAT[Product Catalog<br/>TMF620]:::bss
+    BAL[Balance Mgmt<br/>TMF654 · TMF678 bill run]:::bss
+    SUB[Subscriber Mgmt]:::bss
+    ROAM[Roaming Interconnect<br/>TAP OUT]:::bss
+  end
+  CHF --> CAT
+  CHF --> BAL
+
+  subgraph DATA["Datastores — all self-hosted open source"]
+    VALKEY[(Valkey<br/>session state · CHF refs · idempotency keys)]:::store
+    PG[(PostgreSQL ×6<br/>UDR · catalog · balance · rating audit · subscriber · roaming)]:::store
+    DORIS[(Apache Doris<br/>CDRs 3M+ · 404-day partitions · feature store)]:::store
+    KAFKA[(Apache Kafka<br/>topic chf.cdr · acks=all · idempotent)]:::store
+  end
+  CP -.-> VALKEY
+  CHF --> VALKEY
+  UDR --> PG
+  CAT --> PG
+  BAL --> PG
+  CHF -- "RatingDecision audit" --> PG
+  CHF -- "direct INSERT, or" --> DORIS
+  CHF -- "CDR events" --> KAFKA
+  KAFKA -- "Doris Routine Load" --> DORIS
+
+  subgraph AI["AI plane — inference in-process C++, training in a sidecar"]
+    FEAT[Feature store<br/>chf_features.subscriber_features]:::ai
+    TRAIN[Training sidecar · Python<br/>MLflow lineage]:::ai
+    ONNX[ONNX Runtime<br/>in-process quota sizing<br/>kill switch, default OFF]:::ai
+    MCP[MCP server<br/>read-only tools · PII audit · agent scoping]:::ai
+    NWDAF[NWDAF · AnLF + MTLF<br/>TS 23.288 · 10 Nnwdaf services]:::planned
+    AGENTS[Network-analytics · Care/retention · Tech-ops agents]:::planned
+  end
+  DORIS -- "extract_features.py" --> FEAT
+  FEAT --> TRAIN --> ONNX --> CHF
+  KAFKA -.-> NWDAF
+  FEAT -.-> NWDAF
+  NWDAF -.-> AGENTS
+  MCP --> PG
+  MCP --> DORIS
+
+  subgraph OBS["Observability & ops"]
+    OTEL[OpenTelemetry · Prometheus · Grafana<br/>business alarms: CDR sequence gaps, shed requests]
+    LI[Lawful Interception<br/>TS 33.127 POIs · CHF IRI-POI · NRF SIRF]:::planned
+    GUI[Operator GUI<br/>JSON-schema driven]:::planned
+  end
+  CP -.-> OTEL
+  CHF --> OTEL
+```
+
+**Open-source products, with the license each actually ships under** (from the vcpkg port
+metadata and the projects' own LICENSE files — not recalled). P1 is strict OSI-only; the two rows
+that need a word are marked.
+
+| Layer | Product | Version | License |
+|---|---|---|---|
+| CDR analytics / feature store | Apache Doris | 4.1.3 | Apache-2.0 |
+| Event bus | Apache Kafka (KRaft) | 3.9.0 | Apache-2.0 |
+| Relational | PostgreSQL | 16 | PostgreSQL License |
+| Session cache | **Valkey** | 8 | BSD-3-Clause — replaces Redis 7.4 (RSALv2/SSPL, not OSI), per ADR-0044 |
+| Inference | ONNX Runtime | 1.23.2 | MIT |
+| Model tracking | MLflow | sidecar | Apache-2.0 |
+| HTTP/2 · TLS | nghttp2 · OpenSSL · curl | 1.69 · 3.6.3 · 8.21 | MIT · Apache-2.0 · curl |
+| Async | Boost.Asio / Beast | 1.91 | BSL-1.0 |
+| JSON | nlohmann/json · simdjson | 3.12 · 4.6.6 | MIT · Apache-2.0 OR MIT |
+| Kafka client | librdkafka | 2.14.2 | BSD-2-Clause (port metadata unset; LICENSE file verified) |
+| DB clients | libpqxx · redis-plus-plus · libmariadb | 8.0.2 · 1.3.15 · 3.4.8 | BSD-3-Clause · Apache-2.0 · LGPL-2.1+ |
+| Telemetry · logging | opentelemetry-cpp · spdlog | 1.28 · 1.17 | Apache-2.0 · MIT |
+| Auth | jwt-cpp | 0.7.2 | MIT |
+| Errors | tl-expected | 1.3.1 | CC0-1.0 — a public-domain dedication OSI declined to list (2012). Permissive; **flagged for P1 review**, not hidden |
+| Tests | GoogleTest · libFuzzer | 1.17 | BSD-3-Clause · Apache-2.0 WITH LLVM-exception |
+
 ### What that means in practice
 
 **On charging — the whole surface, not a demo slice.**

@@ -169,6 +169,9 @@ not implement that, and a title should not need a footnote to be true.
 7. Docker image + Compose entry + Helm chart.
 8. Spec-traceability doc entry: procedure -> TS clause -> source file ->
    test.
+9. Architecture diagram and product/license table in `README.md` updated:
+   the NF's box goes from dashed to solid, new datastores/products get a
+   row with their real license (conventions in `docs/ARCHITECTURE.md`).
 
 ## Working style for this project
 

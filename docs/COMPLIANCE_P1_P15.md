@@ -103,6 +103,11 @@ Ordered by how hard each would bite:
    JSON keys silently accepted (33.117 §4.3.6.3 -- an attack surface, verified by experiment), NRF
    discovery not authorized per producer (33.501 §13.3.1.3), and TLS 1.2 unsupported where 33.210
    §6.2.1 requires it (an architect's call: the non-conformant choice is the more secure one).
+0a. **Every NF aborts on a datastore it cannot reach at startup.** Found while swapping Redis for
+   Valkey (ADR-0356): an uncaught `sw::redis::IoError` -> `std::terminate` in CHF and AMF when
+   port 6379 was not yet reachable. Postgres and Doris failures degrade with a warning; Redis
+   crashes the process. In Kubernetes this is a crash-loop on every ordering race. Recorded, not
+   fixed; the fix is the same retry-or-degrade discipline the other two stores already have.
 1. **No horizontal scalability for 7 of 9 core NFs** (P8, above). A single AMF pod is the capacity
    ceiling *and* the failure domain.
 2. **No geo-redundancy, no measured RPO/RTO** (P11) — deferred by decision, but still absent. It
