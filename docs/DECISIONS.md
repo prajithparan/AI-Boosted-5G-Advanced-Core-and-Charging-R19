@@ -28587,3 +28587,14 @@ hashes the checkout's `scripts/` tree and tool version, so every one of the ~170
 shared cache and rebuilt from source (onnxruntime alone ran 37 minutes before the run was
 cancelled). The Bootstrap step now checks the clone out at the baseline commit, which is where
 the lab machine's own vcpkg is, so the 470-archive cache hits.
+
+**CI note 2 (2026-09-15, first TSan job on the lab runner).** GCC's libtsan aborts at startup
+("FATAL: ThreadSanitizer: unexpected memory mapping") on the runner's Linux 7.0 kernel, whose
+ASLR entropy (`vm.mmap_rnd_bits`) exceeds what the runtime's shadow layout assumes; GitHub-hosted
+images lower that sysctl for exactly this reason. Verified on the box: a trivial
+`-fsanitize=thread` binary segfaults; the same binary under `setarch -R` exits 0; clang-18's
+runtime re-execs itself with ASLR off and also passes. The sanitize job's Build (gtest
+discovery executes the test binaries) and Test steps now run under `setarch $(uname -m) -R`
+when the matrix leg is `tsan`. Rejected: the sysctl (needs root, per machine, invisible in the
+repo); switching the leg to clang-18 (a second toolchain's worth of warnings and ccache misses
+to chase for a problem that is a process flag).

@@ -709,8 +709,18 @@ jobs:
           if [ -z "${CI_JOBS:-}" ] && [ "${{ matrix.sanitizer }}" = "asan-ubsan" ]; then
             JOBS=1
           fi
+          # GCC's libtsan aborts at startup with "FATAL: ThreadSanitizer: unexpected memory
+          # mapping" on kernels whose vm.mmap_rnd_bits exceeds what its shadow layout assumes
+          # (the lab runner, Linux 7.0; GitHub-hosted images lower the sysctl for this reason).
+          # Verified on the runner: a trivial -fsanitize=thread binary segfaults, the same
+          # binary under `setarch -R` (ADDR_NO_RANDOMIZE, inherited by children) exits 0, and
+          # clang-18's runtime re-execs itself the same way. No sysctl (needs root), no compiler
+          # switch: the build (gtest discovery runs the test binaries) and the Test step both run
+          # under setarch. ADR-0364 CI note.
+          RUN=
+          if [ "${{ matrix.sanitizer }}" = "tsan" ]; then RUN="setarch $(uname -m) -R"; fi
           for attempt in 1 2 3; do
-            if cmake --build build -- -j${JOBS}; then
+            if $RUN cmake --build build -- -j${JOBS}; then
               exit 0
             fi
             echo "::warning::Build attempt ${attempt} failed (possibly a transient runner issue, see ADR-0225) -- retrying" >&2
@@ -785,7 +795,10 @@ jobs:
         # `nef` missing from the PKI-generation NF list -- was found and fixed; ADR-0231/task #166
         # retracted the UdmIntegration.SdmDataRetrievalAndSubscriptions exclusion once its own real
         # root cause -- a udr-startup timing race, not an unexplained hang -- was found and fixed).
-        run: ctest --test-dir build --output-on-failure --timeout 120
+        run: |
+          RUN=
+          if [ "${{ matrix.sanitizer }}" = "tsan" ]; then RUN="setarch $(uname -m) -R"; fi  # see the Build step
+          $RUN ctest --test-dir build --output-on-failure --timeout 120
 
   lint:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
