@@ -798,7 +798,10 @@ jobs:
           # allocation -- the spawned CHF would die at startup. Empty brokers = bus disabled
           # (nfs/chf/src/cdr_event_producer.cpp); the event-bus test skips itself under TSan.
           # ADR-0364 CI note 3.
-          CHF_CDR_EVENT_BUS_BROKERS: ${{ matrix.sanitizer == 'tsan' && '' || '127.0.0.1:19092' }}
+          # NOT `cond && '' || 'x'`: an empty string is falsy in GitHub expressions, so that form
+          # yields 'x' on BOTH legs -- the TSan run of 875e750 still built a producer and the same
+          # eight tests failed. The truthy value goes on the && side.
+          CHF_CDR_EVENT_BUS_BROKERS: ${{ matrix.sanitizer != 'tsan' && '127.0.0.1:19092' || '' }}
           CHF_DORIS_HOST: 127.0.0.1
           CHF_DORIS_PORT: "19030"
           TSAN_OPTIONS: suppressions=${{ github.workspace }}/.tsan-suppressions
