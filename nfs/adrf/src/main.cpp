@@ -45,7 +45,8 @@
 //   * targetNfId is resolved to its nfType at the NRF (DCCF or NWDAF); the target's ADDRESS is
 //     the configured dccf_base_url / nwdaf_base_url, as every peer in this project is located
 //     (our NF profiles carry no ipEndPoints). targetNfSetId selects the DCCF. A dataSub with an
-//     NWDAF target is refused: Nnwdaf_DataManagement is ADR-0359 step 4, not built.
+//     NWDAF target goes to Nnwdaf_DataManagement (ADR-0368); the NWDAF's own
+//     SUBSCRIPTION_CANNOT_BE_SERVED is passed through when it cannot serve it.
 //   * 4.2.2.3.2 says the storage approach the ADRF decides is returned in the response's
 //     storeHandl; the YAML's NadrfDataStoreSubscriptionRef has no such attribute (YAML wins on
 //     shape, ADR-0250), so it is applied and logged. The 201 of StorageRequest does carry it.
@@ -119,6 +120,7 @@ constexpr const char* kModelFilesPrefix = "/adrf-mlmodel-files/v1";
 // The peers' roots -- each the servers[0].url of ITS YAML, used as a client here.
 constexpr const char* kDccfDataManagementRoot = "/ndccf-datamanagement/v1";
 constexpr const char* kNwdafEventsSubscriptionRoot = "/nnwdaf-eventssubscription/v1";
+constexpr const char* kNwdafDataManagementRoot = "/nnwdaf-datamanagement/v1";
 constexpr const char* kNrfNfmRoot = "/nnrf-nfm/v1";
 // 3gpp-Sbi-Callback values (TS 29.500 5.2.3.2.3, Annex B rule: <API>_<callback name> for names
 // not in table B-1) -- the callback keys of TS29575_Nadrf_DataManagement.yaml.
@@ -473,6 +475,8 @@ int main() {
         client, nrf_base + "/oauth2/token", instance_id, "ndccf-datamanagement", "DCCF");
     sbi_core::OAuth2Client oauth_nwdaf(
         client, nrf_base + "/oauth2/token", instance_id, "nnwdaf-eventssubscription", "NWDAF");
+    sbi_core::OAuth2Client oauth_nwdaf_dm(
+        client, nrf_base + "/oauth2/token", instance_id, "nnwdaf-datamanagement", "NWDAF");
     sbi_core::OAuth2Client oauth_nrf(
         client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
 
@@ -747,7 +751,7 @@ int main() {
                 return std::nullopt;
             }
             col.resource_uri = r.location;
-        } else {
+        } else if (kind == "analytics") {
             json body = spec;
             body["notificationURI"] = notif_uri;
             body["notifCorrId"] = fp;
@@ -764,6 +768,27 @@ int main() {
                 return std::nullopt;
             }
             col.resource_uri = r.location;
+        } else {
+            // Data from an NWDAF: Nnwdaf_DataManagement_Subscribe (TS 29.520 4.4.2.2.2,
+            // ADR-0368) -- the NWDAF serves what it collects, or answers
+            // SUBSCRIPTION_CANNOT_BE_SERVED, which is passed through as the reason.
+            json body{{"dataSub", spec}, {"notificURI", notif_uri}, {"notifCorrId", fp}};
+            if (request.contains("formatInstruct")) {
+                body["formatInstruct"] = request.at("formatInstruct");
+            }
+            r = call(&oauth_nwdaf_dm,
+                     "POST",
+                     nwdaf_base + std::string(kNwdafDataManagementRoot) + "/subscriptions",
+                     std::optional<json>(body));
+            if (r.status != 201) {
+                err = sbi_core::http2::problem_response(
+                    r.status == 400 ? 400 : 502,
+                    r.status == 400 ? "Bad Request" : "Bad Gateway",
+                    "the NWDAF did not accept the data subscription (" +
+                        (r.status > 0 ? std::to_string(r.status) + " " + r.body : r.error) + ")");
+                return std::nullopt;
+            }
+            col.resource_uri = r.location;
         }
         if (!col.resource_uri.starts_with("http")) {
             col.resource_uri = (target == "DCCF" ? dccf_base : nwdaf_base) + col.resource_uri;
@@ -772,7 +797,9 @@ int main() {
     };
 
     const auto close_collection = [&](const std::string& fp, const adrf::Collection& col) {
-        const auto r = call(col.target == "DCCF" ? &oauth_dccf : &oauth_nwdaf,
+        const auto r = call(col.target == "DCCF"      ? &oauth_dccf
+                            : col.kind == "analytics" ? &oauth_nwdaf
+                                                      : &oauth_nwdaf_dm,
                             "DELETE",
                             col.resource_uri,
                             std::nullopt);
@@ -1031,13 +1058,6 @@ int main() {
             if (bad) {
                 return *bad;
             }
-            if (target == "NWDAF" && kind == "data") {
-                return sbi_core::http2::problem_response(
-                    400,
-                    "Bad Request",
-                    "a data subscription towards an NWDAF needs Nnwdaf_DataManagement, which is "
-                    "not built (ADR-0359 step 4); target a DCCF");
-            }
             const auto fp = adrf::fingerprint(kind, spec);
             adrf::StorageSubscription sub;
             sub.kind = kind;
@@ -1170,7 +1190,20 @@ int main() {
             }
             const auto handling = apply_handling(col->store_handl);
             std::vector<std::pair<std::string, json>> to_store; // kind, record
-            if (col->target == "NWDAF") {
+            if (col->target == "NWDAF" && col->kind == "data") {
+                // NnwdafDataManagementNotif (TS 29.520 4.4.2.4.2): dataNotification is the
+                // DataNotification buckets; a fetchInstruct would mean consTrigNotif, which this
+                // ADRF never asks for.
+                if (body.contains("dataNotification")) {
+                    to_store.emplace_back("data",
+                                          json{{"dataSub", json::array({col->spec})},
+                                               {"dataNotif", body.at("dataNotification")}});
+                } else if (body.contains("fetchInstruct")) {
+                    spdlog::warn("adrf: collection {} delivered a fetch instruction; the ADRF "
+                                 "subscribes without consTrigNotif -- ignored",
+                                 fp);
+                }
+            } else if (col->target == "NWDAF") {
                 // NnwdafEventsSubscriptionNotification, straight from the NWDAF.
                 to_store.emplace_back("analytics",
                                       json{{"anaSub", json::array({col->spec})},

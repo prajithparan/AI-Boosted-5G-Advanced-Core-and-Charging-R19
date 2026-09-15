@@ -1082,9 +1082,9 @@
     "TS 29.520 \u00b7 TS 23.288"
    ],
    "svc": [
-    "Nnwdaf_AnalyticsInfo",
+    "Nnwdaf_AnalyticsInfo \u00b7 DataManagement",
     "Nnwdaf_EventsSubscription",
-    "NF_LOAD \u00b7 ABNORMAL_BEHAVIOUR"
+    "NF_LOAD (via DCCF) \u00b7 ABNORMAL_BEHAVIOUR"
    ],
    "glyph": "chart",
    "color": "#059669",

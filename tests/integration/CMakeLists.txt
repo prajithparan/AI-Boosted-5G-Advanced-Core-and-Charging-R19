@@ -58,6 +58,7 @@ add_executable(integration_tests
     test_mfaf.cpp
     test_dccf.cpp
     test_adrf.cpp
+    test_nwdaf_phase_c.cpp
     test_proportional_debit.cpp
     test_charging_scope.cpp
     test_unit_pooling.cpp

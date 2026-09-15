@@ -5239,3 +5239,22 @@ commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §
 | Feature negotiation: `EnhDataMgmt` (DM), `EnModelMgmt` (ML) | TS 29.575 5.1.8-1, 5.2.8-1; TS 29.500 6.6 | `negotiate` | same tests (`suppFeat` "4" / "1") |
 | NRF registration `nfType=ADRF` with both services | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in every test |
 | `mlFileFqdn` download, `dsc`, redirects, UpEvents/LocEvents/LmfEvents/PcfEvents, pure `terminationReq` | TS 29.575 5.1.8-1 | -- | **not built** (ADR-0367) |
+
+## NWDAF Phase C -- data collection and Nnwdaf_DataManagement (ADR-0368)
+
+Source: `specs/5G_APIs-REL-19/TS29520_Nnwdaf_DataManagement.yaml`, commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`;
+TS 29.520 V19.7.0 §4.4 (`specs/3gpp/TS_29.520_j70.txt`). Stage 2: TS 23.288 V19.7.0 §6.2.6.2, §6.2.6.3.2/.4, §6.5.2.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Data collection via the DCCF: the NWDAF subscribes `nrfDataSub` at the DCCF, receives through the MFAF at its inbound URI, keeps a shared observation timeline | TS 23.288 6.2.6.3.4; TS 29.574 4.2.2.2 (as consumer) | `nfs/nwdaf/src/main.cpp` collector thread, `collection_store.cpp` | `test_nwdaf_phase_c.cpp` CollectsNrfDataViaTheDccfAndServesItOverDataManagement (an NSACF registration reaches a DataManagement consumer) |
+| One holder per collection, heartbeat + takeover, graceful release (DCCF closes the collection as the last consumer leaves) | ADR-0359 architecture | same | same test (log: "NRF collection released at the DCCF on shutdown", DCCF "collection ... closed") |
+| NF_LOAD: `NfStatus` time-weighted over the observation window, load mean/peak, instances that left the NRF still reported | TS 23.288 6.5.2; TS 29.520 NfStatus | `nfs/nwdaf/src/analytics.cpp` `nf_load` | `test_nwdaf_analytics.cpp` StatusSharesAreTimeWeightedOverTheObservationWindow, ObservationsOutsideTheWindowDoNotCount; integration: deregistered NSACF shows registered < 100, unregistered ≥ 1 |
+| Nnwdaf_DataManagement_Subscribe create/update (`POST /nnwdaf-datamanagement/v1/subscriptions` → 201 + Location; `PUT .../{subscriptionId}` → 200) | TS 29.520 4.4.2.2.2, 4.4.2.2.3 | `nfs/nwdaf/src/main.cpp` | same integration test |
+| Servability: `nrfDataSub` or NF_LOAD `anaSub`; else 400 `SUBSCRIPTION_CANNOT_BE_SERVED`; per-UE without `checkedConsentInd` → 403 `USER_CONSENT_NOT_GRANTED` | TS 29.520 4.4.2.2.2 (+ NOTE 1) | `serving_source` | same test (`smfDataSub` refused; NF_LOAD with `tgtUe.supis` refused) |
+| Nnwdaf_DataManagement_Notify (`POST {notificURI}` `NnwdafDataManagementNotif` with `dataNotification.nrfEventNotifs`, `3gpp-Sbi-Callback: Nnwdaf_DataManagement_myNotification`; `timePeriod` → historical slice first) | TS 29.520 4.4.2.4.2; TS 23.288 6.2.6.2 steps 5-6b | `dm_notify`, `deliver_history` | same test (arrival; history carries the earlier registration) |
+| consTrigNotif → `fetchInstruct`; Nnwdaf_DataManagement_Fetch (`POST {fetchUri}` with the ids → 200 / 404, consumed once) | TS 29.520 4.4.2.5.2; TS 23.288 6.2.6.2 steps 6a-7 | `/nwdaf-inbound/v1/fetch` | same test |
+| Nnwdaf_DataManagement_Unsubscribe (`DELETE` → 204 / 404) | TS 29.520 4.4.2.3.2 | `nfs/nwdaf/src/main.cpp` | same test |
+| ADRF storage subscription with an NWDAF target served by Nnwdaf_DataManagement | TS 29.575 4.2.2.3.2 | `nfs/adrf/src/main.cpp` `open_collection` | AdrfStoresNwdafCollectedDataThroughDataManagement |
+| Nnwdaf_EventsSubscription notifications carry `3gpp-Sbi-Callback: Nnwdaf_EventsSubscription_myNotification` | TS 29.500 Annex B | notifier thread | not asserted by a test this increment -- disclosed |
+| `dataReports`, muting / EnhDataMgmt, `delAlert`, `immReport` / DataAnaCollect, `terminationReq`, Nudm_SDM consent; ABNORMAL_BEHAVIOUR still from the CHF feature store | TS 29.520 5.3.8-1; TS 23.288 6.7.5.2 | -- | **not built** / **deviation recorded** (ADR-0368) |

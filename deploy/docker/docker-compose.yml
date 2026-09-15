@@ -277,6 +277,8 @@ services:
     environment:
       NWDAF_FEATURE_STORE_HOST: doris
       NWDAF_REDIS_URL: tcp://valkey:6379   # ADR-0360: subscription state shared across replicas
+      NWDAF_SELF_BASE_URL: https://nwdaf:7798   # ADR-0368: where the DCCF's deliveries land
+      NWDAF_DCCF_BASE_URL: https://dccf:7803
     volumes:
       - certs_data:/build/certs
     ports:

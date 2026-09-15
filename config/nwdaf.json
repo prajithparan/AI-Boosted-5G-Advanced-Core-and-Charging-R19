@@ -37,5 +37,16 @@
   "feature_store_user": "root",
   "feature_store_password": "",
   "feature_store_database": "chf_features",
-  "feature_store_max_rows": 200000
+  "feature_store_max_rows": 200000,
+  "self_base_url": "https://127.0.0.1:7798",
+  "dccf_base_url": "https://127.0.0.1:7803",
+  "data_collection": {
+    "via_dccf": true,
+    "nrf_status_nf_types": [],
+    "observation_window_seconds": 3600,
+    "max_collected_events": 10000,
+    "holder_heartbeat_seconds": 5
+  },
+  "fetch_buffer_ttl_seconds": 300,
+  "user_consent_policy": "consumer-checked"
 }

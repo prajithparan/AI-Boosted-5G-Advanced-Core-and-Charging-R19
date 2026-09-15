@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 
 namespace nwdaf {
 namespace {
@@ -153,6 +154,141 @@ nf_load_from_profiles(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& p
             info.confidence = 100;          // reported by the NF itself via NRF, not estimated
         }
         out.push_back(std::move(info));
+    }
+    return out;
+}
+
+std::vector<sbi_gen::NfLoadLevelInformation>
+nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
+        const std::vector<NfStatusObservation>& observations,
+        std::chrono::system_clock::time_point window_start,
+        std::chrono::system_clock::time_point now) {
+    // Group the observations per instance, in time order.
+    std::map<std::string, std::vector<const NfStatusObservation*>> history;
+    for (const auto& o : observations) {
+        if (o.at >= window_start && o.at <= now) {
+            history[o.nf_instance_id].push_back(&o);
+        }
+    }
+    for (auto& [id, obs] : history) {
+        std::sort(
+            obs.begin(), obs.end(), [](const auto* a, const auto* b) { return a->at < b->at; });
+    }
+
+    std::vector<sbi_gen::NfLoadLevelInformation> out;
+    std::set<std::string> done;
+    const auto emit = [&](const std::string& id, const sbi_gen::NFProfile_Nnrf_NFManagement* snap) {
+        sbi_gen::NfLoadLevelInformation info;
+        info.nfInstanceId = id;
+        const auto it = history.find(id);
+        if (snap) {
+            info.nfType = snap->nfType;
+            if (snap->nfSetIdList && !snap->nfSetIdList->empty()) {
+                info.nfSetId = snap->nfSetIdList->front();
+            }
+        }
+        if (it == history.end()) {
+            if (snap == nullptr) {
+                return;
+            }
+            // No history: the snapshot's single observation, exactly as Phase A reported it.
+            sbi_gen::NfStatus status;
+            if (snap->nfStatus.value == sbi_gen::NFStatus::REGISTERED) {
+                status.statusRegistered = 100;
+            } else if (snap->nfStatus.value == sbi_gen::NFStatus::UNDISCOVERABLE) {
+                status.statusUndiscoverable = 100;
+            } else {
+                status.statusUnregistered = 100;
+            }
+            info.nfStatus = status;
+            if (snap->load) {
+                info.nfLoadLevelAverage = *snap->load;
+                info.nfLoadLevelpeak = *snap->load;
+                info.confidence = 100;
+            }
+            out.push_back(std::move(info));
+            return;
+        }
+        const auto& obs = it->second;
+        // Time-weighted shares: the state at any instant is the latest observation before it.
+        using ms = std::chrono::milliseconds;
+        double registered = 0, unregistered = 0, undiscoverable = 0;
+        for (std::size_t i = 0; i < obs.size(); ++i) {
+            const auto from = obs[i]->at;
+            const auto to = i + 1 < obs.size() ? obs[i + 1]->at : now;
+            const double d = static_cast<double>(std::chrono::duration_cast<ms>(to - from).count());
+            if (obs[i]->status == "REGISTERED") {
+                registered += d;
+            } else if (obs[i]->status == "UNDISCOVERABLE") {
+                undiscoverable += d;
+            } else {
+                unregistered += d;
+            }
+            if (obs[i]->nf_type && !info.nfType) {
+                sbi_gen::NFType t;
+                t.value = *obs[i]->nf_type;
+                info.nfType = t;
+            }
+            if (obs[i]->nf_set_id && !info.nfSetId) {
+                info.nfSetId = *obs[i]->nf_set_id;
+            }
+        }
+        const double total = registered + unregistered + undiscoverable;
+        sbi_gen::NfStatus status;
+        const auto share = [&](double part) -> std::optional<sbi_gen::SamplingRatio> {
+            if (total <= 0) {
+                return std::nullopt;
+            }
+            const auto pct = static_cast<std::int64_t>(std::lround(100.0 * part / total));
+            if (pct <= 0) {
+                return std::nullopt; // SamplingRatio is 1..100; a zero share is absent
+            }
+            return pct;
+        };
+        if (total <= 0) {
+            // One observation, this instant: 100% in the state it reported.
+            const auto& s = obs.back()->status;
+            if (s == "REGISTERED") {
+                status.statusRegistered = 100;
+            } else if (s == "UNDISCOVERABLE") {
+                status.statusUndiscoverable = 100;
+            } else {
+                status.statusUnregistered = 100;
+            }
+        } else {
+            status.statusRegistered = share(registered);
+            status.statusUnregistered = share(unregistered);
+            status.statusUndiscoverable = share(undiscoverable);
+        }
+        info.nfStatus = status;
+        // Load over the window: mean and peak of what the profiles reported.
+        std::int64_t sum = 0, peak = 0, n = 0;
+        for (const auto* o : obs) {
+            if (o->load) {
+                sum += *o->load;
+                peak = std::max(peak, *o->load);
+                ++n;
+            }
+        }
+        if (n > 0) {
+            info.nfLoadLevelAverage = sum / n;
+            info.nfLoadLevelpeak = peak;
+            info.confidence = 100; // reported by the NF itself via the NRF, not estimated
+        } else if (snap && snap->load) {
+            info.nfLoadLevelAverage = *snap->load;
+            info.nfLoadLevelpeak = *snap->load;
+            info.confidence = 100;
+        }
+        out.push_back(std::move(info));
+    };
+    for (const auto& p : snapshot) {
+        done.insert(p.nfInstanceId);
+        emit(p.nfInstanceId, &p);
+    }
+    for (const auto& [id, obs] : history) {
+        if (!done.count(id)) {
+            emit(id, nullptr);
+        }
     }
     return out;
 }

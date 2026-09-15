@@ -38,6 +38,7 @@
 //   * excepTrend needs two consecutive days for the same subscriber; when only one row exists it
 //     is omitted rather than reported as STABLE.
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -75,8 +76,33 @@ detect_abnormal_behaviour(const std::vector<FeatureRow>& today,
                           const AbnormalBehaviourThresholds& thresholds);
 
 // TS 23.288 6.5 over NRF-sourced profiles. One output per profile, carrying only what the profile
-// carried.
+// carried. Phase A's single-observation form: every status share is 100% in the current status.
 std::vector<sbi_gen::NfLoadLevelInformation>
 nf_load_from_profiles(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& profiles);
+
+// Phase C (ADR-0368): one observation of an NF instance, as the NRF's NFStatusNotify delivered it
+// through the DCCF / Messaging Framework (TS 29.510 NotificationData): the status the profile
+// carried at that moment (or DEREGISTERED), and its load when the profile reported one.
+struct NfStatusObservation {
+    std::string nf_instance_id;
+    std::optional<std::string> nf_type;
+    std::optional<std::string> nf_set_id;
+    std::chrono::system_clock::time_point at;
+    std::string status; // "REGISTERED" | "SUSPENDED" | "UNDISCOVERABLE" | "DEREGISTERED"
+    std::optional<std::int64_t> load;
+};
+
+// TS 23.288 6.5 over the current NRF snapshot AND the collected observations: TS 29.520's NfStatus
+// is "the percentage of time spent on various NF states", so for an instance with a history inside
+// [window_start, now] the shares are time-weighted over that history (from its first observation
+// or the window start, whichever is later), and nfLoadLevelAverage / nfLoadLevelpeak are the mean
+// and maximum of the loads observed. An instance with no history keeps the snapshot's single
+// observation (100% in the current status, the profile's own load). An instance that left the NRF
+// inside the window is still reported -- its unregistered share is the point of collecting.
+std::vector<sbi_gen::NfLoadLevelInformation>
+nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
+        const std::vector<NfStatusObservation>& observations,
+        std::chrono::system_clock::time_point window_start,
+        std::chrono::system_clock::time_point now);
 
 } // namespace nwdaf

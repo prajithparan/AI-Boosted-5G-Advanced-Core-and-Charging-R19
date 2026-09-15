@@ -154,7 +154,7 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
 | 3 | User plane: N4/PFCP, UPF datapath (including a real eBPF/XDP fast path) | Done |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
-| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription, NF_LOAD and ABNORMAL_BEHAVIOUR from real data, ADR-0358/0360), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) built on the no-in-process-state architecture of ADR-0359; next Nnwdaf_DataManagement, then the MTLF |
+| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, ABNORMAL_BEHAVIOUR from real charging data, ADR-0358/0360/0368), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) built on the no-in-process-state architecture of ADR-0359; next the MTLF |
 | 6 | R19 feature NFs (Tier 2/3) | In progress — 9 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF); Tier 3 not started |
 | 7 | GUI / operations console | Not started — stack decision (React + JSON Forms vs Dear ImGui) still open. Scope is fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial — Docker + Compose for all 22 NF/BSS components; Helm for 7 of 18 NFs; no `make lab-up` yet |

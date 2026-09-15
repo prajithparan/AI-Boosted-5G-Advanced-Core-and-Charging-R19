@@ -1,5 +1,7 @@
 // NWDAF AnLF rules (ADR-0358) against known feature rows and known NF profiles. No I/O.
 
+#include <chrono>
+
 #include "analytics.hpp"
 
 #include <gtest/gtest.h>
@@ -110,6 +112,60 @@ TEST(NwdafNfLoad, CarriesExactlyWhatTheProfileCarried) {
     EXPECT_FALSE(out[0].nfStatus->statusUnregistered.has_value());
     EXPECT_FALSE(out[1].nfLoadLevelAverage.has_value());
     EXPECT_FALSE(out[1].confidence.has_value());
+}
+
+TEST(NwdafNfLoad, StatusSharesAreTimeWeightedOverTheObservationWindow) {
+    // Phase C (ADR-0368): TS 29.520 NfStatus is "the percentage of time spent on various NF
+    // states". An instance observed REGISTERED at t0, DEREGISTERED at t0+30s, over a window that
+    // ends at t0+40s: 75% registered, 25% unregistered -- and it is reported even though it is no
+    // longer in the NRF snapshot. Loads are averaged (and peaked) over what was observed.
+    using namespace std::chrono_literals;
+    const auto t0 = std::chrono::system_clock::time_point(std::chrono::seconds(1'000'000));
+    nwdaf::NfStatusObservation a{"33333333-3333-4333-8333-333333333333",
+                                 std::string("NSACF"),
+                                 std::nullopt,
+                                 t0,
+                                 "REGISTERED",
+                                 20};
+    nwdaf::NfStatusObservation b = a;
+    b.at = t0 + 10s;
+    b.load = 40;
+    nwdaf::NfStatusObservation c = a;
+    c.at = t0 + 30s;
+    c.status = "DEREGISTERED";
+    c.load.reset();
+    // A snapshot-only instance keeps Phase A's single observation.
+    sbi_gen::NFProfile_Nnrf_NFManagement snap;
+    snap.nfInstanceId = "44444444-4444-4444-8444-444444444444";
+    snap.nfType.value = "AMF";
+    snap.nfStatus.value = "REGISTERED";
+
+    const auto out = nwdaf::nf_load({snap}, {a, b, c}, t0 - 1h, t0 + 40s);
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0].nfInstanceId.value_or(""), snap.nfInstanceId);
+    EXPECT_EQ(out[0].nfStatus->statusRegistered.value_or(-1), 100);
+    const auto& observed = out[1];
+    EXPECT_EQ(observed.nfInstanceId.value_or(""), a.nf_instance_id);
+    EXPECT_EQ(observed.nfType->value, "NSACF");
+    ASSERT_TRUE(observed.nfStatus.has_value());
+    EXPECT_EQ(observed.nfStatus->statusRegistered.value_or(-1), 75);
+    EXPECT_EQ(observed.nfStatus->statusUnregistered.value_or(-1), 25);
+    EXPECT_FALSE(observed.nfStatus->statusUndiscoverable.has_value());
+    EXPECT_EQ(observed.nfLoadLevelAverage.value_or(-1), 30);
+    EXPECT_EQ(observed.nfLoadLevelpeak.value_or(-1), 40);
+}
+
+TEST(NwdafNfLoad, ObservationsOutsideTheWindowDoNotCount) {
+    using namespace std::chrono_literals;
+    const auto t0 = std::chrono::system_clock::time_point(std::chrono::seconds(2'000'000));
+    nwdaf::NfStatusObservation old{"55555555-5555-4555-8555-555555555555",
+                                   std::string("SMF"),
+                                   std::nullopt,
+                                   t0 - 2h,
+                                   "REGISTERED",
+                                   std::nullopt};
+    const auto out = nwdaf::nf_load({}, {old}, t0 - 1h, t0);
+    EXPECT_TRUE(out.empty()); // no snapshot, no in-window history: nothing to report
 }
 
 } // namespace
