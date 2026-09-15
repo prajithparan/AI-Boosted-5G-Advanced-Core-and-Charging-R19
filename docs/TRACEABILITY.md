@@ -5197,3 +5197,22 @@ Source: `specs/5G_APIs-REL-19/TS29576_Nmfaf_3daDataManagement.yaml`,
 | NRF registration `nfType=MFAF` with the three services | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in the same test (two instances registered) |
 | Formatting other than consTrigNotif, processing, `notifEndpoints`, `adrfId` | TS 23.288 5A.4; TS 29.576 5.1.8-1/5.2.8-1 | -- | **not built**, logged as not applied (ADR-0365) |
 | AnLF: one `Nnwdaf_EventsSubscription` notification per subscription per interval across replicas (Valkey lease) | TS 29.520 5.1 (notify); ADR-0359 architecture | `nfs/nwdaf/src/subscription_store.cpp` `claim_notification` | `test_nwdaf_phase_a.cpp` ReplicasDeliverEachNotificationOnce (fails with the lease disabled -- negative control run 2026-09-15) |
+
+## DCCF (ADR-0366)
+
+Source: `specs/5G_APIs-REL-19/TS29574_Ndccf_DataManagement.yaml`, `TS29574_Ndccf_ContextManagement.yaml`,
+commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §5A.2, §5A.3.2, procedure §6.2.6.3.4.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Ndccf_DataManagement_Subscribe, data (`POST /ndccf-datamanagement/v1/data-subscriptions` → 201 + Location) | TS 29.574 4.2.2.2.4; TS 23.288 6.2.6.3.4 step 1 | `nfs/dccf/src/main.cpp` | `test_dccf.cpp` CoordinatesCollectionThroughTheMfafDedupsAndTearsDown |
+| Coordination: same data spec → one source subscription (fingerprint), consumer joins the MFAF fan-out | TS 23.288 5A.2, 6.2.6.3.4 step 4 | `subscribe` lambda, `nfs/dccf/src/subscription_store.cpp` `fingerprint` | same test (two consumers, NSACF sees one subscription: `sac-sub-1` only; one admission reaches both) |
+| New data: MFAF configured (3DA) then source subscribed with the MFAF's target | TS 23.288 6.2.6.3.4 steps 5-6; TS 29.576 4.2.2.2.2 | same | same test (NRF `NF_REGISTERED` and NSACF `NUM_OF_REGD_UES` reach the consumer via the MFAF) |
+| Sources served: AMF, NRF, NSACF; others → 400 `SUBSCRIPTION_CANNOT_BE_SERVED` | TS 29.574 5.1.7.3-1 | `resolve_data_source` | same test (`smfDataSub` refused with the cause) |
+| Per-UE data without `checkedConsentInd` → 403 `USER_CONSENT_NOT_GRANTED` (policy `consumer-checked`) | TS 29.574 4.2.2.2, 5.1.7.3-1 | same | same test |
+| Ndccf_DataManagement_Subscribe, update (`PUT`; fingerprint change = leave + join) | TS 29.574 4.2.2.2.5 | `nfs/dccf/src/main.cpp` | not exercised end to end this increment -- disclosed |
+| Ndccf_DataManagement_Unsubscribe (`DELETE` → 204/404); last consumer → source unsubscribed, MFAF deconfigured | TS 29.574 4.2.2.3; TS 23.288 steps 12-14 | `leave_collection` | same test (A leaves: B still served; B leaves: further admission reaches nobody; repeat DELETE 404) |
+| Ndccf_DataManagement_Subscribe, analytics (`/analytics-subscriptions` → NWDAF Nnwdaf_EventsSubscription via the MFAF) | TS 29.574 4.2.2.2.2/.3 | `nfs/dccf/src/main.cpp` | not exercised end to end this increment -- disclosed |
+| Ndccf_ContextManagement Register/Update/Deregister (`/data-collection-profiles`) | TS 29.574 4.3.2.2-4 | `nfs/dccf/src/main.cpp`, store | not exercised end to end this increment -- disclosed |
+| Notify / Fetch (served by the MFAF), Transfer (`/transfer-data-sub`) | TS 29.574 4.2.2.4-6 | -- | **not built** (ADR-0366) |
+| NRF registration `nfType=DCCF` | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in the same test |

@@ -56,6 +56,7 @@ add_executable(integration_tests
     test_cdr_event_bus.cpp
     test_nwdaf_phase_a.cpp
     test_mfaf.cpp
+    test_dccf.cpp
     test_proportional_debit.cpp
     test_charging_scope.cpp
     test_unit_pooling.cpp
@@ -105,7 +106,7 @@ add_executable(integration_tests
 target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
 target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
-add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf)
+add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     AMF_PATH="$<TARGET_FILE:amf>"
@@ -123,6 +124,7 @@ target_compile_definitions(integration_tests PRIVATE
     BALANCE_MANAGEMENT_PATH="$<TARGET_FILE:balance-management>"
     NWDAF_PATH="$<TARGET_FILE:nwdaf>"
     MFAF_PATH="$<TARGET_FILE:mfaf>"
+    DCCF_PATH="$<TARGET_FILE:dccf>"
     HELLO_NF_PATH="$<TARGET_FILE:hello-nf>"
     NEF_PATH="$<TARGET_FILE:nef>"
     NSACF_PATH="$<TARGET_FILE:nsacf>"

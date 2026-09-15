@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-#include "TS29576_Nmfaf_3caDataManagement.hpp"
+#include "TS26510_CommonData_grp.hpp" // the 3CA DTOs live in the SCC group header since TS 29.574 joined codegen (ADR-0366)
 
 // What arrives at the MFAF Notification Target Address is the Data Source's OWN notify body --
 // Namf_EventExposure_Notify's AmfEventNotification, Nsmf_EventExposure's

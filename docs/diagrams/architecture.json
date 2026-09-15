@@ -959,12 +959,13 @@
     "TS 29.574 · 23.288 §5A.2"
    ],
    "svc": [
-    "Ndccf_DataManagement",
-    "Ndccf_ContextManagement"
+    "Ndccf_DataManagement · Context",
+    "dedup per data spec · via MFAF"
    ],
    "glyph": "funnel",
    "color": "#047857",
-   "planned": true
+   "source": "nfs/dccf",
+   "chip": "2 svc"
   },
   {
    "id": "adrf",
@@ -1693,7 +1694,6 @@
    "from": "dccf",
    "to": "mfaf",
    "route": "s",
-   "planned": true,
    "label": [
     "Nmfaf_3da",
     "DataManagement"

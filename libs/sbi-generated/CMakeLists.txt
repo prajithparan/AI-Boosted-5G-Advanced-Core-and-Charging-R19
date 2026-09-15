@@ -173,6 +173,11 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29576_Nmfaf_3daDataManagement.yaml
     TS29576_Nmfaf_3caDataManagement.yaml
     TS29576_Nmfaf_ContextManagement.yaml
+    # ADR-0366: DCCF (TS 29.574) -- both of its R19 service files (DataManagement, ContextManagement).
+    # DataSubscription and the notification DTOs had been generated transitively from TS 29.575;
+    # the subscription resources themselves had not.
+    TS29574_Ndccf_DataManagement.yaml
+    TS29574_Ndccf_ContextManagement.yaml
     # ADR-0276: NSACF (TS 29.536) -- both of its real R19 API files, so the NF is generated
     # from its complete YAML surface rather than half of it.
     TS29536_Nnsacf_NSAC.yaml
@@ -330,6 +335,8 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_3daDataManagement.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_3caDataManagement.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_ContextManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29574_Ndccf_DataManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29574_Ndccf_ContextManagement.yaml
     # ADR-0276: NSACF (TS 29.536), this project's fifth Tier 2 NF -- Network Slice Admission
     # Control. Both of its real R19 API files, added together: the NSAC service itself and
     # its own event-exposure service, so the NF is generated from the complete YAML surface

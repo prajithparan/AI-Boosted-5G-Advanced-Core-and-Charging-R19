@@ -226,8 +226,12 @@ int decisions_for_price(const std::string& price_name, const std::string& since)
             price_name,
             since);
         return row[0].as<int>();
-    } catch (const std::exception&) {
-        return -1; // unreachable store -- reported as a distinct failure, never as "no decisions"
+    } catch (const std::exception& e) {
+        // Unreachable store or failed query -- reported as a distinct failure, never as "no
+        // decisions". Printed, because the TSan leg's first CI run returned -1 here after the
+        // start-of-test probe had succeeded, and a silent -1 cannot be diagnosed from the log.
+        std::cerr << "decisions_for_price: " << e.what() << '\n';
+        return -1;
     }
 }
 

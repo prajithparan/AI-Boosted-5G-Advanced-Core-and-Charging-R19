@@ -1,0 +1,13 @@
+{
+  "port": 7803,
+  "advertised_ipv4": "127.0.0.1",
+  "metrics_bind_address": "0.0.0.0:9489",
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "redis_url": "tcp://127.0.0.1:6379",
+  "nrf_heartbeat_seconds": 30,
+  "mfaf_base_url": "https://127.0.0.1:7800",
+  "amf_base_url": "https://127.0.0.1:7778",
+  "nsacf_base_url": "https://127.0.0.1:7797",
+  "nwdaf_base_url": "https://127.0.0.1:7798",
+  "user_consent_policy": "consumer-checked"
+}

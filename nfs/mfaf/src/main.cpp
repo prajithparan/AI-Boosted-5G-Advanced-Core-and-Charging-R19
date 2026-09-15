@@ -79,7 +79,7 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
-#include "TS29576_Nmfaf_3caDataManagement.hpp"
+#include "TS26510_CommonData_grp.hpp" // the 3CA DTOs live in the SCC group header since TS 29.574 joined codegen (ADR-0366)
 #include "TS29576_Nmfaf_3daDataManagement.hpp"
 #include "TS29576_Nmfaf_ContextManagement.hpp"
 #include "classify.hpp"
