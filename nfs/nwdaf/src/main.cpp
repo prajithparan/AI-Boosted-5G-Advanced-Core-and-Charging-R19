@@ -34,9 +34,11 @@
 // The MTLF (ADR-0369, mtlf.hpp) serves Nnwdaf_MLModelProvision and trains through the sidecar;
 // the AnLF (ml_consumer.hpp) subscribes at the MTLF, retrieves the model from the ADRF and infers
 // in-process with ONNX Runtime -- NF_LOAD requests for a future period are predictions (TS 23.288
-// Table 6.5.3-2), past periods stay statistics. Nnwdaf_MLModelMonitor is ADR-0370;
-// Nnwdaf_MLModelTraining (federated learning between MTLFs), RoamingAnalytics/RoamingData/VFL
-// are Phase D. State (subscriptions, transfers, collected data)
+// Table 6.5.3-2), past periods stay statistics. Nnwdaf_MLModelMonitor (ADR-0370): the AnLF
+// registers the model it uses, serves the MTLF's accuracy subscription, judges its predictions
+// against the loads then observed (accuracy_monitor.hpp) and notifies below threshold; the MTLF
+// re-trains. Nnwdaf_MLModelTraining (federated learning between MTLFs),
+// RoamingAnalytics/RoamingData/VFL are Phase D. State (subscriptions, transfers, collected data)
 // lives in Valkey (ADR-0360), shared by every replica, and the notifier takes a per-subscription
 // lease there (ADR-0365) so N replicas deliver each notification once.
 //
@@ -95,6 +97,7 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "accuracy_monitor.hpp"
 #include "analytics.hpp"
 #include "collection_store.hpp"
 #include "feature_store.hpp"
@@ -117,6 +120,10 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 constexpr const char* kAnalyticsInfoRoot = "/nnwdaf-analyticsinfo/v1";
 constexpr const char* kEventsSubscriptionRoot = "/nnwdaf-eventssubscription/v1";
 constexpr const char* kDataManagementRoot = "/nnwdaf-datamanagement/v1";
+// ADR-0370: the AnLF half of Nnwdaf_MLModelMonitor (subscriptions); the MTLF half
+// (registrations) is in mtlf.cpp.
+constexpr const char* kMonitorRoot = "/nnwdaf-mlmodelmonitor/v1";
+constexpr const char* kMonitorCallback = "Nnwdaf_MLModelMonitor_myNotification";
 // The NWDAF's own, non-3GPP URIs: where its collections deliver, and the fetchUri it hands out.
 // Same convention as the MFAF's /mfaf-inbound/v1 and the ADRF's /adrf-inbound/v1.
 constexpr const char* kInboundPrefix = "/nwdaf-inbound/v1";
@@ -331,7 +338,8 @@ compute(const std::string& event_id,
                 if (!f) {
                     continue;
                 }
-                if (const auto predicted = ml->predict(sbi_gen::NwdafEvent::NF_LOAD, *f)) {
+                if (const auto predicted =
+                        ml->predict(sbi_gen::NwdafEvent::NF_LOAD, *i.nfInstanceId, *f)) {
                     i.nfLoadLevelAverage = static_cast<std::int64_t>(std::lround(*predicted));
                     i.nfLoadLevelpeak.reset();
                     i.confidence = model->value("accuracyPct", std::int64_t(0));
@@ -387,8 +395,10 @@ compute(const std::string& event_id,
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
                        const std::string& advertised_ipv4,
+                       unsigned short port,
                        int heartbeat_seconds,
-                       json nwdaf_info) {
+                       json nwdaf_info,
+                       std::vector<std::string> service_names) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/nwdaf/cert.pem",
         .key_path = CERTS_DIR "/nwdaf/key.pem",
@@ -417,6 +427,23 @@ void run_nrf_lifecycle(const std::string& instance_id,
         // instance.
         {"nwdafInfo", std::move(nwdaf_info)},
     };
+    // TS 29.510 NFService with an IpEndPoint per service, so a peer that discovers this instance
+    // can address a service without configuration (ADR-0370: the MTLF finds an AnLF's
+    // nnwdaf-mlmodelmonitor endpoint this way).
+    json services = json::array();
+    for (const auto& name : service_names) {
+        services.push_back(json{
+            {"serviceInstanceId", name},
+            {"serviceName", name},
+            {"versions",
+             json::array({json{{"apiVersionInUri", "v1"}, {"apiFullVersion", "1.0.0"}}})},
+            {"scheme", "https"},
+            {"nfServiceStatus", "REGISTERED"},
+            {"ipEndPoints",
+             json::array(
+                 {json{{"ipv4Address", advertised_ipv4}, {"transport", "TCP"}, {"port", port}}})}});
+    }
+    profile["nfServices"] = services;
     while (true) {
         auto token = oauth.get_bearer_token();
         if (!token) {
@@ -573,6 +600,28 @@ int main() {
     if (train_opts.mlflow_tracking_uri.empty()) {
         train_opts.mlflow_tracking_uri = "sqlite:///" + train_opts.workdir + "/mlflow.db";
     }
+    mtlf_opts.self_base = self_base;
+    mtlf_opts.accuracy_threshold = nf_config::require<std::int64_t>(
+        mtlf_cfg, "accuracy_threshold", "NWDAF_MTLF_ACCURACY_THRESHOLD");
+    mtlf_opts.retrain_cooldown_seconds = nf_config::require<std::int64_t>(
+        mtlf_cfg, "retrain_cooldown_seconds", "NWDAF_MTLF_RETRAIN_COOLDOWN_SECONDS");
+    ml_opts.nrf_base = nrf_base;
+    // ADR-0370: the AnLF's accuracy monitoring of the models it uses.
+    const auto acc_cfg = config.at("accuracy_monitoring");
+    const auto acc_tolerance =
+        nf_config::require<double>(acc_cfg, "tolerance", "NWDAF_ACCURACY_TOLERANCE");
+    const auto acc_window_seconds = nf_config::require<std::int64_t>(
+        acc_cfg, "window_seconds", "NWDAF_ACCURACY_WINDOW_SECONDS");
+    const auto acc_truth_timeout_seconds = nf_config::require<std::int64_t>(
+        acc_cfg, "truth_timeout_seconds", "NWDAF_ACCURACY_TRUTH_TIMEOUT_SECONDS");
+    const auto acc_check_interval_seconds = nf_config::require<std::int64_t>(
+        acc_cfg, "check_interval_seconds", "NWDAF_ACCURACY_CHECK_INTERVAL_SECONDS");
+    const auto acc_min_inferences = nf_config::require<std::int64_t>(
+        acc_cfg, "min_inferences", "NWDAF_ACCURACY_MIN_INFERENCES");
+    const auto acc_default_threshold = nf_config::require<std::int64_t>(
+        acc_cfg, "default_threshold", "NWDAF_ACCURACY_DEFAULT_THRESHOLD");
+    const auto acc_min_report_interval_seconds = nf_config::require<std::int64_t>(
+        acc_cfg, "min_report_interval_seconds", "NWDAF_ACCURACY_MIN_REPORT_INTERVAL_SECONDS");
     if (is_mtlf && adrf_base.empty()) {
         spdlog::critical("nwdaf: role {} needs adrf_base_url (the MTLF stores models and reads "
                          "training data through the ADRF, ADR-0369)",
@@ -670,6 +719,11 @@ int main() {
         ml_client, nrf_base + "/oauth2/token", instance_id, "nadrf-mlmodelmanagement", "ADRF");
     nwdaf::MlConsumer ml_consumer(
         ml_opts, ml_client, ml_client_mutex, oauth_mtlf, oauth_anlf_adrf_ml, ml_store);
+    nwdaf::AccuracyMonitor accuracy(redis,
+                                    acc_tolerance,
+                                    std::chrono::seconds(acc_window_seconds),
+                                    std::chrono::seconds(acc_truth_timeout_seconds));
+    ml_consumer.attach_monitor(&accuracy);
     nwdaf::MlConsumer* ml = (is_anlf && ml_consumer.enabled()) ? &ml_consumer : nullptr;
     nwdaf::SubprocessExecutor trainer(train_opts);
     nwdaf::Mtlf mtlf(mtlf_opts,
@@ -1056,6 +1110,151 @@ int main() {
     }
     if (is_mtlf) {
         mtlf.install_routes(server);
+    }
+
+    // ---- Nnwdaf_MLModelMonitor_Subscribe / _Unsubscribe, served by the AnLF (ADR-0370) ------
+    // TS 29.520 4.7.2.4-4.7.2.5: the MTLF subscribes here for the accuracy of the models this
+    // AnLF uses. A report (MLModelMonitorNotify) for the models a subscription names, now.
+    const auto monitor_report = [&](const json& sub) {
+        json infos = json::array();
+        bool meets = true;
+        bool any = false;
+        const auto threshold = sub.value("accuThreshold", acc_default_threshold);
+        for (const auto& mid : sub.value("modelIds", json::array())) {
+            const auto id = mid.get<std::int64_t>();
+            const auto sum = accuracy.summary(sbi_gen::NwdafEvent::NF_LOAD, id);
+            if (sum.inferences < acc_min_inferences) {
+                continue;
+            }
+            any = true;
+            meets = meets && sum.accuracy_pct() >= threshold;
+            infos.push_back(json{
+                {"modelId", id},
+                {"modelMetric", sbi_gen::MLModelMetric::ACCURACY},
+                {"mlModelAcc", sum.accuracy_pct()},
+                {"inferenceNum", sum.inferences},
+                {"deviation", sum.mean_abs_deviation},
+                {"monitorInterval",
+                 json{{"startTime",
+                       sbi_core::format_rfc3339(std::chrono::system_clock::now() -
+                                                std::chrono::seconds(acc_window_seconds))},
+                      {"stopTime", sbi_core::format_rfc3339(std::chrono::system_clock::now())}}}});
+        }
+        if (!any) {
+            return std::optional<json>();
+        }
+        json note{{"notifCorrId", sub.value("notifCorrId", "")},
+                  {"modelAccuInfos", infos},
+                  {"accuMeetInd", meets},
+                  {"mLEvent", sbi_gen::NwdafEvent::NF_LOAD}};
+        return std::optional<json>(note);
+    };
+    const auto monitor_validate = [&](const sbi_core::http2::Request& req,
+                                      json& record,
+                                      std::optional<sbi_core::http2::Response>& err) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            return;
+        }
+        sbi_core::http2::Response bad;
+        auto dto = sbi_core::http2::parse_json_body<sbi_gen::MLModelMonitorSub>(req, bad);
+        if (!dto) {
+            err = bad;
+            return;
+        }
+        if (dto->modelIds.empty()) {
+            err =
+                problem(400, "Bad Request", "modelIds shall not be empty", "MANDATORY_IE_MISSING");
+            return;
+        }
+        if (dto->mLEvent && dto->mLEvent->value != sbi_gen::NwdafEvent::NF_LOAD) {
+            err = problem(400,
+                          "Bad Request",
+                          "this AnLF monitors the accuracy of NF_LOAD models only",
+                          "INVALID_MSG_FORMAT");
+            return;
+        }
+        record = json::parse(req.body);
+        record.erase("immReport");
+    };
+    if (is_anlf) {
+        server.add_route(
+            "POST",
+            std::string(kMonitorRoot) + "/subscriptions",
+            [&](const sbi_core::http2::Request& req) {
+                json record;
+                std::optional<sbi_core::http2::Response> err;
+                monitor_validate(req, record, err);
+                if (err) {
+                    return *err;
+                }
+                const auto id = accuracy.create_subscription(record);
+                json body = record;
+                if (record.value("eventReportReq", json::object()).value("immRep", false)) {
+                    if (const auto rep = monitor_report(record)) {
+                        body["immReport"] = *rep;
+                    }
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 201;
+                resp.headers.emplace("content-type", "application/json");
+                resp.headers.emplace("location",
+                                     std::string(kMonitorRoot) + "/subscriptions/" + id);
+                resp.body = body.dump();
+                spdlog::info("nwdaf: the MTLF monitors the accuracy of model(s) {} "
+                             "({})",
+                             record.at("modelIds").dump(),
+                             id);
+                return resp;
+            });
+        server.add_route(
+            "PUT",
+            std::string(kMonitorRoot) + "/subscriptions/{subscriptionId}",
+            [&](const sbi_core::http2::Request& req) {
+                const auto id = req.path_params.at("subscriptionId");
+                const auto existing = accuracy.get_subscription(id);
+                if (!existing) {
+                    return sbi_core::http2::problem_response(
+                        404, "Not Found", "no ML model monitoring subscription " + id);
+                }
+                json record;
+                std::optional<sbi_core::http2::Response> err;
+                monitor_validate(req, record, err);
+                if (err) {
+                    return *err;
+                }
+                if (!accuracy.replace_subscription(id, record)) {
+                    return sbi_core::http2::problem_response(
+                        404, "Not Found", "no ML model monitoring subscription " + id);
+                }
+                json body = record;
+                if (record.value("eventReportReq", json::object()).value("immRep", false)) {
+                    if (const auto rep = monitor_report(record)) {
+                        body["immReport"] = *rep;
+                    }
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 200;
+                resp.headers.emplace("content-type", "application/json");
+                resp.body = body.dump();
+                return resp;
+            });
+        server.add_route("DELETE",
+                         std::string(kMonitorRoot) + "/subscriptions/{subscriptionId}",
+                         [&](const sbi_core::http2::Request& req) {
+                             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+                                 return sbi_core::http2::problem_response(
+                                     401, "Unauthorized", auth->error);
+                             }
+                             const auto id = req.path_params.at("subscriptionId");
+                             if (!accuracy.remove_subscription(id)) {
+                                 return sbi_core::http2::problem_response(
+                                     404, "Not Found", "no ML model monitoring subscription " + id);
+                             }
+                             sbi_core::http2::Response resp;
+                             resp.status = 204;
+                             return resp;
+                         });
     }
 
     // ---- Nnwdaf_DataManagement_Fetch (the fetchUri this NWDAF hands out) --------------------
@@ -1524,7 +1723,104 @@ int main() {
         }
     });
 
+    // ---- ADR-0370: judge matured predictions against the observed loads, and notify the
+    // monitor subscriptions (6.2E.3.3 steps 4-6): when the accuracy no longer meets the
+    // subscription's threshold (and once more when it does again), or on a PERIODIC repPeriod.
+    // One replica reports a subscription per tick (lease); the numbers are shared.
+    std::thread accuracy_thread([&] {
+        while (is_anlf && ml != nullptr && pause(acc_check_interval_seconds)) {
+            try {
+                const auto now = std::chrono::system_clock::now();
+                std::vector<nwdaf::LoadObservation> loads;
+                for (const auto& e : collected.events(
+                         kNrfSource, now - std::chrono::seconds(acc_window_seconds), now)) {
+                    if (auto o = observation_from_nrf(e); o && o->load) {
+                        loads.push_back(nwdaf::LoadObservation{o->nf_instance_id, o->at, *o->load});
+                    }
+                }
+                accuracy.evaluate(sbi_gen::NwdafEvent::NF_LOAD, loads);
+                const auto lease =
+                    std::chrono::milliseconds(acc_check_interval_seconds * 1000 * 9 / 10);
+                for (auto& [id, sub] : accuracy.all_subscriptions()) {
+                    if (!accuracy.claim_report(id, lease)) {
+                        continue;
+                    }
+                    const auto rep = monitor_report(sub);
+                    if (!rep) {
+                        continue;
+                    }
+                    const bool meets = rep->value("accuMeetInd", true);
+                    const auto last_at = sbi_core::parse_rfc3339(sub.value("lastReportAt", ""));
+                    const auto since_last =
+                        last_at ? now - *last_at : std::chrono::system_clock::duration::max();
+                    const auto& erq = sub.value("eventReportReq", json::object());
+                    bool due = false;
+                    if (erq.value("notifMethod", "") ==
+                            sbi_gen::NotificationMethod_Nsmf_EventExposure::PERIODIC &&
+                        erq.contains("repPeriod")) {
+                        due = since_last >=
+                              std::chrono::seconds(erq.at("repPeriod").get<std::int64_t>());
+                    } else {
+                        // Threshold semantics: report while insufficient (rate-limited), and
+                        // once when it meets the threshold again.
+                        const auto last_meet = sub.contains("lastMeet")
+                                                   ? std::optional<bool>(sub.at("lastMeet"))
+                                                   : std::nullopt;
+                        due = (!meets && since_last >= std::chrono::seconds(
+                                                           acc_min_report_interval_seconds)) ||
+                              (meets && last_meet.has_value() && !*last_meet);
+                    }
+                    if (!due) {
+                        continue;
+                    }
+                    sbi_core::http2::ClientRequest req;
+                    req.method = "POST";
+                    req.url = sub.at("notificationUri").get<std::string>();
+                    req.headers.emplace("content-type", "application/json");
+                    req.headers.emplace(sbi_core::headers::kCallback, kMonitorCallback);
+                    req.body = rep->dump();
+                    std::optional<int> status;
+                    {
+                        const std::lock_guard<std::mutex> lock(client_mutex);
+                        if (auto resp = client.send(req); resp) {
+                            status = static_cast<int>(resp->status);
+                        }
+                    }
+                    if (status && *status >= 200 && *status < 300) {
+                        sub["lastReportAt"] = sbi_core::format_rfc3339(now);
+                        sub["lastMeet"] = meets;
+                        accuracy.replace_subscription(id, sub);
+                        spdlog::info("nwdaf: accuracy report for {} sent ({})",
+                                     id,
+                                     meets ? "meets the threshold" : "below threshold");
+                    } else {
+                        spdlog::warn("nwdaf: Nnwdaf_MLModelMonitor_Notify for {} to {} failed ({})",
+                                     id,
+                                     req.url,
+                                     status.value_or(-1));
+                    }
+                }
+            } catch (const std::exception& e) {
+                spdlog::warn("nwdaf: accuracy monitoring tick failed: {}", e.what());
+            }
+        }
+    });
+
     json nwdaf_info = json::object();
+    std::vector<std::string> service_names;
+    if (is_anlf) {
+        service_names.insert(service_names.end(),
+                             {"nnwdaf-analyticsinfo",
+                              "nnwdaf-eventssubscription",
+                              "nnwdaf-datamanagement",
+                              "nnwdaf-mlmodelmonitor"});
+    }
+    if (is_mtlf) {
+        service_names.push_back("nnwdaf-mlmodelprovision");
+        if (!is_anlf) {
+            service_names.push_back("nnwdaf-mlmodelmonitor");
+        }
+    }
     if (is_anlf) {
         nwdaf_info["eventIds"] =
             json::array({sbi_gen::NwdafEvent::NF_LOAD, sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR});
@@ -1532,8 +1828,14 @@ int main() {
     if (is_mtlf) {
         nwdaf_info.update(mtlf.nrf_profile_info());
     }
-    std::thread(
-        run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds, nwdaf_info)
+    std::thread(run_nrf_lifecycle,
+                instance_id,
+                nrf_base,
+                advertised_ipv4,
+                port,
+                heartbeat_seconds,
+                nwdaf_info,
+                service_names)
         .detach();
     // ADR-0369: the AnLF's ML-model subscription holder, and the MTLF's training loop.
     std::thread ml_thread([&] {
@@ -1553,7 +1855,8 @@ int main() {
     sbi_core::run_multi_threaded(ioc);
     running = false;
     notifier.join();
-    ml_thread.join();   // unsubscribes at the MTLF when this replica holds the subscription
+    ml_thread.join(); // unsubscribes at the MTLF when this replica holds the subscription
+    accuracy_thread.join();
     mtlf_thread.join(); // a training in flight finishes or times out before the stores go
     if (collector.joinable()) {
         collector.join(); // releases the collection at the DCCF before the stores go away

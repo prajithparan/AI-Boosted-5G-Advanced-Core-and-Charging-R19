@@ -24,6 +24,11 @@
 //                              data source, sample counts, held-out accuracy)
 //   nwdaf:mltrain:<event>      SET NX PX lease: one replica trains an event at a time
 //   nwdaf:mlprov:lease:<id>    SET NX PX lease: one replica notifies a subscription per tick
+//   nwdaf:mlmon:reg:<id>       an Nnwdaf_MLModelMonitor registration (an AnLF using a model),
+//                              plus the subscription this MTLF opened at that AnLF; index
+//                              nwdaf:mlmon:regs (ADR-0370)
+//   nwdaf:mldegraded:<event>   the accuracy notification that declared the current model
+//                              degraded -- the training loop re-trains on it (ADR-0370)
 //   nwdaf:mlstoragesub:<event> the transRefId of the ADRF storage subscription feeding the
 //                              training data set (reused across MTLF restarts)
 // AnLF side
@@ -64,6 +69,16 @@ public:
     // The ADRF storage subscription (transRefId) that keeps the training data flowing.
     std::optional<std::string> get_storage_subscription(const std::string& event);
     void put_storage_subscription(const std::string& event, const std::string& trans_ref_id);
+
+    // MTLF: monitoring registrations (ADR-0370).
+    std::string create_registration(const nlohmann::json& record);
+    std::optional<nlohmann::json> get_registration(const std::string& id);
+    void put_registration(const std::string& id, const nlohmann::json& record);
+    bool remove_registration(const std::string& id);
+    std::vector<std::pair<std::string, nlohmann::json>> all_registrations();
+    std::optional<nlohmann::json> get_degraded(const std::string& event);
+    void put_degraded(const std::string& event, const nlohmann::json& notif);
+    void clear_degraded(const std::string& event);
 
     // AnLF: the subscription holder and the active model.
     bool open_holder(const std::string& key, const nlohmann::json& record);

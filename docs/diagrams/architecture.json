@@ -1083,12 +1083,12 @@
    ],
    "svc": [
     "Nnwdaf_AnalyticsInfo \u00b7 DataManagement",
-    "Nnwdaf_EventsSubscription \u00b7 MLModelProvision",
+    "Nnwdaf_EventsSubscription \u00b7 MLModelProvision \u00b7 MLModelMonitor",
     "NF_LOAD (via DCCF, ONNX) \u00b7 ABNORMAL_BEHAVIOUR"
    ],
    "glyph": "chart",
    "color": "#059669",
-   "chip": "4 svc",
+   "chip": "5 svc",
    "source": "nfs/nwdaf"
   },
   {

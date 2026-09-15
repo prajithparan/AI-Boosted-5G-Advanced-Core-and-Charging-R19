@@ -71,7 +71,9 @@
     "check_interval_seconds": 10,
     "retrain_min_new_windows": 100,
     "retrain_interval_seconds": 0,
-    "training_lease_seconds": 900
+    "training_lease_seconds": 900,
+    "accuracy_threshold": 80,
+    "retrain_cooldown_seconds": 60
   },
   "training": {
     "python": "",
@@ -79,5 +81,14 @@
     "workdir": "",
     "mlflow_tracking_uri": "",
     "timeout_seconds": 600
+  },
+  "accuracy_monitoring": {
+    "tolerance": 10.0,
+    "window_seconds": 3600,
+    "truth_timeout_seconds": 3600,
+    "check_interval_seconds": 10,
+    "min_inferences": 5,
+    "default_threshold": 80,
+    "min_report_interval_seconds": 60
   }
 }

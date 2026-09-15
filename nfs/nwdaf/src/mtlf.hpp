@@ -16,8 +16,14 @@
 //     unique model id (6.2A.2, 4.5.2.4.2), modelUpdateInd on a re-trained model;
 //   * re-trains when the data set has grown by `retrain_min_new_windows` usable windows since
 //     the last training or `retrain_interval_seconds` elapsed (6.2A.1: "may determine whether
-//     triggering further training ... is needed") -- ADR-0370 adds the accuracy-monitoring
-//     trigger.
+//     triggering further training ... is needed"), or when an AnLF reported the model's
+//     accuracy below threshold (ADR-0370);
+//   * serves the MTLF half of Nnwdaf_MLModelMonitor (ADR-0370, TS 23.288 6.2E.3, TS 29.520
+//     4.7.2.2-4.7.2.3): an AnLF registers the model it uses; the MTLF resolves that AnLF's
+//     monitor endpoint from its NRF profile (nfServices[].ipEndPoints) and subscribes there for
+//     accuracy notifications (4.7.2.4), delivered to {self}/nwdaf-inbound/v1/ml-monitor;
+//     accuMeetInd=false / mlModelAcc below `accuracy_threshold` marks the model degraded
+//     (6.2E.3.3 step 8) and the loop re-trains it (step 9), after `retrain_cooldown_seconds`.
 //
 // One replica trains an event at a time (a Valkey lease); every replica serves subscriptions
 // and notifies from the shared model record (ADR-0359: no in-process state).
@@ -44,6 +50,7 @@ namespace nwdaf {
 struct MtlfOptions {
     std::string instance_id;
     std::string nrf_base;
+    std::string self_base;           // where AnLFs deliver accuracy notifications
     std::string adrf_base_url;       // "" -> discovered at the NRF (nfType ADRF)
     std::vector<std::string> events; // analytics IDs this MTLF trains for
     std::string data_set_id;         // the ADRF DataSetTag the training data is kept under
@@ -53,6 +60,8 @@ struct MtlfOptions {
     std::int64_t retrain_min_new_windows = 0;
     std::int64_t retrain_interval_seconds = 0; // 0: never on time alone
     std::int64_t training_lease_seconds = 0;
+    std::int64_t accuracy_threshold = 0;       // percent; below it a model is degraded
+    std::int64_t retrain_cooldown_seconds = 0; // between accuracy-triggered re-trainings
 };
 
 class Mtlf {
@@ -99,6 +108,10 @@ private:
                                const nlohmann::json& sub,
                                bool update) const;
     bool trains(const std::string& event) const;
+    std::optional<std::string> anlf_monitor_base(const std::string& nf_instance_id);
+    void reconcile_registrations();
+    void unsubscribe_monitor(const nlohmann::json& registration);
+    void on_monitor_notification(const nlohmann::json& body);
 
     MtlfOptions options_;
     sbi_core::http2::Client& client_;
@@ -111,6 +124,7 @@ private:
     TrainingExecutor& executor_;
     std::string adrf_base_cached_;
     std::string adrf_id_cached_;
+    sbi_core::OAuth2Client oauth_anlf_monitor_;
 };
 
 } // namespace nwdaf

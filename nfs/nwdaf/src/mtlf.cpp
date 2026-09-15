@@ -29,6 +29,10 @@ constexpr const char* kProvisionCallback = "Nnwdaf_MLModelProvision_myNotificati
 constexpr const char* kAdrfDataManagementRoot = "/nadrf-datamanagement/v1";
 constexpr const char* kAdrfMlModelManagementRoot = "/nadrf-mlmodelmanagement/v1";
 constexpr const char* kNrfDiscRoot = "/nnrf-disc/v1";
+constexpr const char* kNrfNfmRoot = "/nnrf-nfm/v1";
+// servers[0].url of TS29520_Nnwdaf_MLModelMonitor.yaml; both roles serve parts of it.
+constexpr const char* kMonitorRoot = "/nnwdaf-mlmodelmonitor/v1";
+constexpr const char* kInboundPrefix = "/nwdaf-inbound/v1";
 
 std::string base64_encode(std::string_view in) {
     static constexpr char kTable[] =
@@ -116,7 +120,12 @@ Mtlf::Mtlf(MtlfOptions options,
            TrainingExecutor& executor)
     : options_(std::move(options)), client_(client), client_mutex_(client_mutex),
       oauth_disc_(oauth_disc), oauth_adrf_dm_(oauth_adrf_dm), oauth_adrf_ml_(oauth_adrf_ml),
-      verifier_(verifier), store_(store), executor_(executor) {}
+      verifier_(verifier), store_(store), executor_(executor),
+      oauth_anlf_monitor_(client,
+                          options_.nrf_base + "/oauth2/token",
+                          options_.instance_id,
+                          "nnwdaf-mlmodelmonitor",
+                          "NWDAF") {}
 
 bool Mtlf::trains(const std::string& event) const {
     return std::find(options_.events.begin(), options_.events.end(), event) !=
@@ -641,7 +650,26 @@ void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t
                         due_by_data = windows - model->value("nRealWindows", std::int64_t(0)) >=
                                       options_.retrain_min_new_windows;
                     }
-                    if (due_by_data) {
+                    // ADR-0370: an AnLF reported the model degraded (6.2E.3.3 step 8) -> step 9.
+                    bool due_by_accuracy = false;
+                    if (const auto degraded = store_.get_degraded(event)) {
+                        const bool cooled =
+                            !trained_at ||
+                            now - *trained_at >
+                                std::chrono::seconds(options_.retrain_cooldown_seconds);
+                        due_by_accuracy = degraded->value("modelUniqueId", std::int64_t(0)) ==
+                                              model->value("modelUniqueId", std::int64_t(0)) &&
+                                          cooled;
+                        if (degraded->value("modelUniqueId", std::int64_t(0)) !=
+                            model->value("modelUniqueId", std::int64_t(0))) {
+                            store_.clear_degraded(event); // about a model already replaced
+                        }
+                    }
+                    if (due_by_accuracy) {
+                        if (train(event, "accuracy below threshold reported by an AnLF")) {
+                            store_.clear_degraded(event);
+                        }
+                    } else if (due_by_data) {
                         train(event, "the ADRF data set grew");
                     } else if (due_by_time) {
                         train(event, "retrain interval elapsed");
@@ -663,11 +691,151 @@ void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t
                     deliver(id, sub);
                 }
             }
+            reconcile_registrations();
         } catch (const std::exception& e) {
             spdlog::warn("nwdaf-mtlf: loop iteration failed: {}", e.what());
         }
         if (!pause(options_.check_interval_seconds)) {
             break;
+        }
+    }
+}
+
+// The AnLF's Nnwdaf_MLModelMonitor endpoint, from its NRF profile: nfServices[] named
+// nnwdaf-mlmodelmonitor, its scheme and first ipEndPoint (TS 29.510 NFService) -- the "service
+// discovery procedure at the NRF" 6.2E.3.3 allows for finding the subscription endpoint.
+std::optional<std::string> Mtlf::anlf_monitor_base(const std::string& nf_instance_id) {
+    const auto r = call(oauth_disc_,
+                        "GET",
+                        options_.nrf_base + kNrfNfmRoot + "/nf-instances/" + nf_instance_id,
+                        nullptr);
+    if (r.status != 200) {
+        return std::nullopt;
+    }
+    try {
+        const auto profile = json::parse(r.body);
+        for (const auto& svc : profile.value("nfServices", json::array())) {
+            if (svc.value("serviceName", "") != "nnwdaf-mlmodelmonitor") {
+                continue;
+            }
+            for (const auto& ep : svc.value("ipEndPoints", json::array())) {
+                if (ep.contains("ipv4Address") && ep.contains("port")) {
+                    return svc.value("scheme", "https") + "://" +
+                           ep.at("ipv4Address").get<std::string>() + ":" +
+                           std::to_string(ep.at("port").get<int>());
+                }
+            }
+        }
+    } catch (const std::exception&) {
+    }
+    return std::nullopt;
+}
+
+// 6.2E.3.3 steps 0-2: for every registration this MTLF has not subscribed for yet, subscribe at
+// the registering AnLF for the accuracy of that model (Nnwdaf_MLModelMonitor_Subscribe).
+void Mtlf::reconcile_registrations() {
+    for (auto& [id, reg] : store_.all_registrations()) {
+        if (!reg.value("subscriptionUri", "").empty()) {
+            continue;
+        }
+        const auto& request = reg.at("request");
+        const auto consumer = request.value("consumerId", "");
+        if (consumer.empty()) {
+            continue; // consumerSetId-only registrations: no single endpoint to subscribe at
+        }
+        const auto base = anlf_monitor_base(consumer);
+        if (!base) {
+            if (reg.value("resolveFailures", 0) % 12 == 0) {
+                spdlog::info("nwdaf-mtlf: registration {} -- no nnwdaf-mlmodelmonitor endpoint "
+                             "for AnLF {} in its NRF profile yet",
+                             id,
+                             consumer);
+            }
+            reg["resolveFailures"] = reg.value("resolveFailures", 0) + 1;
+            store_.put_registration(id, reg);
+            continue;
+        }
+        json sub{{"modelIds", json::array({request.at("modelId")})},
+                 {"notificationUri", options_.self_base + kInboundPrefix + "/ml-monitor"},
+                 {"notifCorrId", id},
+                 {"modelMetric", sbi_gen::MLModelMetric::ACCURACY},
+                 {"accuThreshold", options_.accuracy_threshold},
+                 {"eventReportReq", json{{"immRep", true}}}};
+        if (request.contains("mLEvent")) {
+            sub["mLEvent"] = request.at("mLEvent");
+        }
+        const auto r =
+            call(oauth_anlf_monitor_, "POST", *base + kMonitorRoot + "/subscriptions", &sub);
+        if (r.status != 201) {
+            spdlog::warn("nwdaf-mtlf: Nnwdaf_MLModelMonitor_Subscribe at {} for registration {} "
+                         "failed ({} {})",
+                         *base,
+                         id,
+                         r.status,
+                         r.error.empty() ? r.body : r.error);
+            continue;
+        }
+        std::string uri = r.location;
+        if (!uri.empty() && uri.front() == '/') {
+            uri = *base + uri;
+        }
+        reg["subscriptionUri"] = uri;
+        store_.put_registration(id, reg);
+        spdlog::info("nwdaf-mtlf: monitoring the accuracy of model {} at AnLF {} ({})",
+                     request.at("modelId").dump(),
+                     consumer,
+                     uri);
+        try {
+            const auto body = json::parse(r.body);
+            if (body.contains("immReport")) {
+                on_monitor_notification(body.at("immReport"));
+            }
+        } catch (const std::exception&) {
+        }
+    }
+}
+
+void Mtlf::unsubscribe_monitor(const json& registration) {
+    const auto uri = registration.value("subscriptionUri", "");
+    if (uri.empty()) {
+        return;
+    }
+    static_cast<void>(call(oauth_anlf_monitor_, "DELETE", uri, nullptr));
+}
+
+// Nnwdaf_MLModelMonitor_Notify received (4.7.2.6.2): accuracy below the threshold, or the
+// AnLF's own accuMeetInd=false, declares the current model of that event degraded; the training
+// loop re-trains it (6.2E.3.3 steps 8-9). anaFeedbacks are stored with the notification and
+// not acted on (disclosed, ADR-0370).
+void Mtlf::on_monitor_notification(const json& body) {
+    for (const auto& info : body.value("modelAccuInfos", json::array())) {
+        const auto model_id = info.value("modelId", std::int64_t(0));
+        for (const auto& event : options_.events) {
+            const auto model = store_.get_model(event);
+            if (!model || model->value("modelUniqueId", std::int64_t(0)) != model_id) {
+                continue;
+            }
+            const auto acc = info.value("mlModelAcc", std::int64_t(-1));
+            const bool meets =
+                body.value("accuMeetInd", acc < 0 || acc >= options_.accuracy_threshold);
+            spdlog::info("nwdaf-mtlf: accuracy of model {} ({}) reported: {}% over {} inferences, "
+                         "deviation {:.1f}, {}",
+                         model_id,
+                         event,
+                         acc,
+                         info.value("inferenceNum", std::int64_t(0)),
+                         info.value("deviation", 0.0),
+                         meets ? "meets the threshold" : "DEGRADED");
+            if (!meets) {
+                json marker = info;
+                marker["modelUniqueId"] = model_id;
+                marker["notifCorrId"] = body.value("notifCorrId", "");
+                marker["accuMeetInd"] = body.value("accuMeetInd", false);
+                if (body.contains("anaFeedbacks")) {
+                    marker["anaFeedbacks"] = body.at("anaFeedbacks");
+                }
+                store_.put_degraded(event, marker);
+            }
         }
     }
 }
@@ -818,6 +986,88 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
                          resp.status = 204;
                          return resp;
                      });
+
+    // ---- Nnwdaf_MLModelMonitor_Register / _Deregister (ADR-0370; 4.7.2.2-4.7.2.3) -------------
+    server.add_route(
+        "POST",
+        std::string(kMonitorRoot) + "/registrations",
+        [this](const sbi_core::http2::Request& req) {
+            auto auth = check_bearer(req, verifier_);
+            if (auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response bad;
+            auto dto = sbi_core::http2::parse_json_body<sbi_gen::MLModelMonitorReg>(req, bad);
+            if (!dto) {
+                return bad;
+            }
+            if (!dto->modelId) {
+                return problem(400, "Bad Request", "modelId is required", "MANDATORY_IE_MISSING");
+            }
+            if (dto->consumerId.has_value() == dto->consumerSetId.has_value()) {
+                return problem(400,
+                               "Bad Request",
+                               "exactly one of consumerId, consumerSetId (MLModelMonitorReg oneOf)",
+                               dto->consumerId ? "INVALID_MSG_FORMAT" : "MANDATORY_IE_MISSING");
+            }
+            const json request = json::parse(req.body);
+            const auto id = store_.create_registration(
+                json{{"request", request},
+                     {"registrant", (auth && auth->valid) ? auth->subject : std::string()}});
+            spdlog::info("nwdaf-mtlf: AnLF {} registered its use of model {} ({})",
+                         request.value("consumerId", request.value("consumerSetId", "?")),
+                         request.at("modelId").dump(),
+                         id);
+            auto resp = json_response(201, request);
+            resp.headers.emplace("location", std::string(kMonitorRoot) + "/registrations/" + id);
+            return resp;
+        });
+
+    server.add_route("DELETE",
+                     std::string(kMonitorRoot) + "/registrations/{registrationId}",
+                     [this](const sbi_core::http2::Request& req) {
+                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                             return sbi_core::http2::problem_response(
+                                 401, "Unauthorized", auth->error);
+                         }
+                         const auto id = req.path_params.at("registrationId");
+                         const auto reg = store_.get_registration(id);
+                         if (!reg || !store_.remove_registration(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model monitoring registration " + id);
+                         }
+                         unsubscribe_monitor(*reg);
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+
+    // ---- inbound: Nnwdaf_MLModelMonitor_Notify from an AnLF ----------------------------------
+    server.add_route(
+        "POST",
+        std::string(kInboundPrefix) + "/ml-monitor",
+        [this](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response bad;
+            auto dto = sbi_core::http2::parse_json_body<sbi_gen::MLModelMonitorNotify>(req, bad);
+            if (!dto) {
+                return bad;
+            }
+            if (!dto->modelAccuInfos && !dto->anaFeedbacks) {
+                return problem(400,
+                               "Bad Request",
+                               "modelAccuInfos or anaFeedbacks is required (MLModelMonitorNotify "
+                               "anyOf)",
+                               "MANDATORY_IE_MISSING");
+            }
+            try {
+                on_monitor_notification(json::parse(req.body));
+            } catch (const std::exception& e) {
+                return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 }
 
 } // namespace nwdaf

@@ -14,6 +14,7 @@ using json = nlohmann::json;
 namespace {
 constexpr const char* kProvisionRoot = "/nnwdaf-mlmodelprovision/v1";
 constexpr const char* kHolderPrefix = "nwdaf:anlf:mlsub:";
+constexpr const char* kMonitorRoot = "/nnwdaf-mlmodelmonitor/v1";
 } // namespace
 
 MlConsumer::MlConsumer(MlConsumerOptions options,
@@ -23,7 +24,12 @@ MlConsumer::MlConsumer(MlConsumerOptions options,
                        sbi_core::OAuth2Client& oauth_adrf_ml,
                        MlStore& store)
     : options_(std::move(options)), client_(client), client_mutex_(client_mutex),
-      oauth_mtlf_(oauth_mtlf), oauth_adrf_ml_(oauth_adrf_ml), store_(store) {}
+      oauth_mtlf_(oauth_mtlf), oauth_adrf_ml_(oauth_adrf_ml), store_(store),
+      oauth_monitor_(client,
+                     options_.nrf_base + "/oauth2/token",
+                     options_.instance_id,
+                     "nnwdaf-mlmodelmonitor",
+                     "NWDAF") {}
 
 // Nnwdaf_MLModelProvision_Subscribe (TS 29.520 4.5.2.2.2): the event with its filter, the
 // reporting condition naming the accuracy metric and threshold (6.2A.2 "ML Model Monitoring
@@ -104,12 +110,32 @@ void MlConsumer::run(std::atomic<bool>& running, const std::function<bool(std::i
     }
     const auto ttl = std::chrono::milliseconds(options_.holder_heartbeat_seconds * 3000);
     std::map<std::string, std::string> held; // event -> resource URI at the MTLF
+    std::map<std::string, std::pair<std::int64_t, std::string>> registered; // event -> model, URI
+    // 6.2E.3.2: the holder registers the model it uses at the MTLF, once per model.
+    const auto maintain_registration = [&](const std::string& event) {
+        const auto model = active_model(event);
+        const auto model_id = model ? model->value("modelUniqueId", std::int64_t(0)) : 0;
+        auto it = registered.find(event);
+        if (it != registered.end() && it->second.first == model_id) {
+            return;
+        }
+        if (it != registered.end()) {
+            deregister(it->second.second);
+            registered.erase(it);
+        }
+        if (model_id != 0) {
+            if (const auto uri = register_use(event, model_id)) {
+                registered[event] = {model_id, *uri};
+            }
+        }
+    };
     while (running) {
         for (const auto& event : options_.events) {
             const std::string key = kHolderPrefix + event;
             try {
                 if (held.contains(event)) {
                     store_.touch_holder(key, ttl);
+                    maintain_registration(event);
                     continue;
                 }
                 const auto holder = store_.get_holder(key);
@@ -148,10 +174,66 @@ void MlConsumer::run(std::atomic<bool>& running, const std::function<bool(std::i
     }
     for (const auto& [event, uri] : held) {
         try {
+            if (const auto it = registered.find(event); it != registered.end()) {
+                deregister(it->second.second);
+            }
             unsubscribe(uri);
             store_.close_holder(kHolderPrefix + event);
         } catch (const std::exception&) {
         }
+    }
+}
+
+// Nnwdaf_MLModelMonitor_Register (TS 29.520 4.7.2.2.2): this AnLF's nfInstanceId, the model, the
+// analytics ID it serves.
+std::optional<std::string> MlConsumer::register_use(const std::string& event,
+                                                    std::int64_t model_id) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = options_.mtlf_base_url + kMonitorRoot + "/registrations";
+    req.headers.emplace("content-type", "application/json");
+    req.body = json{
+        {"consumerId", options_.instance_id},
+        {"modelId", model_id},
+        {"mLEvent", event},
+        {"modelAccuInd",
+         false}}.dump();
+    const std::lock_guard<std::mutex> lock(client_mutex_);
+    auto token = oauth_monitor_.get_bearer_token();
+    if (!token) {
+        return std::nullopt;
+    }
+    req.headers.emplace("authorization", "Bearer " + *token);
+    auto resp = client_.send(req);
+    if (!resp || resp->status != 201) {
+        spdlog::warn("nwdaf: Nnwdaf_MLModelMonitor_Register for model {} failed ({})",
+                     model_id,
+                     resp ? std::to_string(resp->status) : resp.error());
+        return std::nullopt;
+    }
+    std::string uri;
+    if (const auto it = resp->headers.find("location"); it != resp->headers.end()) {
+        uri = it->second;
+    }
+    if (!uri.empty() && uri.front() == '/') {
+        uri = options_.mtlf_base_url + uri;
+    }
+    spdlog::info(
+        "nwdaf: registered the use of ML model {} for {} at the MTLF ({})", model_id, event, uri);
+    return uri;
+}
+
+void MlConsumer::deregister(const std::string& registration_uri) {
+    if (registration_uri.empty()) {
+        return;
+    }
+    sbi_core::http2::ClientRequest req;
+    req.method = "DELETE";
+    req.url = registration_uri;
+    const std::lock_guard<std::mutex> lock(client_mutex_);
+    if (auto token = oauth_monitor_.get_bearer_token()) {
+        req.headers.emplace("authorization", "Bearer " + *token);
+        static_cast<void>(client_.send(req));
     }
 }
 
@@ -253,16 +335,32 @@ bool MlConsumer::ensure_loaded(const std::string& event, const json& model) {
 }
 
 std::optional<double> MlConsumer::predict(const std::string& event,
+                                          const std::string& nf_instance_id,
                                           const NfLoadFeatures& features) {
     const auto model = active_model(event);
     if (!model) {
         return std::nullopt;
     }
-    const std::lock_guard<std::mutex> lock(runtimes_mutex_);
-    if (!ensure_loaded(event, *model)) {
-        return std::nullopt;
+    std::optional<double> predicted;
+    {
+        const std::lock_guard<std::mutex> lock(runtimes_mutex_);
+        if (!ensure_loaded(event, *model)) {
+            return std::nullopt;
+        }
+        predicted = runtimes_[event]->predict(features);
     }
-    return runtimes_[event]->predict(features);
+    if (predicted && monitor_ != nullptr) {
+        try {
+            monitor_->record_prediction(event,
+                                        nf_instance_id,
+                                        model->value("modelUniqueId", std::int64_t(0)),
+                                        *predicted,
+                                        std::chrono::system_clock::now());
+        } catch (const std::exception& e) {
+            spdlog::warn("nwdaf: could not log a prediction for accuracy monitoring: {}", e.what());
+        }
+    }
+    return predicted;
 }
 
 } // namespace nwdaf

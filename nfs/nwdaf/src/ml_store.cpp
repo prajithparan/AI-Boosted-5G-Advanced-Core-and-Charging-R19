@@ -11,6 +11,9 @@ constexpr const char* kProvSubIndex = "nwdaf:mlprov:subs";
 constexpr const char* kProvLeasePrefix = "nwdaf:mlprov:lease:";
 constexpr const char* kModelPrefix = "nwdaf:mlmodel:";
 constexpr const char* kTrainLeasePrefix = "nwdaf:mltrain:";
+constexpr const char* kRegPrefix = "nwdaf:mlmon:reg:";
+constexpr const char* kRegIndex = "nwdaf:mlmon:regs";
+constexpr const char* kDegradedPrefix = "nwdaf:mldegraded:";
 constexpr const char* kStorageSubPrefix = "nwdaf:mlstoragesub:";
 constexpr const char* kActiveModelPrefix = "nwdaf:anlf:model:";
 } // namespace
@@ -96,6 +99,58 @@ std::optional<std::string> MlStore::get_storage_subscription(const std::string& 
 
 void MlStore::put_storage_subscription(const std::string& event, const std::string& trans_ref_id) {
     redis_->set(kStorageSubPrefix + event, trans_ref_id);
+}
+
+std::string MlStore::create_registration(const nlohmann::json& record) {
+    const auto id = next_id("nwdaf-mlreg-");
+    redis_->set(kRegPrefix + id, record.dump());
+    redis_->sadd(kRegIndex, id);
+    return id;
+}
+
+std::optional<nlohmann::json> MlStore::get_registration(const std::string& id) {
+    const auto raw = redis_->get(kRegPrefix + id);
+    if (!raw) {
+        return std::nullopt;
+    }
+    return nlohmann::json::parse(*raw);
+}
+
+void MlStore::put_registration(const std::string& id, const nlohmann::json& record) {
+    redis_->set(kRegPrefix + id, record.dump());
+}
+
+bool MlStore::remove_registration(const std::string& id) {
+    redis_->srem(kRegIndex, id);
+    return redis_->del(kRegPrefix + id) > 0;
+}
+
+std::vector<std::pair<std::string, nlohmann::json>> MlStore::all_registrations() {
+    std::vector<std::string> ids;
+    redis_->smembers(kRegIndex, std::back_inserter(ids));
+    std::vector<std::pair<std::string, nlohmann::json>> out;
+    for (const auto& id : ids) {
+        if (auto r = get_registration(id)) {
+            out.emplace_back(id, std::move(*r));
+        }
+    }
+    return out;
+}
+
+std::optional<nlohmann::json> MlStore::get_degraded(const std::string& event) {
+    const auto raw = redis_->get(kDegradedPrefix + event);
+    if (!raw) {
+        return std::nullopt;
+    }
+    return nlohmann::json::parse(*raw);
+}
+
+void MlStore::put_degraded(const std::string& event, const nlohmann::json& notif) {
+    redis_->set(kDegradedPrefix + event, notif.dump());
+}
+
+void MlStore::clear_degraded(const std::string& event) {
+    redis_->del(kDegradedPrefix + event);
 }
 
 bool MlStore::open_holder(const std::string& key, const nlohmann::json& record) {

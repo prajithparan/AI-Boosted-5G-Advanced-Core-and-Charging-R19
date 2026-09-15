@@ -30,6 +30,7 @@
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -142,20 +143,23 @@ public:
                   sbi_core::http2::TlsConfig{.cert_path = CERTS_DIR "/hello-nf/cert.pem",
                                              .key_path = CERTS_DIR "/hello-nf/key.pem",
                                              .ca_path = CERTS_DIR "/ca/ca.crt"}) {
-        server_.add_route("POST", "/ml", [this](const sbi_core::http2::Request& req) {
-            std::string callback;
-            if (const auto it = req.headers.find("3gpp-sbi-callback"); it != req.headers.end()) {
-                callback = it->second;
-            }
-            {
-                const std::lock_guard<std::mutex> lock(mutex_);
-                notes_.push_back(Note{json::parse(req.body), callback});
-            }
-            cv_.notify_all();
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+        for (const char* path : {"/ml", "/mon"}) {
+            server_.add_route("POST", path, [this, path](const sbi_core::http2::Request& req) {
+                std::string callback;
+                if (const auto it = req.headers.find("3gpp-sbi-callback");
+                    it != req.headers.end()) {
+                    callback = it->second;
+                }
+                {
+                    const std::lock_guard<std::mutex> lock(mutex_);
+                    notes_.push_back(Note{path, json::parse(req.body), callback});
+                }
+                cv_.notify_all();
+                sbi_core::http2::Response resp;
+                resp.status = 204;
+                return resp;
+            });
+        }
         server_.start();
         thread_ = std::thread([this] { ioc_.run(); });
     }
@@ -164,26 +168,34 @@ public:
         thread_.join();
     }
     struct Note {
+        std::string path;
         json body;
         std::string callback;
     };
-    static std::string url() {
-        return "https://127.0.0.1:" + std::to_string(kReceiverPort) + "/ml";
+    static std::string url(const char* path = "/ml") {
+        return "https://127.0.0.1:" + std::to_string(kReceiverPort) + path;
     }
-    template <typename Pred> bool wait_until(std::chrono::seconds limit, Pred pred) {
+    template <typename Pred>
+    bool wait_until(std::chrono::seconds limit, Pred pred, const char* path = "/ml") {
         std::unique_lock<std::mutex> lock(mutex_);
         return cv_.wait_for(lock, limit, [&] {
             for (const auto& n : notes_) {
-                if (pred(n)) {
+                if (n.path == path && pred(n)) {
                     return true;
                 }
             }
             return false;
         });
     }
-    std::vector<Note> notes() {
+    std::vector<Note> notes(const char* path = "/ml") {
         const std::lock_guard<std::mutex> lock(mutex_);
-        return notes_;
+        std::vector<Note> out;
+        for (const auto& n : notes_) {
+            if (n.path == path) {
+                out.push_back(n);
+            }
+        }
+        return out;
     }
 
 private:
@@ -557,6 +569,320 @@ TEST(NwdafMtlf, TrainsStoresProvisionsAndTheAnlfPredicts) {
         request("POST",
                 std::string(kAdrf) + "/nadrf-datamanagement/v1/remove-stored-data-analytics",
                 json{{"dataSetId", "mtlf-test-" + run_id},
+                     {"timePeriod",
+                      json{{"startTime", now_plus(-3600s)}, {"stopTime", now_plus(3600s)}}}}));
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204) << r->body;
+}
+
+// ADR-0370 -- the AnLF-assisted accuracy monitoring loop (TS 23.288 6.2E.3, TS 29.520 4.7):
+// the AnLF registers the model it uses at the MTLF; the MTLF subscribes at the AnLF for its
+// accuracy (resolving the endpoint from the AnLF's NRF profile); the AnLF judges its predictions
+// against the loads that were then observed and notifies when the accuracy falls below the
+// threshold; the MTLF re-trains and re-provisions with modelUpdateInd. The test is also a
+// monitoring consumer of its own (subscribed at the AnLF) so it can assert the report itself;
+// the data-growth re-training trigger is switched off so the re-provision can only come from
+// the accuracy path.
+TEST(NwdafMtlf, AccuracyBelowThresholdIsReportedAndDrivesRetraining) {
+    const auto python = training_python();
+    if (!std::filesystem::exists(python)) {
+        GTEST_SKIP() << "no training sidecar interpreter at " << python
+                     << " (nfs/nwdaf/training/README.md) -- skipped, not passed";
+    }
+    std::string stale_storage_sub;
+    try {
+        sw::redis::Redis redis(redis_url());
+        if (const auto v = redis.get("nwdaf:mlstoragesub:NF_LOAD")) {
+            stale_storage_sub = *v;
+        }
+        for (const char* k : {"nwdaf:mlmodel:NF_LOAD",
+                              "nwdaf:mlstoragesub:NF_LOAD",
+                              "nwdaf:mltrain:NF_LOAD",
+                              "nwdaf:mldegraded:NF_LOAD",
+                              "nwdaf:anlf:model:NF_LOAD",
+                              "nwdaf:anlf:mlsub:NF_LOAD",
+                              "nwdaf:anlf:mlsub:NF_LOAD:alive",
+                              "nwdaf:anlf:pred:NF_LOAD",
+                              "nwdaf:anlf:outcome:NF_LOAD"}) {
+            redis.del(k);
+        }
+        for (const char* index : {"nwdaf:mlprov:subs", "nwdaf:mlmon:regs", "nwdaf:anlf:monsubs"}) {
+            std::vector<std::string> ids;
+            redis.smembers(index, std::back_inserter(ids));
+            const std::string prefix =
+                std::string(index) == "nwdaf:mlprov:subs"  ? "nwdaf:mlprov:sub:"
+                : std::string(index) == "nwdaf:mlmon:regs" ? "nwdaf:mlmon:reg:"
+                                                           : "nwdaf:anlf:monsub:";
+            for (const auto& id : ids) {
+                redis.del(prefix + id);
+            }
+            redis.del(index);
+        }
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "no Valkey at " << redis_url() << " (" << e.what()
+                     << ") -- skipped, not passed";
+    }
+
+    Receiver receiver;
+    auto c = make_client();
+    const std::string run_id = std::to_string(std::time(nullptr));
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
+    nf_test::SpawnedProcess adrf(ADRF_PATH);
+    ASSERT_TRUE(wait_up(c, std::string(kAdrf) + "/nadrf-datamanagement/v1/data-store-records", 30s))
+        << "ADRF never came up";
+    {
+        auto r = c.send(request(
+            "GET",
+            std::string(kAdrf) + "/nadrf-datamanagement/v1/data-store-records?store-trans-id=x"));
+        if (r && r->status == 500 && r->body.find("data store unreachable") != std::string::npos) {
+            GTEST_SKIP() << "no Apache Doris behind the ADRF -- skipped, not passed";
+        }
+    }
+    const auto remove_storage_sub = [&](const std::string& trans_ref_id) {
+        if (trans_ref_id.empty()) {
+            return;
+        }
+        auto rr = c.send(
+            request("POST",
+                    std::string(kAdrf) + "/nadrf-datamanagement/v1/request-storage-sub-removal",
+                    json{{"transRefId", trans_ref_id}}));
+        EXPECT_TRUE(rr.has_value() && (rr->status == 204 || rr->status == 404))
+            << (rr ? rr->body : rr.error());
+    };
+    remove_storage_sub(stale_storage_sub);
+
+    setenv("NWDAF_ROLE", "anlf", 1);
+    setenv("NWDAF_DATA_COLLECTION_VIA_DCCF", "false", 1);
+    setenv("NWDAF_NOTIFICATION_INTERVAL_SECONDS", "2", 1);
+    setenv("NWDAF_ML_MODEL_PROVISION_RETRY_SECONDS", "2", 1);
+    setenv("NWDAF_ML_MODEL_PROVISION_HOLDER_HEARTBEAT_SECONDS", "2", 1);
+    setenv("NWDAF_ACCURACY_CHECK_INTERVAL_SECONDS", "1", 1);
+    setenv("NWDAF_ACCURACY_MIN_INFERENCES", "3", 1);
+    setenv("NWDAF_ACCURACY_MIN_REPORT_INTERVAL_SECONDS", "1", 1);
+    nf_test::SpawnedProcess anlf(NWDAF_PATH);
+    setenv("NWDAF_ROLE", "mtlf", 1);
+    setenv("NWDAF_PORT", "7797", 1);
+    setenv("NWDAF_METRICS_BIND_ADDRESS", "0.0.0.0:9486", 1);
+    setenv("NWDAF_SELF_BASE_URL", kMtlf, 1);
+    setenv("NWDAF_MTLF_DATA_SET_ID", ("mtlf-mon-" + run_id).c_str(), 1);
+    setenv("NWDAF_MTLF_MIN_SAMPLES", "40", 1);
+    setenv("NWDAF_MTLF_RETRAIN_MIN_NEW_WINDOWS", "1000000", 1); // only accuracy can re-train
+    setenv("NWDAF_MTLF_RETRAIN_COOLDOWN_SECONDS", "0", 1);
+    setenv("NWDAF_MTLF_ACCURACY_THRESHOLD", "80", 1);
+    setenv("NWDAF_MTLF_CHECK_INTERVAL_SECONDS", "2", 1);
+    setenv("NWDAF_TRAINING_PYTHON", python.c_str(), 1);
+    nf_test::SpawnedProcess mtlf(NWDAF_PATH);
+    for (const char* k : {"NWDAF_ROLE",
+                          "NWDAF_PORT",
+                          "NWDAF_METRICS_BIND_ADDRESS",
+                          "NWDAF_SELF_BASE_URL",
+                          "NWDAF_MTLF_DATA_SET_ID",
+                          "NWDAF_MTLF_MIN_SAMPLES",
+                          "NWDAF_MTLF_RETRAIN_MIN_NEW_WINDOWS",
+                          "NWDAF_MTLF_RETRAIN_COOLDOWN_SECONDS",
+                          "NWDAF_MTLF_ACCURACY_THRESHOLD",
+                          "NWDAF_MTLF_CHECK_INTERVAL_SECONDS",
+                          "NWDAF_TRAINING_PYTHON",
+                          "NWDAF_DATA_COLLECTION_VIA_DCCF",
+                          "NWDAF_NOTIFICATION_INTERVAL_SECONDS",
+                          "NWDAF_ML_MODEL_PROVISION_RETRY_SECONDS",
+                          "NWDAF_ML_MODEL_PROVISION_HOLDER_HEARTBEAT_SECONDS",
+                          "NWDAF_ACCURACY_CHECK_INTERVAL_SECONDS",
+                          "NWDAF_ACCURACY_MIN_INFERENCES",
+                          "NWDAF_ACCURACY_MIN_REPORT_INTERVAL_SECONDS"}) {
+        unsetenv(k);
+    }
+    ASSERT_TRUE(wait_up(c, std::string(kAnlf) + "/nnwdaf-analyticsinfo/v1/analytics", 30s))
+        << "AnLF never came up";
+    ASSERT_TRUE(wait_up(c, std::string(kMtlf) + kProv + "/subscriptions", 30s))
+        << "MTLF never came up";
+    std::this_thread::sleep_for(2s);
+
+    const auto token = token_for(c, "nnwdaf-mlmodelprovision", "NWDAF");
+    ASSERT_FALSE(token.empty());
+    const auto as_consumer = [&](sbi_core::http2::ClientRequest req) {
+        req.headers.emplace("authorization", "Bearer " + token);
+        return req;
+    };
+    auto r = c.send(as_consumer(request(
+        "POST",
+        std::string(kMtlf) + kProv + "/subscriptions",
+        json{{"mLEventSubscs",
+              json::array({json{{"mLEvent", "NF_LOAD"}, {"mLEventFilter", json::object()}}})},
+             {"notifUri", Receiver::url()},
+             {"notifCorreId", "mon-test"}})));
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    std::string location;
+    if (const auto it = r->headers.find("location"); it != r->headers.end()) {
+        location = it->second;
+    }
+    ASSERT_TRUE(receiver.wait_until(120s, [](const Receiver::Note& n) {
+        return !nf_load_notif(n.body).is_null();
+    })) << "no first model within 120 s";
+    const auto first = nf_load_notif(receiver.notes().front().body);
+    const std::int64_t model_1 = first.value("modelUniqueId", std::int64_t(0));
+    ASSERT_NE(model_1, 0);
+
+    // The NRF profile of the AnLF carries its nnwdaf-mlmodelmonitor endpoint -- what the MTLF
+    // resolves to subscribe (6.2E.3.3 "service discovery procedure at the NRF").
+    {
+        const auto disc = token_for(c, "nnrf-disc", "NRF");
+        auto get =
+            request("GET",
+                    std::string(kNrf) +
+                        "/nnrf-disc/v1/nf-instances?target-nf-type=NWDAF&requester-nf-type=NWDAF");
+        get.headers.emplace("authorization", "Bearer " + disc);
+        r = c.send(get);
+        ASSERT_TRUE(r.has_value()) << r.error();
+        ASSERT_EQ(r->status, 200) << r->body;
+        bool endpoint = false;
+        for (const auto& p : json::parse(r->body).value("nfInstances", json::array())) {
+            for (const auto& svc : p.value("nfServices", json::array())) {
+                if (svc.value("serviceName", "") == "nnwdaf-mlmodelmonitor" &&
+                    svc.value("ipEndPoints", json::array()).size() == 1 &&
+                    svc["ipEndPoints"][0].value("port", 0) == 7798) {
+                    endpoint = true;
+                }
+            }
+        }
+        EXPECT_TRUE(endpoint) << r->body;
+    }
+
+    // Observations: a smooth series so the model can predict; then predictions are made.
+    const std::string tail = (run_id + "000000000000").substr(0, 12);
+    const std::vector<std::string> instances{"44444444-4444-4444-8444-" + tail,
+                                             "55555555-5555-4555-8555-" + tail,
+                                             "66666666-6666-4666-8666-" + tail};
+    const auto inject = [&](int step, int offset) {
+        json notifs = json::array();
+        for (std::size_t k = 0; k < instances.size(); ++k) {
+            const int load = std::min(100,
+                                      25 + static_cast<int>(k) * 10 +
+                                          ((step * 5 + static_cast<int>(k)) % 7) + offset);
+            notifs.push_back(json{
+                {"event", step == 0 ? "NF_REGISTERED" : "NF_PROFILE_CHANGED"},
+                {"nfInstanceUri", std::string(kNrf) + "/nnrf-nfm/v1/nf-instances/" + instances[k]},
+                {"nfProfile",
+                 json{{"nfInstanceId", instances[k]},
+                      {"nfType", "SMF"},
+                      {"nfStatus", "REGISTERED"},
+                      {"load", load}}}});
+        }
+        auto rr = c.send(
+            request("POST",
+                    std::string(kAnlf) + "/nwdaf-inbound/v1/notifications/nrf",
+                    json{{"dataAnaNotif", json{{"dataNotif", json{{"nrfEventNotifs", notifs}}}}}}));
+        ASSERT_TRUE(rr.has_value()) << rr.error();
+        ASSERT_EQ(rr->status, 204) << rr->body;
+    };
+    for (int step = 0; step < 12; ++step) {
+        inject(step, 0);
+        std::this_thread::sleep_for(100ms);
+    }
+
+    // The test monitors too: a subscription of its own at the AnLF (4.7.2.4.2).
+    const auto mon_token = token_for(c, "nnwdaf-mlmodelmonitor", "NWDAF");
+    ASSERT_FALSE(mon_token.empty());
+    auto mon_sub = request("POST",
+                           std::string(kAnlf) + "/nnwdaf-mlmodelmonitor/v1/subscriptions",
+                           json{{"modelIds", json::array({model_1})},
+                                {"notificationUri", Receiver::url("/mon")},
+                                {"notifCorrId", "test-mon"},
+                                {"modelMetric", "ACCURACY"},
+                                {"accuThreshold", 80},
+                                {"mLEvent", "NF_LOAD"}});
+    mon_sub.headers.emplace("authorization", "Bearer " + mon_token);
+    r = c.send(mon_sub);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    std::string mon_location;
+    if (const auto it = r->headers.find("location"); it != r->headers.end()) {
+        mon_location = it->second;
+    }
+    ASSERT_NE(mon_location.find("/nnwdaf-mlmodelmonitor/v1/subscriptions/"), std::string::npos);
+
+    const auto ana_token = token_for(c, "nnwdaf-analyticsinfo", "NWDAF");
+    const std::string filter = url_encode(json{{"nfInstanceIds", instances}}.dump());
+    const std::string future = url_encode(json{{"endTs", now_plus(600s)}}.dump());
+    int predictions = 0;
+    const auto deadline = std::chrono::steady_clock::now() + 60s;
+    while (predictions < 6 && std::chrono::steady_clock::now() < deadline) {
+        auto get =
+            request("GET",
+                    std::string(kAnlf) + "/nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD" +
+                        "&event-filter=" + filter + "&ana-req=" + future);
+        get.headers.emplace("authorization", "Bearer " + ana_token);
+        r = c.send(get);
+        ASSERT_TRUE(r.has_value()) << r.error();
+        ASSERT_EQ(r->status, 200) << r->body;
+        for (const auto& i : json::parse(r->body).value("nfLoadLevelInfos", json::array())) {
+            predictions += i.contains("confidence") ? 1 : 0;
+        }
+        std::this_thread::sleep_for(500ms);
+    }
+    ASSERT_GE(predictions, 6) << "the AnLF made no predictions to judge";
+
+    // Ground truth that contradicts every prediction: loads far above anything predicted.
+    for (int step = 12; step < 16; ++step) {
+        inject(step, 60);
+        std::this_thread::sleep_for(300ms);
+    }
+
+    // The AnLF reports the model's accuracy below the threshold (to the MTLF and to the test).
+    ASSERT_TRUE(receiver.wait_until(
+        60s,
+        [&](const Receiver::Note& n) {
+            for (const auto& i : n.body.value("modelAccuInfos", json::array())) {
+                if (i.value("modelId", std::int64_t(0)) == model_1) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        "/mon"))
+        << "no Nnwdaf_MLModelMonitor_Notify within 60 s";
+    const auto mon = receiver.notes("/mon").front();
+    EXPECT_EQ(mon.callback, "Nnwdaf_MLModelMonitor_myNotification");
+    EXPECT_EQ(mon.body.value("notifCorrId", ""), "test-mon");
+    EXPECT_FALSE(mon.body.value("accuMeetInd", true)) << mon.body.dump();
+    const auto& info = mon.body["modelAccuInfos"][0];
+    EXPECT_EQ(info.value("modelMetric", ""), "ACCURACY");
+    EXPECT_LT(info.value("mlModelAcc", 100), 80) << info.dump();
+    EXPECT_GE(info.value("inferenceNum", 0), 3) << info.dump();
+    EXPECT_GT(info.value("deviation", 0.0), 10.0) << info.dump();
+    EXPECT_TRUE(info.contains("monitorInterval")) << info.dump();
+
+    // 6.2E.3.3 steps 8-9: the MTLF re-trains and re-provisions the model.
+    ASSERT_TRUE(receiver.wait_until(150s, [&](const Receiver::Note& n) {
+        const auto e = nf_load_notif(n.body);
+        return !e.is_null() && e.value("modelUpdateInd", false) &&
+               e.value("modelUniqueId", std::int64_t(0)) != model_1;
+    })) << "the MTLF never re-provisioned after the accuracy report";
+
+    // Cleanup: the test's subscriptions, the MTLF's storage subscription, the stored records.
+    auto del = request("DELETE", std::string(kAnlf) + mon_location);
+    del.headers.emplace("authorization", "Bearer " + mon_token);
+    r = c.send(del);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204) << r->body;
+    r = c.send(as_consumer(request("DELETE", std::string(kMtlf) + location)));
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204) << r->body;
+    try {
+        sw::redis::Redis redis(redis_url());
+        if (const auto v = redis.get("nwdaf:mlstoragesub:NF_LOAD")) {
+            remove_storage_sub(*v);
+            redis.del("nwdaf:mlstoragesub:NF_LOAD");
+        }
+    } catch (const std::exception& e) {
+        ADD_FAILURE() << e.what();
+    }
+    r = c.send(
+        request("POST",
+                std::string(kAdrf) + "/nadrf-datamanagement/v1/remove-stored-data-analytics",
+                json{{"dataSetId", "mtlf-mon-" + run_id},
                      {"timePeriod",
                       json{{"startTime", now_plus(-3600s)}, {"stopTime", now_plus(3600s)}}}}));
     ASSERT_TRUE(r.has_value()) << r.error();
