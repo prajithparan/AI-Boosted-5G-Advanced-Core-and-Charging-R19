@@ -30,8 +30,13 @@
 // for an analytic this NWDAF does not compute gets the YAML's own 404 with
 // ProblemDetailsAnalyticsInfoRequest semantics, not an empty 200 that looks like "no load".
 //
-// This is the AnLF. MTLF (MLModelProvision/Training/Monitor) is Phase B;
-// RoamingAnalytics/RoamingData/VFL are Phase D. State (subscriptions, transfers, collected data)
+// One binary, two logical functions (ADR-0359 #1): `role` in config selects anlf, mtlf or both.
+// The MTLF (ADR-0369, mtlf.hpp) serves Nnwdaf_MLModelProvision and trains through the sidecar;
+// the AnLF (ml_consumer.hpp) subscribes at the MTLF, retrieves the model from the ADRF and infers
+// in-process with ONNX Runtime -- NF_LOAD requests for a future period are predictions (TS 23.288
+// Table 6.5.3-2), past periods stay statistics. Nnwdaf_MLModelMonitor is ADR-0370;
+// Nnwdaf_MLModelTraining (federated learning between MTLFs), RoamingAnalytics/RoamingData/VFL
+// are Phase D. State (subscriptions, transfers, collected data)
 // lives in Valkey (ADR-0360), shared by every replica, and the notifier takes a per-subscription
 // lease there (ADR-0365) so N replicas deliver each notification once.
 //
@@ -81,6 +86,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -92,8 +98,13 @@
 #include "analytics.hpp"
 #include "collection_store.hpp"
 #include "feature_store.hpp"
+#include "ml_consumer.hpp"
+#include "ml_store.hpp"
+#include "model_runtime.hpp"
+#include "mtlf.hpp"
 #include "nf_config/nf_config.hpp"
 #include "subscription_store.hpp"
+#include "training_executor.hpp"
 
 using json = nlohmann::json;
 
@@ -241,13 +252,15 @@ std::optional<sbi_gen::AnalyticsData_Nnwdaf_AnalyticsInfo>
 compute(const std::string& event_id,
         const std::optional<sbi_gen::EventFilter_Nnwdaf_AnalyticsInfo>& filter,
         const std::optional<sbi_gen::TargetUeInformation>& target,
+        const std::optional<sbi_gen::EventReportingRequirement>& report_req,
         const Analytics& cfg,
         sbi_core::http2::Client& client,
         sbi_core::OAuth2Client& oauth,
         const std::string& nrf_base,
         nwdaf::FeatureStore& features,
         std::mutex& features_mutex,
-        nwdaf::CollectionStore& collected) {
+        nwdaf::CollectionStore& collected,
+        nwdaf::MlConsumer* ml) {
     sbi_gen::AnalyticsData_Nnwdaf_AnalyticsInfo data;
     data.timeStampGen = sbi_core::format_rfc3339(std::chrono::system_clock::now());
 
@@ -293,6 +306,40 @@ compute(const std::string& event_id,
             return i.nfType &&
                    std::find(types.begin(), types.end(), i.nfType->value) == types.end();
         });
+        // TS 23.288 6.5.3: a target period in the future is a PREDICTION (Table 6.5.3-2, with
+        // Confidence), computed with the MTLF-provisioned model over each instance's observed
+        // load history (ADR-0369); a past period is statistics (Table 6.5.3-1). Without a model
+        // or without enough history an instance keeps its statistics and carries no confidence
+        // -- never a guess dressed as a prediction.
+        std::optional<std::chrono::system_clock::time_point> end_ts;
+        if (report_req && report_req->endTs) {
+            end_ts = sbi_core::parse_rfc3339(*report_req->endTs);
+        }
+        if (ml && end_ts && *end_ts > now) {
+            const auto model = ml->active_model(sbi_gen::NwdafEvent::NF_LOAD);
+            for (auto& i : infos) {
+                if (!model || !i.nfInstanceId) {
+                    continue;
+                }
+                std::vector<nwdaf::LoadSample> history;
+                for (const auto& o : observations) {
+                    if (o.nf_instance_id == *i.nfInstanceId) {
+                        history.push_back(nwdaf::LoadSample{o.load, o.status == "REGISTERED"});
+                    }
+                }
+                const auto f = nwdaf::nf_load_features(history);
+                if (!f) {
+                    continue;
+                }
+                if (const auto predicted = ml->predict(sbi_gen::NwdafEvent::NF_LOAD, *f)) {
+                    i.nfLoadLevelAverage = static_cast<std::int64_t>(std::lround(*predicted));
+                    i.nfLoadLevelpeak.reset();
+                    i.confidence = model->value("accuracyPct", std::int64_t(0));
+                }
+            }
+            data.start = sbi_core::format_rfc3339(now);
+            data.expiry = sbi_core::format_rfc3339(*end_ts);
+        }
         data.nfLoadLevelInfos = std::move(infos);
         return data;
     }
@@ -340,7 +387,8 @@ compute(const std::string& event_id,
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
                        const std::string& advertised_ipv4,
-                       int heartbeat_seconds) {
+                       int heartbeat_seconds,
+                       json nwdaf_info) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/nwdaf/cert.pem",
         .key_path = CERTS_DIR "/nwdaf/key.pem",
@@ -364,12 +412,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfStatus", "REGISTERED"},
         {"ipv4Addresses", json::array({advertised_ipv4})},
         {"heartBeatTimer", heartbeat_seconds},
-        // TS 29.510 NwdafInfo would go here (supported analytics IDs). Phase A registers the two
-        // it computes so a consumer discovering by analytics can find it honestly.
-        {"nwdafInfo",
-         json{{"eventIds",
-               json::array(
-                   {sbi_gen::NwdafEvent::NF_LOAD, sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR})}}},
+        // TS 29.510 NwdafInfo, per role (ADR-0359 #3): the AnLF's eventIds, the MTLF's
+        // mlAnalyticsList -- a consumer discovering by analytics or by ML model finds the right
+        // instance.
+        {"nwdafInfo", std::move(nwdaf_info)},
     };
     while (true) {
         auto token = oauth.get_bearer_token();
@@ -454,6 +500,85 @@ int main() {
         config, "fetch_buffer_ttl_seconds", "NWDAF_FETCH_BUFFER_TTL_SECONDS");
     const auto consent_policy =
         nf_config::require<std::string>(config, "user_consent_policy", "NWDAF_USER_CONSENT_POLICY");
+    // ADR-0369: the logical function(s) this instance runs, and the MTLF/AnLF settings.
+    const auto role = nf_config::require<std::string>(config, "role", "NWDAF_ROLE");
+    if (role != "anlf" && role != "mtlf" && role != "both") {
+        spdlog::critical("nwdaf: role must be \"anlf\", \"mtlf\" or \"both\", got \"{}\"", role);
+        return 1;
+    }
+    const bool is_anlf = role != "mtlf";
+    const bool is_mtlf = role != "anlf";
+    const auto mtlf_base =
+        nf_config::require<std::string>(config, "mtlf_base_url", "NWDAF_MTLF_BASE_URL");
+    const auto adrf_base =
+        nf_config::require<std::string>(config, "adrf_base_url", "NWDAF_ADRF_BASE_URL");
+    const auto ml_cfg = config.at("ml_model_provision");
+    nwdaf::MlConsumerOptions ml_opts;
+    ml_opts.mtlf_base_url = mtlf_base;
+    ml_opts.notif_uri = self_base + kInboundPrefix + "/ml-models";
+    ml_opts.events = nf_config::require<std::vector<std::string>>(
+        ml_cfg, "events", "NWDAF_ML_MODEL_PROVISION_EVENTS");
+    ml_opts.nf_types = nf_config::require<std::vector<std::string>>(
+        ml_cfg, "nf_types", "NWDAF_ML_MODEL_PROVISION_NF_TYPES");
+    ml_opts.accuracy_threshold = nf_config::require<std::int64_t>(
+        ml_cfg, "accuracy_threshold", "NWDAF_ML_MODEL_PROVISION_ACCURACY_THRESHOLD");
+    ml_opts.holder_heartbeat_seconds = nf_config::require<std::int64_t>(
+        ml_cfg, "holder_heartbeat_seconds", "NWDAF_ML_MODEL_PROVISION_HOLDER_HEARTBEAT_SECONDS");
+    ml_opts.retry_seconds = nf_config::require<std::int64_t>(
+        ml_cfg, "retry_seconds", "NWDAF_ML_MODEL_PROVISION_RETRY_SECONDS");
+    const auto mtlf_cfg = config.at("mtlf");
+    nwdaf::MtlfOptions mtlf_opts;
+    mtlf_opts.nrf_base = nrf_base;
+    mtlf_opts.adrf_base_url = adrf_base;
+    mtlf_opts.events =
+        nf_config::require<std::vector<std::string>>(mtlf_cfg, "events", "NWDAF_MTLF_EVENTS");
+    mtlf_opts.data_set_id =
+        nf_config::require<std::string>(mtlf_cfg, "data_set_id", "NWDAF_MTLF_DATA_SET_ID");
+    mtlf_opts.min_samples =
+        nf_config::require<std::int64_t>(mtlf_cfg, "min_samples", "NWDAF_MTLF_MIN_SAMPLES");
+    mtlf_opts.accuracy_tolerance =
+        nf_config::require<double>(mtlf_cfg, "accuracy_tolerance", "NWDAF_MTLF_ACCURACY_TOLERANCE");
+    mtlf_opts.check_interval_seconds = nf_config::require<std::int64_t>(
+        mtlf_cfg, "check_interval_seconds", "NWDAF_MTLF_CHECK_INTERVAL_SECONDS");
+    mtlf_opts.retrain_min_new_windows = nf_config::require<std::int64_t>(
+        mtlf_cfg, "retrain_min_new_windows", "NWDAF_MTLF_RETRAIN_MIN_NEW_WINDOWS");
+    mtlf_opts.retrain_interval_seconds = nf_config::require<std::int64_t>(
+        mtlf_cfg, "retrain_interval_seconds", "NWDAF_MTLF_RETRAIN_INTERVAL_SECONDS");
+    mtlf_opts.training_lease_seconds = nf_config::require<std::int64_t>(
+        mtlf_cfg, "training_lease_seconds", "NWDAF_MTLF_TRAINING_LEASE_SECONDS");
+    const auto training_cfg = config.at("training");
+    nwdaf::SubprocessExecutorOptions train_opts;
+    train_opts.python =
+        nf_config::require<std::string>(training_cfg, "python", "NWDAF_TRAINING_PYTHON");
+    train_opts.script =
+        nf_config::require<std::string>(training_cfg, "script", "NWDAF_TRAINING_SCRIPT");
+    train_opts.workdir =
+        nf_config::require<std::string>(training_cfg, "workdir", "NWDAF_TRAINING_WORKDIR");
+    train_opts.mlflow_tracking_uri = nf_config::require<std::string>(
+        training_cfg, "mlflow_tracking_uri", "NWDAF_TRAINING_MLFLOW_TRACKING_URI");
+    train_opts.timeout = std::chrono::seconds(nf_config::require<std::int64_t>(
+        training_cfg, "timeout_seconds", "NWDAF_TRAINING_TIMEOUT_SECONDS"));
+    // Empty training paths mean "this build's own nfs/nwdaf/training" (the sidecar's venv, its
+    // script, a runs/ directory beside it, and MLflow's SQLite file in that directory). A
+    // deployment sets them explicitly (the compose service does).
+    if (train_opts.python.empty()) {
+        train_opts.python = NWDAF_TRAINING_DIR "/.venv/bin/python3";
+    }
+    if (train_opts.script.empty()) {
+        train_opts.script = NWDAF_TRAINING_DIR "/train_nf_load.py";
+    }
+    if (train_opts.workdir.empty()) {
+        train_opts.workdir = NWDAF_TRAINING_DIR "/runs";
+    }
+    if (train_opts.mlflow_tracking_uri.empty()) {
+        train_opts.mlflow_tracking_uri = "sqlite:///" + train_opts.workdir + "/mlflow.db";
+    }
+    if (is_mtlf && adrf_base.empty()) {
+        spdlog::critical("nwdaf: role {} needs adrf_base_url (the MTLF stores models and reads "
+                         "training data through the ADRF, ADR-0369)",
+                         role);
+        return 1;
+    }
     if (consent_policy != "consumer-checked" && consent_policy != "not-enforced") {
         spdlog::critical("nwdaf: user_consent_policy must be \"consumer-checked\" or "
                          "\"not-enforced\", got \"{}\"",
@@ -491,7 +616,9 @@ int main() {
 
     sbi_core::init_metrics(metrics_bind_address);
     const std::string instance_id = sbi_core::generate_uuid_v4();
-    spdlog::info("nwdaf: starting, nfInstanceId={}", instance_id);
+    spdlog::info("nwdaf: starting, nfInstanceId={}, role={}", instance_id, role);
+    ml_opts.instance_id = instance_id;
+    mtlf_opts.instance_id = instance_id;
 
     sbi_core::http2::TlsConfig server_tls{
         .cert_path = CERTS_DIR "/nwdaf/cert.pem",
@@ -511,6 +638,10 @@ int main() {
         client, nrf_base + "/oauth2/token", instance_id, "nnrf-disc", "NRF");
     sbi_core::OAuth2Client oauth_dccf(
         client, nrf_base + "/oauth2/token", instance_id, "ndccf-datamanagement", "DCCF");
+    sbi_core::OAuth2Client oauth_adrf_dm(
+        client, nrf_base + "/oauth2/token", instance_id, "nadrf-datamanagement", "ADRF");
+    sbi_core::OAuth2Client oauth_adrf_ml(
+        client, nrf_base + "/oauth2/token", instance_id, "nadrf-mlmodelmanagement", "ADRF");
     std::mutex client_mutex; // the client is used from the request path and the notifier thread
 
     nwdaf::FeatureStore features(fs);
@@ -521,6 +652,35 @@ int main() {
     nwdaf::SubscriptionStore store(redis);
     nwdaf::CollectionStore collected(
         redis, std::chrono::seconds(observation_window_seconds), max_collected_events);
+    // ADR-0369: ML-model state (both roles), the AnLF's model consumer, the MTLF.
+    nwdaf::MlStore ml_store(redis);
+    // The consumer gets its own client: predict() runs inside compute(), which the request path
+    // and the notifier call under client_mutex -- fetching the model bytes through the shared
+    // client from there would deadlock on that mutex.
+    sbi_core::http2::TlsConfig ml_client_tls{
+        .cert_path = CERTS_DIR "/nwdaf/cert.pem",
+        .key_path = CERTS_DIR "/nwdaf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client ml_client(std::move(ml_client_tls));
+    std::mutex ml_client_mutex;
+    sbi_core::OAuth2Client oauth_mtlf(
+        ml_client, nrf_base + "/oauth2/token", instance_id, "nnwdaf-mlmodelprovision", "NWDAF");
+    sbi_core::OAuth2Client oauth_anlf_adrf_ml(
+        ml_client, nrf_base + "/oauth2/token", instance_id, "nadrf-mlmodelmanagement", "ADRF");
+    nwdaf::MlConsumer ml_consumer(
+        ml_opts, ml_client, ml_client_mutex, oauth_mtlf, oauth_anlf_adrf_ml, ml_store);
+    nwdaf::MlConsumer* ml = (is_anlf && ml_consumer.enabled()) ? &ml_consumer : nullptr;
+    nwdaf::SubprocessExecutor trainer(train_opts);
+    nwdaf::Mtlf mtlf(mtlf_opts,
+                     client,
+                     client_mutex,
+                     oauth,
+                     oauth_adrf_dm,
+                     oauth_adrf_ml,
+                     verifier,
+                     ml_store,
+                     trainer);
 
     auto meter = sbi_core::get_meter("nwdaf");
     auto analytics_counter = meter->CreateUInt64Counter("nwdaf_analytics_requests_total",
@@ -569,19 +729,25 @@ int main() {
             if (!err.empty()) {
                 return sbi_core::http2::problem_response(400, "Bad Request", err);
             }
+            auto ana_req = json_query<sbi_gen::EventReportingRequirement>(req, "ana-req", err);
+            if (!err.empty()) {
+                return sbi_core::http2::problem_response(400, "Bad Request", err);
+            }
             std::optional<sbi_gen::AnalyticsData_Nnwdaf_AnalyticsInfo> data;
             {
                 const std::lock_guard<std::mutex> lock(client_mutex);
                 data = compute(ev->second,
                                filter,
                                target,
+                               ana_req,
                                analytics,
                                client,
                                oauth,
                                nrf_base,
                                features,
                                features_mutex,
-                               collected);
+                               collected,
+                               ml);
             }
             if (!data) {
                 unsupported_counter->Add(1);
@@ -864,6 +1030,33 @@ int main() {
             resp.status = 204;
             return resp;
         });
+
+    // ---- inbound: Nnwdaf_MLModelProvision_Notify from the MTLF (ADR-0369) -------------------
+    if (ml) {
+        server.add_route("POST",
+                         std::string(kInboundPrefix) + "/ml-models",
+                         [&](const sbi_core::http2::Request& req) {
+                             json body;
+                             try {
+                                 body = json::parse(req.body);
+                             } catch (const json::parse_error& e) {
+                                 return sbi_core::http2::problem_response(
+                                     400, "Malformed JSON", e.what());
+                             }
+                             try {
+                                 ml_consumer.on_notification(body);
+                             } catch (const std::exception& e) {
+                                 return sbi_core::http2::problem_response(
+                                     500, "Internal Server Error", e.what());
+                             }
+                             sbi_core::http2::Response resp;
+                             resp.status = 204;
+                             return resp;
+                         });
+    }
+    if (is_mtlf) {
+        mtlf.install_routes(server);
+    }
 
     // ---- Nnwdaf_DataManagement_Fetch (the fetchUri this NWDAF hands out) --------------------
     server.add_route(
@@ -1157,7 +1350,10 @@ int main() {
         return std::make_pair(false, std::string("another replica opened it first"));
     };
     std::thread collector;
-    if (collect_via_dccf) {
+    if (!is_anlf) {
+        spdlog::info("nwdaf: role mtlf -- no data collection here; the MTLF trains on what the "
+                     "ADRF holds (ADR-0369)");
+    } else if (collect_via_dccf) {
         collector = std::thread([&, collect_nrf_nf_types]() {
             json nrf_sub{{"nfStatusNotificationUri",
                           self_base + kInboundPrefix + "/notifications/" + kNrfSource}};
@@ -1238,7 +1434,7 @@ int main() {
     // Joined on shutdown, not detached (ADR-0368): it uses the stores and the client that main
     // destroys on the way out.
     std::thread notifier([&] {
-        while (pause(notify_interval_seconds)) {
+        while (is_anlf && pause(notify_interval_seconds)) {
             std::vector<std::pair<std::string, sbi_gen::NnwdafEventsSubscription>> snapshot;
             try {
                 for (auto& [id, sub] : store.all_subscriptions()) {
@@ -1279,13 +1475,15 @@ int main() {
                         data = compute(es.event.value,
                                        filter,
                                        es.tgtUe,
+                                       es.extraReportReq,
                                        analytics,
                                        client,
                                        oauth,
                                        nrf_base,
                                        features,
                                        features_mutex,
-                                       collected);
+                                       collected,
+                                       ml);
                     }
                     sbi_gen::EventNotification_Nnwdaf_EventsSubscription en;
                     en.event = es.event;
@@ -1326,8 +1524,28 @@ int main() {
         }
     });
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds)
+    json nwdaf_info = json::object();
+    if (is_anlf) {
+        nwdaf_info["eventIds"] =
+            json::array({sbi_gen::NwdafEvent::NF_LOAD, sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR});
+    }
+    if (is_mtlf) {
+        nwdaf_info.update(mtlf.nrf_profile_info());
+    }
+    std::thread(
+        run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds, nwdaf_info)
         .detach();
+    // ADR-0369: the AnLF's ML-model subscription holder, and the MTLF's training loop.
+    std::thread ml_thread([&] {
+        if (ml) {
+            ml_consumer.run(running, pause);
+        }
+    });
+    std::thread mtlf_thread([&] {
+        if (is_mtlf) {
+            mtlf.run(running, pause);
+        }
+    });
 
     server.start();
     spdlog::info("nwdaf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
@@ -1335,6 +1553,8 @@ int main() {
     sbi_core::run_multi_threaded(ioc);
     running = false;
     notifier.join();
+    ml_thread.join();   // unsubscribes at the MTLF when this replica holds the subscription
+    mtlf_thread.join(); // a training in flight finishes or times out before the stores go
     if (collector.joinable()) {
         collector.join(); // releases the collection at the DCCF before the stores go away
     }

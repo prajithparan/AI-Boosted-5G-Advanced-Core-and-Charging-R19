@@ -111,6 +111,8 @@ TEST(NwdafNfLoad, CarriesExactlyWhatTheProfileCarried) {
     EXPECT_EQ(out[0].nfStatus->statusRegistered.value_or(-1), 100);
     EXPECT_FALSE(out[0].nfStatus->statusUnregistered.has_value());
     EXPECT_FALSE(out[1].nfLoadLevelAverage.has_value());
+    // Statistics carry no confidence (Table 6.5.3-1) -- only ADR-0369's predictions do.
+    EXPECT_FALSE(out[0].confidence.has_value());
     EXPECT_FALSE(out[1].confidence.has_value());
 }
 
@@ -169,3 +171,37 @@ TEST(NwdafNfLoad, ObservationsOutsideTheWindowDoNotCount) {
 }
 
 } // namespace
+
+// ---- ADR-0369: the NF_LOAD model's input contract, on the inference side --------------------
+
+#include "model_runtime.hpp"
+
+TEST(NwdafNfLoadModel, FeatureVectorMatchesTheSidecarsWindowRule) {
+    // train_nf_load.py: [lag3, lag2, lag1, lag0, mean of the four, registered share].
+    std::vector<nwdaf::LoadSample> h{{10, true}, {20, true}, {30, false}, {40, true}, {50, true}};
+    const auto f = nwdaf::nf_load_features(h);
+    ASSERT_TRUE(f.has_value());
+    EXPECT_FLOAT_EQ((*f)[0], 20.0F);
+    EXPECT_FLOAT_EQ((*f)[1], 30.0F);
+    EXPECT_FLOAT_EQ((*f)[2], 40.0F);
+    EXPECT_FLOAT_EQ((*f)[3], 50.0F);
+    EXPECT_FLOAT_EQ((*f)[4], 35.0F);
+    EXPECT_FLOAT_EQ((*f)[5], 0.75F);
+    EXPECT_STREQ(nwdaf::kNfLoadFeatureNames[0], "load_lag3");
+    EXPECT_STREQ(nwdaf::kNfLoadFeatureNames[5], "registered_share");
+}
+
+TEST(NwdafNfLoadModel, TooLittleOrLoadlessHistoryYieldsNoFeatures) {
+    EXPECT_FALSE(nwdaf::nf_load_features({{10, true}, {20, true}, {30, true}}).has_value());
+    // A DEREGISTERED observation carries no load and breaks the window (no padding, no guess).
+    EXPECT_FALSE(
+        nwdaf::nf_load_features({{10, true}, {std::nullopt, false}, {30, true}, {40, true}})
+            .has_value());
+}
+
+TEST(NwdafNfLoadModel, RuntimeRejectsBytesThatAreNotAModelAndPredictsNothing) {
+    nwdaf::ModelRuntime rt;
+    EXPECT_FALSE(rt.load("definitely not ONNX", 7));
+    EXPECT_FALSE(rt.loaded());
+    EXPECT_FALSE(rt.predict(nwdaf::NfLoadFeatures{}).has_value());
+}

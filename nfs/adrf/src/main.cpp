@@ -1233,10 +1233,29 @@ int main() {
                 spdlog::warn("adrf: collection {} delivered nothing storable", fp);
                 return no_content();
             }
+            // One record per distinct DataSetTag among the collection's storage subscriptions
+            // (4.2.2.3.2 NOTE 2 shares the collection; each subscriber's data set still gets
+            // its records). A subscriber that named no tag takes the collection's own (the
+            // first subscriber's, possibly none), as before.
+            std::vector<std::optional<json>> tags;
+            for (const auto& trans_ref : col->trans_ref_ids) {
+                std::optional<json> tag = col->data_set_tag;
+                if (const auto sub = state.get_storage_subscription(trans_ref);
+                    sub && sub->request.contains("dataSetTag")) {
+                    tag = sub->request.at("dataSetTag");
+                }
+                if (std::find(tags.begin(), tags.end(), tag) == tags.end()) {
+                    tags.push_back(tag);
+                }
+            }
+            if (tags.empty()) {
+                tags.push_back(col->data_set_tag);
+            }
             try {
                 for (auto& [kind, record] : to_store) {
-                    store_record(
-                        kind, std::move(record), handling, col->data_set_tag, "subscription");
+                    for (const auto& tag : tags) {
+                        store_record(kind, record, handling, tag, "subscription");
+                    }
                 }
             } catch (const std::exception& e) {
                 return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());

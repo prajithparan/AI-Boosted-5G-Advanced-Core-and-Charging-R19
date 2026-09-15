@@ -151,7 +151,8 @@ nf_load_from_profiles(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& p
         if (p.load) {
             info.nfLoadLevelAverage = *p.load;
             info.nfLoadLevelpeak = *p.load; // one sample: average and peak are the same number
-            info.confidence = 100;          // reported by the NF itself via NRF, not estimated
+            // No confidence: statistics (TS 23.288 Table 6.5.3-1) carry none; only predictions
+            // (Table 6.5.3-2, ADR-0369) do.
         }
         out.push_back(std::move(info));
     }
@@ -204,7 +205,6 @@ nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
             if (snap->load) {
                 info.nfLoadLevelAverage = *snap->load;
                 info.nfLoadLevelpeak = *snap->load;
-                info.confidence = 100;
             }
             out.push_back(std::move(info));
             return;
@@ -273,12 +273,11 @@ nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
         if (n > 0) {
             info.nfLoadLevelAverage = sum / n;
             info.nfLoadLevelpeak = peak;
-            info.confidence = 100; // reported by the NF itself via the NRF, not estimated
         } else if (snap && snap->load) {
             info.nfLoadLevelAverage = *snap->load;
             info.nfLoadLevelpeak = *snap->load;
-            info.confidence = 100;
         }
+        // Statistics carry no confidence (TS 23.288 Table 6.5.3-1); predictions do (ADR-0369).
         out.push_back(std::move(info));
     };
     for (const auto& p : snapshot) {

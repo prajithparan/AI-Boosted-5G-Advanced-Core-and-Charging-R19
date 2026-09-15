@@ -66,6 +66,7 @@ that need a word are marked.
 | Session cache | **Valkey** | 8 | BSD-3-Clause — replaces Redis 7.4 (RSALv2/SSPL, not OSI), per ADR-0044 |
 | Inference | ONNX Runtime | 1.23.2 | MIT |
 | Model tracking | MLflow | sidecar | Apache-2.0 |
+| Model training (sidecars) | scikit-learn · skl2onnx · onnx | sidecar | BSD-3-Clause · Apache-2.0 · Apache-2.0 |
 | HTTP/2 · TLS | nghttp2 · OpenSSL · curl | 1.69 · 3.6.3 · 8.21 | MIT · Apache-2.0 · curl |
 | Async | Boost.Asio / Beast | 1.91 | BSL-1.0 |
 | JSON | nlohmann/json · simdjson | 3.12 · 4.6.6 | MIT · Apache-2.0 OR MIT |
@@ -154,7 +155,7 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
 | 3 | User plane: N4/PFCP, UPF datapath (including a real eBPF/XDP fast path) | Done |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
-| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, ABNORMAL_BEHAVIOUR from real charging data, ADR-0358/0360/0368), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) built on the no-in-process-state architecture of ADR-0359; next the MTLF |
+| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, ADR-0358/0360/0368/0369), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; next Nnwdaf_MLModelMonitor (ADR-0370) |
 | 6 | R19 feature NFs (Tier 2/3) | In progress — 9 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF); Tier 3 not started |
 | 7 | GUI / operations console | Not started — stack decision (React + JSON Forms vs Dear ImGui) still open. Scope is fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial — Docker + Compose for all 22 NF/BSS components; Helm for 7 of 18 NFs; no `make lab-up` yet |
@@ -267,10 +268,10 @@ backs it.
 | **Per-subscriber feature store** | **Built** | `chf::QuotaFeatureStore` in Redis keeps a rolling usage window per `SUPI`+`ratingGroup`, updated when real `usedUnitContainer` figures are reported |
 | **Model governance / auditability** | **Built** | every AI-influenced rating decision records an `aiAdvisory`: model id, model version, the exact input feature vector, the model's output, and **which deterministic bound actually applied**. A decision the model did not influence records no advisory, which is a real state rather than a gap |
 | **Deterministic guardrails** | **Built** | the model *suggests*; the rating engine *decides*. The grant is always the price-configured base multiplied by a clamp to **[0.5x, 2.0x]** -- never the raw prediction. Plus a kill switch (`CHF_AI_QUOTA_SIZING_ENABLED`, **default OFF**), a per-inference latency budget, model-version pinning, and a cold-start path that falls back to the plain deterministic grant |
-| **NWDAF (AnLF + MTLF)** | **Not built** | Phase 5. There is no `nfs/nwdaf` directory. NEF's `AnalyticsExposure` and `ReportingNetworkStatus` routes exist and answer **501**, because the NF they belong to does not exist (ADR-0324) |
-| **The three mandated analytics** (NF load prediction, anomaly detection, slice SLA / service experience) | **Not built** | they are NWDAF-resident and NWDAF is not built |
+| **NWDAF (AnLF + MTLF)** | **Built** (in progress) | `nfs/nwdaf`, one binary with `role` anlf / mtlf / both (ADR-0359/0369). AnLF: `Nnwdaf_AnalyticsInfo`, `EventsSubscription`, `DataManagement`, data collected via DCCF/MFAF (ADR-0358/0360/0368). MTLF: `Nnwdaf_MLModelProvision`, trains through `nfs/nwdaf/training/train_nf_load.py` (MLflow-tracked), stores models through the ADRF, the AnLF retrieves them and infers **in-process with ONNX Runtime** (ADR-0369). NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes still answer **501** -- not yet wired to it (ADR-0324) |
+| **The three mandated analytics** (NF load prediction, anomaly detection, slice SLA / service experience) | **1 built, 1 partial, 1 not built** | NF load: statistics over collected NRF observations and **predictions** from the MTLF's model for a future period, with confidence (ADR-0368/0369). Anomaly detection: `ABNORMAL_BEHAVIOUR` from real charging data, two of nine exception ids (ADR-0358). Slice SLA / service experience: not built |
 | **Energy-efficiency analytics, federated learning (VFL)** | **Not built** | NEF carries the AF-facing `VFLInference` / `VFLTraining` / `VFLNFDiscovery` surfaces (ADR-0326/0327), but they store or answer 501 -- there is no training or inference behind them |
-| **Drift monitoring** (`Nnwdaf_MLModelMonitor`) | **Not built** | needs NWDAF |
+| **Drift monitoring** (`Nnwdaf_MLModelMonitor`) | **Not built** | next: ADR-0370 -- the AnLF measures prediction accuracy against observed loads and the MTLF re-trains below threshold; the MTLF already re-trains as the ADRF data set grows (ADR-0369) |
 | **ARPU / RPU-driven charging models, churn propensity, next-best-offer** | **Not built** | no model, and in several cases no collected training data either |
 | **Agentic / MCP layer over NF state** | **Not built** | proposed read-only in `CLAUDE.md`, never started |
 

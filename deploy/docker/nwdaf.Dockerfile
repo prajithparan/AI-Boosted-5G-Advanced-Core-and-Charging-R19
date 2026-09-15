@@ -29,13 +29,20 @@ RUN cmake -S . -B build -G Ninja \
 
 FROM ubuntu:24.04 AS runtime
 
+# python3 + venv: the MTLF's training sidecar (ADR-0369, nfs/nwdaf/training). Training only --
+# the AnLF's inference is ONNX Runtime linked into the nwdaf binary. The same image serves both
+# roles (NWDAF_ROLE), so the sidecar is present in every NWDAF container and used by the MTLF.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates \
+    openssl ca-certificates python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+COPY nfs/nwdaf/training/train_nf_load.py nfs/nwdaf/training/requirements.txt /opt/nwdaf-training/
+RUN python3 -m venv /opt/nwdaf-training/.venv \
+    && /opt/nwdaf-training/.venv/bin/pip install --no-cache-dir -q -r /opt/nwdaf-training/requirements.txt
 
 WORKDIR /build
 COPY --from=builder /build/build/nfs/nwdaf/nwdaf /build/nwdaf
 
-EXPOSE 7797/tcp 9484/tcp
+EXPOSE 7798/tcp 7797/tcp 9485/tcp 9486/tcp
 
 ENTRYPOINT ["/build/nwdaf"]

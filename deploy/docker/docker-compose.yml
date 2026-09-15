@@ -260,7 +260,9 @@ services:
       - "7797:7797"   # Nnsacf_NSAC + Nnsacf_SliceEventExposure (TLS 1.3 + mTLS)
       - "9484:9484"   # Prometheus /metrics
 
-  # ADR-0358: NWDAF Phase A -- Nnwdaf_AnalyticsInfo + Nnwdaf_EventsSubscription (AnLF).
+  # ADR-0358/0368/0369: the NWDAF containing AnLF -- Nnwdaf_AnalyticsInfo, EventsSubscription,
+  # DataManagement; collects via the DCCF; takes its NF_LOAD model from nwdaf-mtlf below and
+  # infers in-process (ONNX Runtime). One binary, `NWDAF_ROLE` selects the logical function.
   nwdaf:
     build:
       context: ../..
@@ -275,15 +277,56 @@ services:
       valkey:
         condition: service_healthy
     environment:
+      NWDAF_ROLE: anlf
       NWDAF_FEATURE_STORE_HOST: doris
       NWDAF_REDIS_URL: tcp://valkey:6379   # ADR-0360: subscription state shared across replicas
       NWDAF_SELF_BASE_URL: https://nwdaf:7798   # ADR-0368: where the DCCF's deliveries land
       NWDAF_DCCF_BASE_URL: https://dccf:7803
+      NWDAF_MTLF_BASE_URL: https://nwdaf-mtlf:7797   # ADR-0369: Nnwdaf_MLModelProvision
+      NWDAF_ADRF_BASE_URL: https://adrf:7804         # ADR-0369: model retrieval
     volumes:
       - certs_data:/build/certs
     ports:
-      - "7798:7798"   # Nnwdaf_AnalyticsInfo + Nnwdaf_EventsSubscription (TLS 1.3 + mTLS)
+      - "7798:7798"   # Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement (TLS 1.3 + mTLS)
       - "9485:9485"   # Prometheus /metrics
+
+  # ADR-0369: the NWDAF containing MTLF -- Nnwdaf_MLModelProvision. Trains the NF_LOAD model
+  # through the Python sidecar baked into the same image (/opt/nwdaf-training, its own venv),
+  # on the data the ADRF stores from the AnLF, stores every model through Nadrf_MLModelManagement
+  # and tracks every run in MLflow (SQLite on the volume below; point
+  # NWDAF_TRAINING_MLFLOW_TRACKING_URI at a self-hosted MLflow server to share lineage).
+  nwdaf-mtlf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/nwdaf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+      adrf:
+        condition: service_started
+      valkey:
+        condition: service_healthy
+    environment:
+      NWDAF_ROLE: mtlf
+      NWDAF_PORT: "7797"
+      NWDAF_METRICS_BIND_ADDRESS: 0.0.0.0:9486
+      NWDAF_FEATURE_STORE_HOST: doris
+      NWDAF_REDIS_URL: tcp://valkey:6379
+      NWDAF_SELF_BASE_URL: https://nwdaf-mtlf:7797
+      NWDAF_DCCF_BASE_URL: https://dccf:7803
+      NWDAF_ADRF_BASE_URL: https://adrf:7804
+      NWDAF_TRAINING_PYTHON: /opt/nwdaf-training/.venv/bin/python3
+      NWDAF_TRAINING_SCRIPT: /opt/nwdaf-training/train_nf_load.py
+      NWDAF_TRAINING_WORKDIR: /var/lib/nwdaf/training
+      NWDAF_TRAINING_MLFLOW_TRACKING_URI: sqlite:////var/lib/nwdaf/training/mlflow.db
+    volumes:
+      - certs_data:/build/certs
+      - nwdaf_training_data:/var/lib/nwdaf/training
+    ports:
+      - "7797:7797"   # Nnwdaf_MLModelProvision (TLS 1.3 + mTLS)
+      - "9486:9486"   # Prometheus /metrics
 
   # ADR-0365: MFAF -- the TS 23.288 Messaging Framework Adaptor over Kafka; state in Valkey.
   # Replicate with `docker compose up --scale mfaf=N`: replicas share Valkey and join one Kafka
@@ -762,3 +805,4 @@ volumes:
   postgres_roaming_data:
   postgres_udr_data:
   postgres_adrf_data:
+  nwdaf_training_data:   # ADR-0369: the MTLF's trained models, reports and MLflow lineage

@@ -386,6 +386,18 @@ jobs:
           docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root adrf_data < nfs/adrf/schema.doris.sql
           docker exec -i ${{ job.services['postgres-adrf'].id }} psql -U adrf -d adrf < nfs/adrf/schema.sql
 
+      - name: Prepare the NWDAF training sidecar venv (ADR-0369)
+        # The MTLF test trains through nfs/nwdaf/training/train_nf_load.py; the venv lives in the
+        # runner's home and is rebuilt only when its imports fail (a self-hosted runner keeps it).
+        run: |
+          VENV="$HOME/.local/nwdaf-training-venv"
+          if ! "$VENV/bin/python3" -c "import sklearn, skl2onnx, mlflow, onnx" 2>/dev/null; then
+            rm -rf "$VENV"
+            python3 -m venv "$VENV"
+            "$VENV/bin/pip" install -q -r nfs/nwdaf/training/requirements.txt
+          fi
+          echo "NWDAF_TRAINING_PYTHON=$VENV/bin/python3" >> "$GITHUB_ENV"
+
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
         # here: missing certs killed AMF on startup, which left ctest waiting its full default
@@ -817,6 +829,18 @@ jobs:
           docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS adrf_data"
           docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root adrf_data < nfs/adrf/schema.doris.sql
           docker exec -i ${{ job.services['postgres-adrf'].id }} psql -U adrf -d adrf < nfs/adrf/schema.sql
+
+      - name: Prepare the NWDAF training sidecar venv (ADR-0369)
+        # The MTLF test trains through nfs/nwdaf/training/train_nf_load.py; the venv lives in the
+        # runner's home and is rebuilt only when its imports fail (a self-hosted runner keeps it).
+        run: |
+          VENV="$HOME/.local/nwdaf-training-venv"
+          if ! "$VENV/bin/python3" -c "import sklearn, skl2onnx, mlflow, onnx" 2>/dev/null; then
+            rm -rf "$VENV"
+            python3 -m venv "$VENV"
+            "$VENV/bin/pip" install -q -r nfs/nwdaf/training/requirements.txt
+          fi
+          echo "NWDAF_TRAINING_PYTHON=$VENV/bin/python3" >> "$GITHUB_ENV"
 
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit

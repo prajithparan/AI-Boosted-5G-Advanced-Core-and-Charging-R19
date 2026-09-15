@@ -55,3 +55,9 @@ nfs/chf/training/mlruns/
 # ETSI deliverables (TS PDFs/text) may not be redistributed -- specs/etsi/SOURCES.md, tools/specs/fetch_etsi_specs.py
 specs/etsi/*.pdf
 specs/etsi/*.txt
+
+# ADR-0369: nfs/nwdaf/training/train_nf_load.py's own venv and MLflow tracking DB.
+nfs/nwdaf/training/.venv/
+nfs/nwdaf/training/mlflow.db
+nfs/nwdaf/training/mlruns/
+nfs/nwdaf/training/runs/

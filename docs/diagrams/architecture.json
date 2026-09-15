@@ -1074,7 +1074,7 @@
    "area": "ai",
    "col": 5,
    "row": 0,
-   "acronym": "NWDAF \u00b7 AnLF",
+   "acronym": "NWDAF \u00b7 AnLF + MTLF",
    "name": [
     "Network Data Analytics"
    ],
@@ -1083,12 +1083,12 @@
    ],
    "svc": [
     "Nnwdaf_AnalyticsInfo \u00b7 DataManagement",
-    "Nnwdaf_EventsSubscription",
-    "NF_LOAD (via DCCF) \u00b7 ABNORMAL_BEHAVIOUR"
+    "Nnwdaf_EventsSubscription \u00b7 MLModelProvision",
+    "NF_LOAD (via DCCF, ONNX) \u00b7 ABNORMAL_BEHAVIOUR"
    ],
    "glyph": "chart",
    "color": "#059669",
-   "chip": "2 svc",
+   "chip": "4 svc",
    "source": "nfs/nwdaf"
   },
   {

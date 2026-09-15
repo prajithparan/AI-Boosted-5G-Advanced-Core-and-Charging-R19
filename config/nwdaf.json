@@ -48,5 +48,36 @@
     "holder_heartbeat_seconds": 5
   },
   "fetch_buffer_ttl_seconds": 300,
-  "user_consent_policy": "consumer-checked"
+  "user_consent_policy": "consumer-checked",
+  "role": "anlf",
+  "mtlf_base_url": "https://127.0.0.1:7797",
+  "adrf_base_url": "https://127.0.0.1:7804",
+  "ml_model_provision": {
+    "events": [
+      "NF_LOAD"
+    ],
+    "nf_types": [],
+    "accuracy_threshold": 80,
+    "holder_heartbeat_seconds": 5,
+    "retry_seconds": 5
+  },
+  "mtlf": {
+    "events": [
+      "NF_LOAD"
+    ],
+    "data_set_id": "nwdaf-mtlf-nrf-status",
+    "min_samples": 200,
+    "accuracy_tolerance": 10.0,
+    "check_interval_seconds": 10,
+    "retrain_min_new_windows": 100,
+    "retrain_interval_seconds": 0,
+    "training_lease_seconds": 900
+  },
+  "training": {
+    "python": "",
+    "script": "",
+    "workdir": "",
+    "mlflow_tracking_uri": "",
+    "timeout_seconds": 600
+  }
 }

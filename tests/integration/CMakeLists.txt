@@ -1,4 +1,5 @@
 find_package(RdKafka CONFIG REQUIRED) # ADR-0355
+find_package(redis++ CONFIG REQUIRED) # ADR-0369: the MTLF test clears NWDAF ML state in Valkey
 find_package(libpqxx CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
 # ADR-0283: the CDR retention test compiles CHF's own CdrWriter (see below), which talks to
@@ -136,3 +137,18 @@ target_compile_definitions(integration_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(integration_tests)
+
+# ADR-0369: the MTLF end-to-end test trains a model twice through the Python sidecar inside one
+# test, which does not fit CI's 120 s per-test default; it lives in its own binary so ctest's
+# TIMEOUT property (which wins over --timeout) can be set for it alone.
+add_executable(nwdaf_mtlf_integration_tests test_nwdaf_mtlf.cpp)
+target_link_libraries(nwdaf_mtlf_integration_tests PRIVATE redis++::redis++_static sbi_core sbi_generated GTest::gtest GTest::gtest_main)
+add_dependencies(nwdaf_mtlf_integration_tests nrf adrf nwdaf)
+target_compile_definitions(nwdaf_mtlf_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    ADRF_PATH="$<TARGET_FILE:adrf>"
+    NWDAF_PATH="$<TARGET_FILE:nwdaf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+    NWDAF_TRAINING_DIR="${CMAKE_SOURCE_DIR}/nfs/nwdaf/training"
+)
+gtest_discover_tests(nwdaf_mtlf_integration_tests PROPERTIES TIMEOUT 400)
