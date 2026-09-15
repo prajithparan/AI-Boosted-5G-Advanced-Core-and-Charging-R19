@@ -23,6 +23,8 @@
 //     InitialDP over this same M3UA/SCTP harness but deliberately spawns neither, which is exactly
 //     why it can prove "dispatched vs shed" and cannot prove anything about rating.
 
+#include "sbi_core/http2_client.hpp"
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -266,6 +268,35 @@ TEST(CapScopedCharging, AnInitialDpRatesAgainstTheOfferingScopedToItsServiceKey)
     ASSERT_GT(balance.pid(), 0);
     ASSERT_GT(chf.pid(), 0);
     ASSERT_TRUE(wait_for_line(chf_log, "CAP (gsmSCF) listening", 30s)) << "CHF never opened CAP";
+    // The rating path calls product-catalog and balance-management the moment the InitialDP
+    // arrives. On the CI runner the first run of this test sent it 42 ms before product-catalog
+    // was listening ("could not reach bss/product-catalog for rating, granting nothing") -- the
+    // CHF's own readiness says nothing about its peers'. Wait for both to answer TLS.
+    {
+        sbi_core::http2::TlsConfig tls{
+            .cert_path = CERTS_DIR "/hello-nf/cert.pem",
+            .key_path = CERTS_DIR "/hello-nf/key.pem",
+            .ca_path = CERTS_DIR "/ca/ca.crt",
+        };
+        sbi_core::http2::Client probe(std::move(tls));
+        const auto reachable = [&](const std::string& url) {
+            for (int attempt = 0; attempt < 200; ++attempt) {
+                sbi_core::http2::ClientRequest req;
+                req.method = "GET";
+                req.url = url;
+                if (probe.send(req).has_value()) {
+                    return true;
+                }
+                std::this_thread::sleep_for(100ms);
+            }
+            return false;
+        };
+        ASSERT_TRUE(
+            reachable("https://127.0.0.1:7785/tmf-api/productCatalogManagement/v4/productOffering"))
+            << "product-catalog never became reachable";
+        ASSERT_TRUE(reachable("https://127.0.0.1:7786/tmf-api/prepayBalanceManagement/v4/bucket"))
+            << "balance-management never became reachable";
+    }
 
     ss7_core::SctpSocket sock;
     sock.connect("127.0.0.1", ss7_core::dictionary::kSctpPort);
