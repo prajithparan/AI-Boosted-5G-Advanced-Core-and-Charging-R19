@@ -334,7 +334,7 @@ jobs:
         # "failed to load TLS material .../certs/balance-management/cert.pem") plus every other
         # service whose main.cpp names a CERTS_DIR subdirectory, so the next spawned-NF test does not
         # rediscover this: grep -rhoE 'CERTS_DIR "/[a-z0-9-]+/' nfs bss is the list.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         # docker exec into the service container: no psql on the host, and the same command on
@@ -365,6 +365,12 @@ jobs:
           docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
           docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
 
+      - name: Apply ADRF schemas (ADR-0367 -- Doris data store, PostgreSQL ML model store)
+        run: |
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS adrf_data"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root adrf_data < nfs/adrf/schema.doris.sql
+          docker exec -i ${{ job.services['postgres-adrf'].id }} psql -U adrf -d adrf < nfs/adrf/schema.sql
+
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
         # here: missing certs killed AMF on startup, which left ctest waiting its full default
@@ -393,6 +399,10 @@ jobs:
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
+          ADRF_REDIS_URL: tcp://127.0.0.1:16379
+          ADRF_DATA_STORE_HOST: 127.0.0.1
+          ADRF_DATA_STORE_PORT: "19030"
+          ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf
           # ADR-0365: the MFAF test spawns two MFAF replicas on the CI Kafka; under TSan the test skips itself.
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1
@@ -744,7 +754,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         # docker exec into the service container: no psql on the host, and the same command on
@@ -761,6 +771,22 @@ jobs:
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
+
+      - name: Apply CHF PostgreSQL schema (ADR-0060)
+        # Missing here until ADR-0367: the build job applied it, the sanitizer legs did not, and
+        # the CAP scoped-charging test's rating_decision query answered -1 only under ASan/TSan.
+        run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
+
+      - name: Apply CHF Doris schema (ADR-0058, migrated ADR-0192)
+        run: |
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
+
+      - name: Apply ADRF schemas (ADR-0367 -- Doris data store, PostgreSQL ML model store)
+        run: |
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS adrf_data"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root adrf_data < nfs/adrf/schema.doris.sql
+          docker exec -i ${{ job.services['postgres-adrf'].id }} psql -U adrf -d adrf < nfs/adrf/schema.sql
 
       - name: Test
         # --timeout 120: defense in depth. A single spawned-NF-process crash/hang (real one hit
@@ -789,6 +815,10 @@ jobs:
           NWDAF_REDIS_URL: tcp://127.0.0.1:16379
           MFAF_REDIS_URL: tcp://127.0.0.1:16379
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
+          ADRF_REDIS_URL: tcp://127.0.0.1:16379
+          ADRF_DATA_STORE_HOST: 127.0.0.1
+          ADRF_DATA_STORE_PORT: "19030"
+          ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf
           # ADR-0365: the MFAF test spawns two MFAF replicas on the CI Kafka; under TSan the test skips itself.
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1

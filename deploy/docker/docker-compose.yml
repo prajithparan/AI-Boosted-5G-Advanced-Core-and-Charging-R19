@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf"
 
   nrf:
     build:
@@ -338,6 +338,57 @@ services:
       - "7803:7803"   # Ndccf_DataManagement + Ndccf_ContextManagement (TLS 1.3 + mTLS)
       - "9489:9489"   # Prometheus /metrics
 
+  # ADR-0367: the ADRF's ML model store -- its own PostgreSQL (one datastore per NF, as UDR,
+  # CHF, the BSS services each have theirs); model bytes live here so every ADRF replica serves
+  # every model. Data/analytics records go to Doris (adrf_data, doris-schema-init above).
+  postgres-adrf:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: adrf
+      POSTGRES_PASSWORD: adrf
+      POSTGRES_DB: adrf
+    volumes:
+      - postgres_adrf_data:/var/lib/postgresql/data
+      - ../../nfs/adrf/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "5438:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adrf"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adrf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/adrf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+      dccf:
+        condition: service_started
+      doris-schema-init:
+        condition: service_completed_successfully
+      postgres-adrf:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      ADRF_REDIS_URL: tcp://valkey:6379
+      ADRF_ADVERTISED_IPV4: adrf
+      ADRF_SELF_BASE_URL: https://adrf:7804
+      ADRF_DCCF_BASE_URL: https://dccf:7803
+      ADRF_NWDAF_BASE_URL: https://nwdaf:7798
+      ADRF_DATA_STORE_HOST: doris
+      ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@postgres-adrf:5432/adrf
+    volumes:
+      - certs_data:/build/certs
+    ports:
+      - "7804:7804"   # Nadrf_DataManagement + Nadrf_MLModelManagement (TLS 1.3 + mTLS)
+      - "9490:9490"   # Prometheus /metrics
+
   smsf:
     build:
       context: ../..
@@ -556,10 +607,13 @@ services:
         condition: service_healthy
     volumes:
       - ../../nfs/chf/schema.doris.sql:/schema.doris.sql:ro
+      - ../../nfs/adrf/schema.doris.sql:/adrf-schema.doris.sql:ro
     entrypoint:
       - /bin/bash
       - -c
-      - "mysql -h doris -P 9030 -u root -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mysql -h doris -P 9030 -u root chf_cdr < /schema.doris.sql"
+      # `mariadb`, not `mysql`: the mariadb:11 image dropped the mysql-named symlinks, so the
+      # one-shot had been exiting 127 (found while bringing the ADRF's database up, ADR-0367).
+      - "mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mariadb -h doris -P 9030 -u root --skip-ssl chf_cdr < /schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS adrf_data' && mariadb -h doris -P 9030 -u root --skip-ssl adrf_data < /adrf-schema.doris.sql"
 
   chf:
     build:
@@ -705,3 +759,4 @@ volumes:
   postgres_subscriber_data:
   postgres_roaming_data:
   postgres_udr_data:
+  postgres_adrf_data:

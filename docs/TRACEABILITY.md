@@ -5216,3 +5216,26 @@ commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §
 | Ndccf_ContextManagement Register/Update/Deregister (`/data-collection-profiles`) | TS 29.574 4.3.2.2-4 | `nfs/dccf/src/main.cpp`, store | not exercised end to end this increment -- disclosed |
 | Notify / Fetch (served by the MFAF), Transfer (`/transfer-data-sub`) | TS 29.574 4.2.2.4-6 | -- | **not built** (ADR-0366) |
 | NRF registration `nfType=DCCF` | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in the same test |
+
+## ADRF (ADR-0367)
+
+Source: `specs/5G_APIs-REL-19/TS29575_Nadrf_DataManagement.yaml`, `TS29575_Nadrf_MLModelManagement.yaml`,
+commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §5B, §6.2B.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Nadrf_DataManagement_StorageRequest (`POST /nadrf-datamanagement/v1/data-store-records` → 201 + Location; lifetime bounded by operator policy; oneOf enforced) | TS 29.575 4.2.2.2.2 | `nfs/adrf/src/main.cpp`, `record_store.cpp` (Doris) | `test_adrf.cpp` StoresRetrievesAndDeletesRecords |
+| Nadrf_DataManagement_RetrievalRequest (`GET ?store-trans-id` / `?data-set-id` / `?fetch-correlation-ids` → 200 one merged record / 204) | TS 29.575 4.2.2.5.2 | same | same test; RetrievalSubscriptionsNotifyStoredAndFutureRecords (fetch ids, consumed once) |
+| Nadrf_DataManagement_Delete by id (`DELETE .../{storeTransId}` → 204/404) and by specification (`POST /remove-stored-data-analytics`, dataSpec/anaSpec/dataSetId in timePeriod) | TS 29.575 4.2.2.9.2, 4.2.2.9.3 | same | same tests |
+| Nadrf_DataManagement_RetrievalSubscribe / Unsubscribe (`POST /data-retrieval-subscriptions` → 201; stored records notified now, arrivals later; `DELETE` → 204/404) | TS 29.575 4.2.2.6.2, 4.2.2.7.2 | `nfs/adrf/src/main.cpp`, `state_store.cpp` | RetrievalSubscriptionsNotifyStoredAndFutureRecords |
+| Nadrf_DataManagement_RetrievalNotify (`POST {notificationURI}` `NadrfDataRetrievalNotification`, `3gpp-Sbi-Callback: Nadrf_DataManagement_adrfDataRetrievalNotification`; `consTrigNotif` → `fetchInstruct`) | TS 29.575 4.2.2.8.2 | `notify_retrieval` | same test |
+| Deletion alert (`POST {delNotifUri}` `NadrfAlertNotification` before expiry; `retrievalInd` defers) and lifetime reaping | TS 29.575 4.2.2.8.3; 4.2.2.2.2 NOTE 2 | reaper thread, `record_store.cpp` `awaiting_alert`/`defer_expiry`/`remove_expired` | LifetimeAlertsBeforeDeletionAndHonoursRetrievalInd |
+| Nadrf_DataManagement_StorageSubscriptionRequest (`POST /request-storage-sub` → 200 `transRefId`; one collection per spec) | TS 29.575 4.2.2.3.2; TS 23.288 6.2B | `open_collection` | StorageSubscriptionTowardsAnNwdafStoresItsAnalytics (NWDAF direct, two transRefIds one subscription); StorageSubscriptionThroughTheDccfStoresSourceData (DCCF + MFAF + Kafka, NRF source) |
+| Target selection: `targetNfId` → nfType at the NRF (DCCF or NWDAF); `targetNfSetId` → the configured DCCF | TS 29.575 4.2.2.3.2 | `resolve_target` | NRF lookup: the NWDAF test (`targetNfId` from Nnrf_NFDiscovery); set id: the DCCF test (no NRF lookup on that path) |
+| Nadrf_DataManagement_StorageSubscriptionRemoval (`POST /request-storage-sub-removal`, transRefId or dataSetId → 204; last one unsubscribes the target) | TS 29.575 4.2.2.4.2 | `remove_storage_subscription`, `close_collection` | same two tests |
+| Nadrf_MLModelManagement_StorageRequest create/update (`POST /nadrf-mlmodelmanagement/v1/mlmodel-store-records` → 201, `PUT .../{storeTransId}` → 200; inline base64 or download by `mLModelUrl`; `modelStoreResults`; all-failed 404 `ML_MODEL_FILE_ADDRESS_NOT_FOUND` / 500 `ML_MODEL_FILE_DOWNLOAD_FAILED`) | TS 29.575 4.3.2.2.2, 4.3.2.2.3, 5.2.7.3-1 | `store_models`, `model_store.cpp` (PostgreSQL) | MlModelsStoredServedAndAccessControlled |
+| Nadrf_MLModelManagement_RetrievalRequest (`GET ?store-trans-id` / `?model-unique-ids` → 200 with the ADRF's `mlFileAddr` / 204 / 403 `RETRIEVAL_ML_MODEL_NOT_ALLOWED`) and the file itself (`GET /adrf-mlmodel-files/v1/{id}`) | TS 29.575 4.3.2.3.2 | `may_retrieve` | same test (owner, allowed consumer, stranger) |
+| Nadrf_MLModelManagement_Delete (`DELETE .../{storeTransId}` → 200 `MLModelDelResult[]`; `POST /remove-stored-mlmodel` → 204 / 200 partial / 404 `ML_MODEL_NOT_FOUND`) | TS 29.575 4.3.2.4.2, 4.3.2.4.3 | `nfs/adrf/src/main.cpp` | same test |
+| Feature negotiation: `EnhDataMgmt` (DM), `EnModelMgmt` (ML) | TS 29.575 5.1.8-1, 5.2.8-1; TS 29.500 6.6 | `negotiate` | same tests (`suppFeat` "4" / "1") |
+| NRF registration `nfType=ADRF` with both services | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in every test |
+| `mlFileFqdn` download, `dsc`, redirects, UpEvents/LocEvents/LmfEvents/PcfEvents, pure `terminationReq` | TS 29.575 5.1.8-1 | -- | **not built** (ADR-0367) |

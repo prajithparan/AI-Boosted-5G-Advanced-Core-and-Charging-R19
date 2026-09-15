@@ -4,23 +4,23 @@
   1700,
   1290
  ],
- "title": "AI-Boosted 5G-Advanced Core and Charging — Release 19 · architecture",
+ "title": "AI-Boosted 5G-Advanced Core and Charging \u2014 Release 19 \u00b7 architecture",
  "title_right": [
-  "SBI: HTTP/2 + JSON · TLS 1.3 mTLS · OAuth2 from NRF · TS 29.500",
-  "APIs generated from 3GPP Forge 5G_APIs, REL-19 (bca84b6) — never hand-written"
+  "SBI: HTTP/2 + JSON \u00b7 TLS 1.3 mTLS \u00b7 OAuth2 from NRF \u00b7 TS 29.500",
+  "APIs generated from 3GPP Forge 5G_APIs, REL-19 (bca84b6) \u2014 never hand-written"
  ],
  "subtitle": "Solid tiles exist in this repository and are tested; dashed tiles are in scope and not built. Every reference point drawn is a call wired in code (config/*.json), named per TS 23.501 clause 4.2.7. Chip = services served from generated YAML.",
  "legend": {
   "built": "built and tested",
   "planned": "in scope, not built",
-  "edge": "reference point wired in code (TS 23.501 §4.2.7 name · service · TS)",
+  "edge": "reference point wired in code (TS 23.501 \u00a74.2.7 name \u00b7 service \u00b7 TS)",
   "chip": "services generated from R19 YAML",
-  "footer": "docs/diagrams/architecture.json → render_architecture.py · checked in CI · updated as part of every NF's definition of done"
+  "footer": "docs/diagrams/architecture.json \u2192 render_architecture.py \u00b7 checked in CI \u00b7 updated as part of every NF's definition of done"
  },
  "areas": [
   {
    "id": "access",
-   "title": "Access · test harness",
+   "title": "Access \u00b7 test harness",
    "x": 20,
    "y": 96,
    "w": 180,
@@ -34,7 +34,7 @@
   },
   {
    "id": "cp",
-   "title": "5GC control plane — TS 23.501 / 23.502",
+   "title": "5GC control plane \u2014 TS 23.501 / 23.502",
    "x": 220,
    "y": 96,
    "w": 1060,
@@ -46,13 +46,13 @@
    "head": 70,
    "color": "#d62828",
    "note": [
-    "every NF: Nnrf register · heartbeat · discover · OAuth2 (ES256 JWT)",
-    "3gpp-Sbi-* headers · ProblemDetails · OpenTelemetry · Prometheus"
+    "every NF: Nnrf register \u00b7 heartbeat \u00b7 discover \u00b7 OAuth2 (ES256 JWT)",
+    "3gpp-Sbi-* headers \u00b7 ProblemDetails \u00b7 OpenTelemetry \u00b7 Prometheus"
    ]
   },
   {
    "id": "sbi",
-   "title": "SBI framework · support · interconnect",
+   "title": "SBI framework \u00b7 support \u00b7 interconnect",
    "x": 1300,
    "y": 96,
    "w": 380,
@@ -66,7 +66,7 @@
   },
   {
    "id": "chg",
-   "title": "Charging — CHF + online charging",
+   "title": "Charging \u2014 CHF + online charging",
    "x": 20,
    "y": 646,
    "w": 560,
@@ -80,7 +80,7 @@
   },
   {
    "id": "ds",
-   "title": "Datastores — all self-hosted open source",
+   "title": "Datastores \u2014 all self-hosted open source",
    "x": 600,
    "y": 646,
    "w": 680,
@@ -97,7 +97,7 @@
   },
   {
    "id": "obs",
-   "title": "Observability · ops",
+   "title": "Observability \u00b7 ops",
    "x": 1300,
    "y": 646,
    "w": 380,
@@ -111,7 +111,7 @@
   },
   {
    "id": "bss",
-   "title": "BSS — TM Forum SID / Open APIs",
+   "title": "BSS \u2014 TM Forum SID / Open APIs",
    "x": 20,
    "y": 896,
    "w": 560,
@@ -137,7 +137,7 @@
    "head": 56,
    "color": "#047857",
    "note": [
-    "inference in-process C++ (ONNX Runtime) · training in a Python sidecar (MLflow)"
+    "inference in-process C++ (ONNX Runtime) \u00b7 training in a Python sidecar (MLflow)"
    ]
   }
  ],
@@ -166,11 +166,11 @@
     "NGAP over SCTP"
    ],
    "ts": [
-    "TS 38.413 · TS 38.412"
+    "TS 38.413 \u00b7 TS 38.412"
    ],
    "svc": [
-    "registration · PDU session",
-    "handover · GTP-U to N3"
+    "registration \u00b7 PDU session",
+    "handover \u00b7 GTP-U to N3"
    ],
    "glyph": "antenna",
    "color": "#7c3aed",
@@ -186,10 +186,10 @@
     "NAS 5GMM / 5GSM"
    ],
    "ts": [
-    "TS 24.501 · TS 33.501"
+    "TS 24.501 \u00b7 TS 33.501"
    ],
    "svc": [
-    "SUCI · 5G-AKA · EAP-AKA'",
+    "SUCI \u00b7 5G-AKA \u00b7 EAP-AKA'",
     "NAS security (NEA/NIA)"
    ],
    "glyph": "phone",
@@ -206,7 +206,7 @@
     "User Plane Function"
    ],
    "ts": [
-    "TS 29.244 PFCP · TS 29.564"
+    "TS 29.244 PFCP \u00b7 TS 29.564"
    ],
    "svc": [
     "Nupf_EventExposure",
@@ -228,12 +228,12 @@
     "Session Management"
    ],
    "ts": [
-    "TS 29.502 · 29.508 · 29.542"
+    "TS 29.502 \u00b7 29.508 \u00b7 29.542"
    ],
    "svc": [
-    "Nsmf_PDUSession · Nsmf_NIDD",
+    "Nsmf_PDUSession \u00b7 Nsmf_NIDD",
     "Nsmf_EventExposure",
-    "PFCP client · NAS 5GSM"
+    "PFCP client \u00b7 NAS 5GSM"
    ],
    "glyph": "route",
    "color": "#d63384",
@@ -255,8 +255,8 @@
    ],
    "svc": [
     "Npcf_SMPolicyControl",
-    "AMPolicyControl · PolicyAuth",
-    "UEPolicy · EE · BDT · PDTQ · MBS"
+    "AMPolicyControl \u00b7 PolicyAuth",
+    "UEPolicy \u00b7 EE \u00b7 BDT \u00b7 PDTQ \u00b7 MBS"
    ],
    "glyph": "sliders",
    "color": "#1f5fbf",
@@ -273,12 +273,12 @@
     "Access & Mobility Mgmt"
    ],
    "ts": [
-    "TS 29.518 · 38.413 · 24.501"
+    "TS 29.518 \u00b7 38.413 \u00b7 24.501"
    ],
    "svc": [
     "Namf_Communication",
-    "EventExposure · Location · MT",
-    "MBS · AIoT · NGAP/SCTP · NAS"
+    "EventExposure \u00b7 Location \u00b7 MT",
+    "MBS \u00b7 AIoT \u00b7 NGAP/SCTP \u00b7 NAS"
    ],
    "glyph": "user",
    "color": "#d62828",
@@ -295,12 +295,12 @@
     "Authentication Server"
    ],
    "ts": [
-    "TS 29.509 · TS 33.501"
+    "TS 29.509 \u00b7 TS 33.501"
    ],
    "svc": [
     "Nausf_UEAuthentication",
-    "SoRProtection · UPUProtection",
-    "5G-AKA · EAP-AKA'"
+    "SoRProtection \u00b7 UPUProtection",
+    "5G-AKA \u00b7 EAP-AKA'"
    ],
    "glyph": "shield",
    "color": "#1e88e5",
@@ -317,12 +317,12 @@
     "Unified Data Management"
    ],
    "ts": [
-    "TS 29.503 · TS 33.501"
+    "TS 29.503 \u00b7 TS 33.501"
    ],
    "svc": [
-    "Nudm_SDM · UECM · UEAU · EE",
-    "PP · MT · NIDDAU · RSDS",
-    "SSAU · UEID · SIDF (SUCI)",
+    "Nudm_SDM \u00b7 UECM \u00b7 UEAU \u00b7 EE",
+    "PP \u00b7 MT \u00b7 NIDDAU \u00b7 RSDS",
+    "SSAU \u00b7 UEID \u00b7 SIDF (SUCI)",
     "MAP server (SS7)"
    ],
    "glyph": "db",
@@ -340,12 +340,12 @@
     "Unified Data Repository"
    ],
    "ts": [
-    "TS 29.504 · 29.505 · 29.519"
+    "TS 29.504 \u00b7 29.505 \u00b7 29.519"
    ],
    "svc": [
     "Nudr_DataRepository",
     "Nudr_GroupIDmap",
-    "subscription · policy · app data"
+    "subscription \u00b7 policy \u00b7 app data"
    ],
    "glyph": "db",
    "color": "#1d3c8f",
@@ -467,7 +467,7 @@
     "TS 29.572"
    ],
    "svc": [
-    "Nlmf_Location · Nlmf_Broadcast",
+    "Nlmf_Location \u00b7 Nlmf_Broadcast",
     "Nlmf_DataExposure"
    ],
    "glyph": "pin",
@@ -505,14 +505,14 @@
     "Network Exposure Function"
    ],
    "ts": [
-    "TS 29.522 · 29.591",
-    "TS 29.122 · 29.256"
+    "TS 29.522 \u00b7 29.591",
+    "TS 29.122 \u00b7 29.256"
    ],
    "svc": [
-    "EventExposure · PFDManagement",
-    "SMService · TrafficInfluence",
-    "DNAI · EAS · ECS · UEId · Auth",
-    "Inference · Training · VFL"
+    "EventExposure \u00b7 PFDManagement",
+    "SMService \u00b7 TrafficInfluence",
+    "DNAI \u00b7 EAS \u00b7 ECS \u00b7 UEId \u00b7 Auth",
+    "Inference \u00b7 Training \u00b7 VFL"
    ],
    "glyph": "api",
    "color": "#8d6e63",
@@ -533,7 +533,7 @@
    ],
    "svc": [
     "Nnrf_NFManagement",
-    "NFDiscovery · AccessToken",
+    "NFDiscovery \u00b7 AccessToken",
     "Bootstrapping"
    ],
    "glyph": "registry",
@@ -571,7 +571,7 @@
     "Security Edge Proxy"
    ],
    "ts": [
-    "TS 29.573 · 33.501"
+    "TS 29.573 \u00b7 33.501"
    ],
    "svc": [
     "N32-c / N32-f"
@@ -590,7 +590,7 @@
     "AKMA Anchor"
    ],
    "ts": [
-    "TS 29.535 · 33.535"
+    "TS 29.535 \u00b7 33.535"
    ],
    "svc": [
     "Naanf_AKMA"
@@ -625,15 +625,15 @@
    "row": 0,
    "acronym": "Diameter",
    "name": [
-    "Gy · Rf · Sy"
+    "Gy \u00b7 Rf \u00b7 Sy"
    ],
    "ts": [
-    "RFC 4006 · TS 32.299",
+    "RFC 4006 \u00b7 TS 32.299",
     "TS 29.219 (Sy)"
    ],
    "svc": [
-    "credit-control · quota",
-    "re-auth · spending limits"
+    "credit-control \u00b7 quota",
+    "re-auth \u00b7 spending limits"
    ],
    "glyph": "card",
    "color": "#b45309",
@@ -646,14 +646,14 @@
    "row": 0,
    "acronym": "SS7 stack",
    "name": [
-    "M3UA · SCCP · TCAP"
+    "M3UA \u00b7 SCCP \u00b7 TCAP"
    ],
    "ts": [
-    "RFC 4666 · Q.713 · Q.773"
+    "RFC 4666 \u00b7 Q.713 \u00b7 Q.773"
    ],
    "svc": [
-    "over SCTP · libs/ss7-core",
-    "tcap-core · map-core"
+    "over SCTP \u00b7 libs/ss7-core",
+    "tcap-core \u00b7 map-core"
    ],
    "glyph": "stream",
    "color": "#6d4c41",
@@ -672,7 +672,7 @@
     "TS 29.078"
    ],
    "svc": [
-    "InitialDP · ApplyCharging",
+    "InitialDP \u00b7 ApplyCharging",
     "ApplyChargingReport"
    ],
    "glyph": "handset",
@@ -689,13 +689,13 @@
     "Charging Function"
    ],
    "ts": [
-    "TS 32.290 · 32.291 · 29.594"
+    "TS 32.290 \u00b7 32.291 \u00b7 29.594"
    ],
    "svc": [
     "Nchf_ConvergedCharging v3",
     "OfflineOnlyCharging",
     "SpendingLimitControl",
-    "rating · quota · CDRs"
+    "rating \u00b7 quota \u00b7 CDRs"
    ],
    "glyph": "coin",
    "color": "#e8890c",
@@ -712,10 +712,10 @@
     "event bus (KRaft)"
    ],
    "ts": [
-    "3.9 · Apache-2.0"
+    "3.9 \u00b7 Apache-2.0"
    ],
    "svc": [
-    "topic chf.cdr · acks=all",
+    "topic chf.cdr \u00b7 acks=all",
     "idempotent producer"
    ],
    "glyph": "stream",
@@ -729,13 +729,13 @@
    "row": 0,
    "acronym": "Apache Doris",
    "name": [
-    "CDR analytics · feature store"
+    "CDR analytics \u00b7 feature store"
    ],
    "ts": [
-    "4.1.3 · Apache-2.0"
+    "4.1.3 \u00b7 Apache-2.0"
    ],
    "svc": [
-    "CDRs 3M+ · 404-day partitions",
+    "CDRs 3M+ \u00b7 404-day partitions",
     "Routine Load from Kafka",
     "chf_features.subscriber_features"
    ],
@@ -748,17 +748,17 @@
    "area": "ds",
    "col": 2,
    "row": 0,
-   "acronym": "PostgreSQL ×6",
+   "acronym": "PostgreSQL \u00d77",
    "name": [
     "relational state"
    ],
    "ts": [
-    "16 · PostgreSQL License"
+    "16 \u00b7 PostgreSQL License"
    ],
    "svc": [
-    "UDR · catalog · balance",
-    "subscriber · roaming",
-    "CHF rating audit · MCP audit"
+    "UDR \u00b7 ADRF \u00b7 catalog",
+    "subscriber \u00b7 roaming",
+    "CHF rating audit \u00b7 MCP audit"
    ],
    "glyph": "db",
    "color": "#336791",
@@ -774,11 +774,11 @@
     "hot-path state, shared by replicas"
    ],
    "ts": [
-    "8 · BSD-3-Clause"
+    "8 \u00b7 BSD-3-Clause"
    ],
    "svc": [
-    "AMF UE security ctx · AUSF",
-    "CHF refs · idempotency keys",
+    "AMF UE security ctx \u00b7 AUSF",
+    "CHF refs \u00b7 idempotency keys",
     "NWDAF subscriptions"
    ],
    "glyph": "bolt",
@@ -792,7 +792,7 @@
    "row": 0,
    "acronym": "OpenTelemetry",
    "name": [
-    "Prometheus · Grafana"
+    "Prometheus \u00b7 Grafana"
    ],
    "ts": [
     "every NF"
@@ -816,10 +816,10 @@
     "Lawful Interception"
    ],
    "ts": [
-    "TS 33.127 · TS 33.128"
+    "TS 33.127 \u00b7 TS 33.128"
    ],
    "svc": [
-    "POIs · IRI / CC · SIRF",
+    "POIs \u00b7 IRI / CC \u00b7 SIRF",
     "production blocker #0"
    ],
    "glyph": "eye",
@@ -852,7 +852,7 @@
    "row": 0,
    "acronym": "Product Catalog",
    "name": [
-    "offering · price · SID"
+    "offering \u00b7 price \u00b7 SID"
    ],
    "ts": [
     "TMF620"
@@ -871,13 +871,13 @@
    "row": 0,
    "acronym": "Balance Mgmt",
    "name": [
-    "prepay · bill run"
+    "prepay \u00b7 bill run"
    ],
    "ts": [
-    "TMF654 · TMF678"
+    "TMF654 \u00b7 TMF678"
    ],
    "svc": [
-    "BalanceTopUp · CustomerBill",
+    "BalanceTopUp \u00b7 CustomerBill",
     "AppliedCustomerBillingRate"
    ],
    "glyph": "wallet",
@@ -891,13 +891,13 @@
    "row": 0,
    "acronym": "Subscriber Mgmt",
    "name": [
-    "Customer · Party"
+    "Customer \u00b7 Party"
    ],
    "ts": [
     "TMF632"
    ],
    "svc": [
-    "Individual · Organization"
+    "Individual \u00b7 Organization"
    ],
    "glyph": "users",
    "color": "#a16207",
@@ -910,10 +910,10 @@
    "row": 0,
    "acronym": "Roaming",
    "name": [
-    "interconnect · TAP OUT"
+    "interconnect \u00b7 TAP OUT"
    ],
    "ts": [
-    "TMF651 · TAP3 (TD.57)"
+    "TMF651 \u00b7 TAP3 (TD.57)"
    ],
    "svc": [
     "libs/tap3-core codec",
@@ -934,11 +934,11 @@
     "Messaging Framework Adaptor"
    ],
    "ts": [
-    "TS 29.576 · 23.288 §5A.3.2"
+    "TS 29.576 \u00b7 23.288 \u00a75A.3.2"
    ],
    "svc": [
-    "Nmfaf_3da · 3ca · Context",
-    "state Valkey · delivery Kafka group"
+    "Nmfaf_3da \u00b7 3ca \u00b7 Context",
+    "state Valkey \u00b7 delivery Kafka group"
    ],
    "glyph": "swap",
    "color": "#047857",
@@ -956,11 +956,11 @@
     "Data Collection Coordination"
    ],
    "ts": [
-    "TS 29.574 · 23.288 §5A.2"
+    "TS 29.574 \u00b7 23.288 \u00a75A.2"
    ],
    "svc": [
-    "Ndccf_DataManagement · Context",
-    "dedup per data spec · via MFAF"
+    "Ndccf_DataManagement \u00b7 Context",
+    "dedup per data spec \u00b7 via MFAF"
    ],
    "glyph": "funnel",
    "color": "#047857",
@@ -977,15 +977,16 @@
     "Analytics Data Repository"
    ],
    "ts": [
-    "TS 29.575 · 23.288 §5B"
+    "TS 29.575 \u00b7 23.288 \u00a75B"
    ],
    "svc": [
     "Nadrf_DataManagement (Doris)",
-    "Nadrf_MLModelManagement"
+    "Nadrf_MLModelManagement (PG)"
    ],
    "glyph": "archive",
    "color": "#047857",
-   "planned": true
+   "source": "nfs/adrf",
+   "dx": 52
   },
   {
    "id": "feat",
@@ -995,7 +996,7 @@
    "dx": 19.5,
    "acronym": "Feature store",
    "name": [
-    "Doris · chf_features"
+    "Doris \u00b7 chf_features"
    ],
    "ts": [
     "extract_features.py"
@@ -1015,7 +1016,7 @@
    "row": 0,
    "acronym": "Training sidecar",
    "name": [
-    "Python · training only"
+    "Python \u00b7 training only"
    ],
    "ts": [
     "MLflow lineage"
@@ -1038,7 +1039,7 @@
     "in-process C++ inference"
    ],
    "ts": [
-    "1.23 · MIT"
+    "1.23 \u00b7 MIT"
    ],
    "svc": [
     "quota sizing in CHF",
@@ -1062,7 +1063,7 @@
    ],
    "svc": [
     "PII access audit (PostgreSQL)",
-    "agent scoping · reads Doris/PG"
+    "agent scoping \u00b7 reads Doris/PG"
    ],
    "glyph": "robot",
    "color": "#7c3aed",
@@ -1073,17 +1074,17 @@
    "area": "ai",
    "col": 5,
    "row": 0,
-   "acronym": "NWDAF · AnLF",
+   "acronym": "NWDAF \u00b7 AnLF",
    "name": [
     "Network Data Analytics"
    ],
    "ts": [
-    "TS 29.520 · TS 23.288"
+    "TS 29.520 \u00b7 TS 23.288"
    ],
    "svc": [
     "Nnwdaf_AnalyticsInfo",
     "Nnwdaf_EventsSubscription",
-    "NF_LOAD · ABNORMAL_BEHAVIOUR"
+    "NF_LOAD \u00b7 ABNORMAL_BEHAVIOUR"
    ],
    "glyph": "chart",
    "color": "#059669",
@@ -1095,16 +1096,16 @@
    "area": "ai",
    "col": 5,
    "row": 1,
-   "acronym": "NWDAF · MTLF",
+   "acronym": "NWDAF \u00b7 MTLF",
    "name": [
     "model training (MTLF)"
    ],
    "ts": [
-    "TS 29.520 · TS 23.288 §7.5"
+    "TS 29.520 \u00b7 TS 23.288 \u00a77.5"
    ],
    "svc": [
     "Nnwdaf_MLModelProvision",
-    "MLModelTraining · MLModelMonitor"
+    "MLModelTraining \u00b7 MLModelMonitor"
    ],
    "glyph": "flask",
    "color": "#059669",
@@ -1117,7 +1118,7 @@
    "row": 0,
    "acronym": "Agents",
    "name": [
-    "network analytics · care",
+    "network analytics \u00b7 care",
     "tech-ops"
    ],
    "ts": [
@@ -1171,7 +1172,7 @@
    "to_side": "top",
    "to_off": 14,
    "label": [
-    "N2 · NGAP/SCTP · TS 38.413  —  N1 · NAS · TS 24.501 (carried over N2)"
+    "N2 \u00b7 NGAP/SCTP \u00b7 TS 38.413  \u2014  N1 \u00b7 NAS \u00b7 TS 24.501 (carried over N2)"
    ],
    "label_at": 0.4,
    "label_dy": -5
@@ -1222,7 +1223,7 @@
    "from_side": "top",
    "to_side": "top",
    "label": [
-    "N11 · Nsmf_PDUSession / Namf_Communication · TS 29.502 / 29.518"
+    "N11 \u00b7 Nsmf_PDUSession / Namf_Communication \u00b7 TS 29.502 / 29.518"
    ],
    "label_at": 0.5,
    "label_dy": -5,
@@ -1276,7 +1277,7 @@
    "to_side": "right",
    "to_off": 14,
    "label": [
-    "N80 · Nnsacf_NSAC · TS 29.536"
+    "N80 \u00b7 Nnsacf_NSAC \u00b7 TS 29.536"
    ],
    "label_at": 0.72,
    "label_dy": -5
@@ -1294,7 +1295,7 @@
    "from_off": -14,
    "to_side": "right",
    "label": [
-    "N81 · Nnsacf_NSAC"
+    "N81 \u00b7 Nnsacf_NSAC"
    ],
    "label_at": 0.7,
    "label_dx": 0,
@@ -1322,7 +1323,7 @@
    "to_side": "right",
    "to_off": 14,
    "label": [
-    "N36 · Nudr_DataRepository · policy data · TS 29.519"
+    "N36 \u00b7 Nudr_DataRepository \u00b7 policy data \u00b7 TS 29.519"
    ],
    "label_at": 0.55,
    "label_dy": -5
@@ -1349,7 +1350,7 @@
    "to_side": "right",
    "to_off": -14,
    "label": [
-    "Nudr_DataRepository · influenceData (ADR-0320 shortcut)"
+    "Nudr_DataRepository \u00b7 influenceData (ADR-0320 shortcut)"
    ],
    "label_at": 0.6,
    "label_dy": 12
@@ -1360,7 +1361,7 @@
    "route": "s",
    "label": [
     "N52",
-    "Nudm_EE · TS 29.503"
+    "Nudm_EE \u00b7 TS 29.503"
    ],
    "label_at": 0.62
   },
@@ -1376,8 +1377,8 @@
    "from_side": "right",
    "to_side": "bottom",
    "label": [
-    "N37 · Nudr_DataRepository",
-    "application data · TS 29.519"
+    "N37 \u00b7 Nudr_DataRepository",
+    "application data \u00b7 TS 29.519"
    ],
    "label_at": 0.15,
    "label_dy": -5
@@ -1400,7 +1401,7 @@
    "to_side": "bottom",
    "to_off": 14,
    "label": [
-    "N30 · Npcf_PolicyAuthorization · TS 29.514"
+    "N30 \u00b7 Npcf_PolicyAuthorization \u00b7 TS 29.514"
    ],
    "label_at": 0.5,
    "label_dy": -5
@@ -1427,7 +1428,7 @@
    "to_side": "top",
    "to_off": 14,
    "label": [
-    "N40 · Nchf_ConvergedCharging · TS 32.291"
+    "N40 \u00b7 Nchf_ConvergedCharging \u00b7 TS 32.291"
    ],
    "label_at": 0.5,
    "label_dx": 6
@@ -1454,7 +1455,7 @@
    "to_side": "top",
    "to_off": -10,
    "label": [
-    "N28 · Nchf_SpendingLimitControl · TS 29.594"
+    "N28 \u00b7 Nchf_SpendingLimitControl \u00b7 TS 29.594"
    ],
    "label_at": 0.85,
    "label_dx": 0,
@@ -1477,7 +1478,7 @@
    "to_side": "top",
    "to_off": -20,
    "label": [
-    "Gy · Rf · Sy (Diameter, SCTP/TCP)"
+    "Gy \u00b7 Rf \u00b7 Sy (Diameter, SCTP/TCP)"
    ],
    "label_at": 0.5,
    "label_dy": -5
@@ -1496,7 +1497,7 @@
    "to": "chf",
    "route": "s",
    "label": [
-    "CAP · TS 29.078"
+    "CAP \u00b7 TS 29.078"
    ],
    "label_at": 0.5
   },
@@ -1518,7 +1519,7 @@
    "to_side": "left",
    "to_off": 24,
    "label": [
-    "CDR events · chf.cdr"
+    "CDR events \u00b7 chf.cdr"
    ],
    "label_at": 0.5,
    "label_dy": 12
@@ -1602,7 +1603,7 @@
    "from_off": 14,
    "to_side": "top",
    "label": [
-    "feature store rows → ABNORMAL_BEHAVIOUR"
+    "feature store rows \u2192 ABNORMAL_BEHAVIOUR"
    ],
    "label_at": 0.8,
    "label_dy": -5
@@ -1653,7 +1654,7 @@
    "to_side": "top",
    "to_off": 14,
    "label": [
-    "TMF620 · offering / price lookup"
+    "TMF620 \u00b7 offering / price lookup"
    ],
    "label_at": 0.6,
    "label_dy": -5
@@ -1676,7 +1677,7 @@
    "to_side": "top",
    "to_off": 14,
    "label": [
-    "TMF654 · balance debit / top-up"
+    "TMF654 \u00b7 balance debit / top-up"
    ],
    "label_at": 0.6,
    "label_dy": -5
@@ -1715,6 +1716,16 @@
    "planned": true,
    "label": [
     "read-only analytics"
+   ],
+   "label_at": 0.5
+  },
+  {
+   "from": "adrf",
+   "to": "dccf",
+   "route": "s",
+   "label": [
+    "Ndccf_Data",
+    "Management"
    ],
    "label_at": 0.5
   }

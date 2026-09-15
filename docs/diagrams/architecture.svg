@@ -154,6 +154,7 @@
 <path d="M831.5 1138.0 L726.5 1138.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M1450.0 1108.0 L1450.0 1018.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
 <path d="M1480.0 988.0 L1572.0 988.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
+<path d="M1016.0 1138.0 L891.5 1138.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <text x="123.0" y="309.4" text-anchor="start" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">Uu (simulated)</text>
 <text x="208.5" y="197.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">N3</text>
 <text x="208.5" y="208.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:7.8px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">GTP-U</text>
@@ -206,6 +207,8 @@
 <text x="779.0" y="1133.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">Nmfaf_3da</text>
 <text x="779.0" y="1144.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:7.8px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">DataManagement</text>
 <text x="1526.0" y="983.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">read-only analytics</text>
+<text x="953.8" y="1133.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">Ndccf_Data</text>
+<text x="953.8" y="1144.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:7.8px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">Management</text>
 <rect x="79.0" y="172.0" width="60" height="60" rx="13" fill="url(#grad-7c3aed)" stroke="#4a228e" stroke-width="1"/>
 <rect x="81.0" y="174.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
 <use href="#g-antenna" x="93.0" y="186.0" width="32" height="32"/>
@@ -484,10 +487,10 @@
 <rect x="996.5" y="708.0" width="60" height="60" rx="13" fill="url(#grad-336791)" stroke="#1e3d57" stroke-width="1"/>
 <rect x="998.5" y="710.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
 <use href="#g-db" x="1010.5" y="722.0" width="32" height="32"/>
-<text x="1026.5" y="783.0" text-anchor="middle" fill="#1f2328" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">PostgreSQL ×6</text>
+<text x="1026.5" y="783.0" text-anchor="middle" fill="#1f2328" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">PostgreSQL ×7</text>
 <text x="1026.5" y="795.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">relational state</text>
 <text x="1026.5" y="806.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">16 · PostgreSQL License</text>
-<text x="1026.5" y="816.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">UDR · catalog · balance</text>
+<text x="1026.5" y="816.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">UDR · ADRF · catalog</text>
 <text x="1026.5" y="826.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">subscriber · roaming</text>
 <text x="1026.5" y="836.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">CHF rating audit · MCP audit</text>
 <rect x="1161.5" y="708.0" width="60" height="60" rx="13" fill="url(#grad-7c3aed)" stroke="#4a228e" stroke-width="1"/>
@@ -577,16 +580,14 @@
 <text x="861.5" y="1206.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">TS 29.574 · 23.288 §5A.2</text>
 <text x="861.5" y="1216.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Ndccf_DataManagement · Context</text>
 <text x="861.5" y="1226.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">dedup per data spec · via MFAF</text>
-<rect x="964.0" y="1108.0" width="60" height="60" rx="13" fill="url(#grad-planned)" stroke="#b45309" stroke-width="1.6" stroke-dasharray="5 3"/>
-<g transform="translate(978.0,1122.0)" style="filter:none"><use href="#g-archive" width="32" height="32" style="color:#047857"/></g>
-<rect x="965.0" y="1109.0" width="58" height="58" rx="12" fill="#047857" opacity="0.28"/>
-<rect x="983.8" y="1094.0" width="46.2" height="14" rx="7" fill="#b45309"/>
-<text x="1006.9" y="1104.5" text-anchor="middle" fill="#ffffff" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.5px;font-weight:700;">planned</text>
-<text x="994.0" y="1183.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">ADRF</text>
-<text x="994.0" y="1195.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Analytics Data Repository</text>
-<text x="994.0" y="1206.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">TS 29.575 · 23.288 §5B</text>
-<text x="994.0" y="1216.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Nadrf_DataManagement (Doris)</text>
-<text x="994.0" y="1226.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Nadrf_MLModelManagement</text>
+<rect x="1016.0" y="1108.0" width="60" height="60" rx="13" fill="url(#grad-047857)" stroke="#024834" stroke-width="1"/>
+<rect x="1018.0" y="1110.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
+<use href="#g-archive" x="1030.0" y="1122.0" width="32" height="32"/>
+<text x="1046.0" y="1183.0" text-anchor="middle" fill="#1f2328" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">ADRF</text>
+<text x="1046.0" y="1195.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Analytics Data Repository</text>
+<text x="1046.0" y="1206.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">TS 29.575 · 23.288 §5B</text>
+<text x="1046.0" y="1216.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Nadrf_DataManagement (Doris)</text>
+<text x="1046.0" y="1226.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Nadrf_MLModelManagement (PG)</text>
 <rect x="831.5" y="958.0" width="60" height="60" rx="13" fill="url(#grad-0e7490)" stroke="#084556" stroke-width="1"/>
 <rect x="833.5" y="960.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
 <use href="#g-grid" x="845.5" y="972.0" width="32" height="32"/>
