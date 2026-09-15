@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # ADR-0371: the full clang-tidy sweep runs weekly and on demand; a push lints what it changed.
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      full_lint:
+        description: "clang-tidy every .cpp under libs/ and nfs/ (default: files changed by the push)"
+        type: boolean
+        default: true
 
 # Real fix (docs/DECISIONS.md ADR-0132): this repo pushes small commits in rapid succession
 # (~15-30 min apart), each triggering a full 4-job run (build/lint/sanitize x2) that takes longer
@@ -908,6 +917,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # ADR-0371: the changed-files lint diffs against the push's base commit
 
       - name: Locate caches and tools for this runner (ADR-0363)
         # Self-hosted: persistent ccache + vcpkg + binary cache outside the workspace, and a
@@ -1008,8 +1019,30 @@ jobs:
         #
         # `-n 1` gives one file per process so all cores stay busy; xargs still exits non-zero if
         # any invocation fails, so warnings-as-errors continue to fail the job exactly as before.
+        #
+        # ADR-0371 (2026-09-16): even parallelised, the full sweep takes 4.5-5.5 h on the lab
+        # runner (measured: the last two that finished), and this repo's push cadence with
+        # cancel-in-progress meant every lint since 2026-09-15 02:13Z was cancelled -- eight NF
+        # increments were never linted in CI. A push now lints the .cpp files it changed (the
+        # diff from the push's base commit; the whole tree when there is no base, e.g. a new
+        # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
+        env:
+          BEFORE: ${{ github.event.before }}
+          FULL_LINT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_lint) }}
         run: |
           # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
           # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
-          find libs nfs -name '*.cpp' -print0 \
-            | xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build
+          if [ "$FULL_LINT" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "lint: full sweep (event=${GITHUB_EVENT_NAME}, before=${BEFORE:-none})"
+            find libs nfs -name '*.cpp' -print0 > files.lst
+          else
+            git diff --name-only --diff-filter=ACMR "$BEFORE" "$GITHUB_SHA" -- 'libs/**/*.cpp' 'nfs/**/*.cpp' \
+              | tr '\n' '\0' > files.lst
+            echo "lint: $(tr -cd '\0' < files.lst | wc -c) file(s) changed since $BEFORE"
+          fi
+          if [ ! -s files.lst ]; then
+            echo "lint: no .cpp changed by this push -- nothing to analyse"
+            exit 0
+          fi
+          xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build < files.lst
