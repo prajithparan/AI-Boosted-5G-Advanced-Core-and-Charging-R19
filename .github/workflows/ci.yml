@@ -146,6 +146,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # ADR-0367: the ADRF's ML model store -- its own PostgreSQL, mirroring compose's
+      # postgres-adrf (user/db adrf, host port 5438 there, +10000 here).
+      postgres-adrf:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: adrf
+          POSTGRES_PASSWORD: adrf
+          POSTGRES_DB: adrf
+        ports:
+          - 15438:5432
+        options: >-
+          --health-cmd "pg_isready -U adrf"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       # ADR-0073: real Redis/Valkey for CHF's own E3 session-state persistence (ADR-0055).
       # Valkey, not Redis: Redis 7.4+ is RSALv2/SSPL, not OSI-approved (P1, ADR-0044/0356).
       redis:
@@ -544,6 +559,21 @@ jobs:
           - 15434:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # ADR-0367: the ADRF's ML model store -- its own PostgreSQL, mirroring compose's
+      # postgres-adrf (user/db adrf, host port 5438 there, +10000 here).
+      postgres-adrf:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: adrf
+          POSTGRES_PASSWORD: adrf
+          POSTGRES_DB: adrf
+        ports:
+          - 15438:5432
+        options: >-
+          --health-cmd "pg_isready -U adrf"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
