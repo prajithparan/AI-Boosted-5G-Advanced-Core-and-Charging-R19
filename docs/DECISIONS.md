@@ -28598,3 +28598,18 @@ discovery executes the test binaries) and Test steps now run under `setarch $(un
 when the matrix leg is `tsan`. Rejected: the sysctl (needs root, per machine, invisible in the
 repo); switching the leg to clang-18 (a second toolchain's worth of warnings and ccache misses
 to chase for a problem that is a process flag).
+
+**CI note 3 (2026-09-15, the TSan leg past startup for the first time).** 641/650 passed; the
+nine failures were every test that spawns the CHF with the Kafka bus enabled, plus the
+event-bus test itself, which segfaulted 1 s in. Reproduced with a 15-line librdkafka producer
+under both GCC 13 and clang-18 ThreadSanitizer: librdkafka creates its broker threads with
+glibc's C11 `thrd_create` (`nm librdkafka.a` shows the undefined symbol), which calls
+`pthread_create` inside glibc where TSan's interceptor does not see it; the new thread has no
+TSan state and dies on its first `realloc` (glibc's `__check_pf` under `getaddrinfo`). Decision:
+the TSan leg runs with `CHF_CDR_EVENT_BUS_BROKERS` empty (bus disabled, direct-insert path) and
+the event-bus test skips itself when compiled under TSan, with the reason printed. The ASan/UBSan
+leg and the plain build keep the full Kafka path. Disclosed: TSan therefore never observes the
+CDR-to-Kafka path -- a small loss, since librdkafka itself is uninstrumented and the producer's
+only shared state is the `std::unique_ptr` the destructor flushes. Rejected: an overlay port
+building librdkafka with `WITH_C11THREADS=OFF` (changes the production library to suit a test
+tool); the sysctl/compiler routes are irrelevant here (same crash on both compilers).

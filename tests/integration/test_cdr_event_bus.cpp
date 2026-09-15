@@ -41,7 +41,24 @@ bool broker_reachable(const std::string& b) {
 
 } // namespace
 
+// ThreadSanitizer cannot run librdkafka: it creates its broker threads with glibc's C11
+// thrd_create, which calls pthread_create inside glibc where TSan's interceptor does not see it,
+// so those threads have no TSan state and segfault on their first allocation (reproduced with a
+// 15-line producer under both GCC 13 and clang-18 TSan; ADR-0364 CI note 3). The ASan/UBSan leg
+// and the plain build run this test in full; under TSan it skips rather than crashing the binary.
+#if defined(__SANITIZE_THREAD__)
+#define CHF_EVENT_BUS_TSAN 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define CHF_EVENT_BUS_TSAN 1
+#endif
+#endif
+
 TEST(CdrEventBus, ACdrWrittenByCdrWriterArrivesOnTheTopicKeyedOnTheSubscriber) {
+#ifdef CHF_EVENT_BUS_TSAN
+    GTEST_SKIP() << "librdkafka's C11-thread broker threads are invisible to ThreadSanitizer -- "
+                    "skipped, not passed";
+#endif
     const auto b = brokers();
     if (!broker_reachable(b)) {
         GTEST_SKIP() << "no Kafka broker at " << b << " -- event bus test skipped, not passed";
