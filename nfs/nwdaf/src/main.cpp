@@ -18,8 +18,8 @@
 //
 // This is the AnLF. MTLF (MLModelProvision/Training/Monitor) is Phase B; DataManagement over the
 // event bus is Phase C; RoamingAnalytics/RoamingData/VFL are Phase D. State (subscriptions,
-// transfers) is in-process for Phase A, the same disclosed simplification NSACF's stores carry,
-// and the same P8/P11 externalisation debt.
+// transfers) lives in Valkey (ADR-0360), shared by every replica, and the notifier takes a
+// per-subscription lease there (ADR-0365) so N replicas deliver each notification once.
 //
 // DISCLOSED, not hidden:
 //   * /transfers is accepted and stored. No second NWDAF exists to transfer TO, so nothing is
@@ -595,6 +595,9 @@ int main() {
         });
 
     // ---- notifier: every subscription with a notificationURI gets its events on the interval --
+    // Lease slightly shorter than the interval so the next tick can always claim afresh; the
+    // tick itself is not synchronised across replicas, which is exactly why the lease is needed.
+    const auto notify_lease = std::chrono::milliseconds(notify_interval_seconds * 1000 * 9 / 10);
     std::thread([&] {
         while (true) {
             std::this_thread::sleep_for(std::chrono::seconds(notify_interval_seconds));
@@ -611,6 +614,15 @@ int main() {
                 continue;
             }
             for (const auto& [id, sub] : snapshot) {
+                // ADR-0365: exactly one replica delivers this subscription this interval.
+                try {
+                    if (!store.claim_notification(id, notify_lease)) {
+                        continue;
+                    }
+                } catch (const std::exception& e) {
+                    spdlog::error("nwdaf: notifier could not claim lease for {}: {}", id, e.what());
+                    continue;
+                }
                 sbi_gen::NnwdafEventsSubscriptionNotification note;
                 note.subscriptionId = id;
                 note.notifCorrId = sub.notifCorrId;

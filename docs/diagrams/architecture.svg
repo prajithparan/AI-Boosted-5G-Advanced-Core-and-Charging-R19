@@ -150,7 +150,7 @@
 <path d="M1436.0 958.0 L1436.0 850.0 L1290.0 850.0 L1290.0 752.0 L1221.5 752.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M492.5 768.0 L492.5 876.0 L115.5 876.0 L115.5 958.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M520.5 768.0 L520.5 888.0 L250.5 888.0 L250.5 958.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<path d="M696.5 768.0 L696.5 1108.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
+<path d="M696.5 768.0 L696.5 1108.0" fill="none" stroke="#d9742b" stroke-width="1.7" stroke-linejoin="round" marker-end="url(#arrow)"/>
 <path d="M831.5 1138.0 L726.5 1138.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
 <path d="M1450.0 1108.0 L1450.0 1018.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
 <path d="M1480.0 988.0 L1572.0 988.0" fill="none" stroke="#b45309" stroke-width="1.7" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrow-planned)"/>
@@ -202,7 +202,7 @@
 <text x="1448.0" y="931.0" text-anchor="start" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">subscription state (ADR-0360)</text>
 <text x="260.3" y="871.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">TMF620 · offering / price lookup</text>
 <text x="364.5" y="883.0" text-anchor="middle" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">TMF654 · balance debit / top-up</text>
-<text x="708.5" y="938.0" text-anchor="start" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">messaging framework</text>
+<text x="708.5" y="938.0" text-anchor="start" fill="#9a4a12" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">messaging framework</text>
 <text x="779.0" y="1133.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">Nmfaf_3da</text>
 <text x="779.0" y="1144.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:7.8px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">DataManagement</text>
 <text x="1526.0" y="983.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.2px;font-weight:700;" paint-order="stroke" stroke="#f7f6f2" stroke-width="3" stroke-linejoin="round">read-only analytics</text>
@@ -557,16 +557,16 @@
 <text x="506.5" y="1056.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">TMF651 · TAP3 (TD.57)</text>
 <text x="506.5" y="1066.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">libs/tap3-core codec</text>
 <text x="506.5" y="1076.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">settlement batches</text>
-<rect x="666.5" y="1108.0" width="60" height="60" rx="13" fill="url(#grad-planned)" stroke="#b45309" stroke-width="1.6" stroke-dasharray="5 3"/>
-<g transform="translate(680.5,1122.0)" style="filter:none"><use href="#g-swap" width="32" height="32" style="color:#047857"/></g>
-<rect x="667.5" y="1109.0" width="58" height="58" rx="12" fill="#047857" opacity="0.28"/>
-<rect x="686.3" y="1094.0" width="46.2" height="14" rx="7" fill="#b45309"/>
-<text x="709.4" y="1104.5" text-anchor="middle" fill="#ffffff" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.5px;font-weight:700;">planned</text>
-<text x="696.5" y="1183.0" text-anchor="middle" fill="#b45309" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">MFAF</text>
+<rect x="666.5" y="1108.0" width="60" height="60" rx="13" fill="url(#grad-047857)" stroke="#024834" stroke-width="1"/>
+<rect x="668.5" y="1110.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
+<use href="#g-swap" x="680.5" y="1122.0" width="32" height="32"/>
+<rect x="697.5" y="1094.0" width="35.0" height="14" rx="7" fill="#e7f0ff"/>
+<text x="715.0" y="1104.5" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.5px;font-weight:700;">3 svc</text>
+<text x="696.5" y="1183.0" text-anchor="middle" fill="#1f2328" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">MFAF</text>
 <text x="696.5" y="1195.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Messaging Framework Adaptor</text>
 <text x="696.5" y="1206.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">TS 29.576 · 23.288 §5A.3.2</text>
 <text x="696.5" y="1216.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Nmfaf_3da · 3ca · Context</text>
-<text x="696.5" y="1226.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">over Kafka · ADR-0359 step 1</text>
+<text x="696.5" y="1226.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">state Valkey · delivery Kafka group</text>
 <rect x="831.5" y="1108.0" width="60" height="60" rx="13" fill="url(#grad-planned)" stroke="#b45309" stroke-width="1.6" stroke-dasharray="5 3"/>
 <g transform="translate(845.5,1122.0)" style="filter:none"><use href="#g-funnel" width="32" height="32" style="color:#047857"/></g>
 <rect x="832.5" y="1109.0" width="58" height="58" rx="12" fill="#047857" opacity="0.28"/>

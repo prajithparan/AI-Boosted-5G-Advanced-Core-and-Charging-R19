@@ -938,11 +938,12 @@
    ],
    "svc": [
     "Nmfaf_3da · 3ca · Context",
-    "over Kafka · ADR-0359 step 1"
+    "state Valkey · delivery Kafka group"
    ],
    "glyph": "swap",
    "color": "#047857",
-   "planned": true
+   "source": "nfs/mfaf",
+   "chip": "3 svc"
   },
   {
    "id": "dccf",
@@ -1683,7 +1684,6 @@
    "from": "kafka",
    "to": "mfaf",
    "route": "s",
-   "planned": true,
    "label": [
     "messaging framework"
    ],

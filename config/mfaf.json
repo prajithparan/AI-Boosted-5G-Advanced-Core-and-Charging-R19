@@ -1,0 +1,14 @@
+{
+  "port": 7800,
+  "advertised_ipv4": "127.0.0.1",
+  "metrics_bind_address": "0.0.0.0:9487",
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "redis_url": "tcp://127.0.0.1:6379",
+  "nrf_heartbeat_seconds": 30,
+  "event_bus_brokers": "127.0.0.1:9092",
+  "event_bus_topic": "mfaf.notifications",
+  "event_bus_group_id": "mfaf-delivery",
+  "event_bus_flush_timeout_ms": 10000,
+  "event_bus_poll_timeout_ms": 500,
+  "fetch_buffer_ttl_seconds": 300
+}

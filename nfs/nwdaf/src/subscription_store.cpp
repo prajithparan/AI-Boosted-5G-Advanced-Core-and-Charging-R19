@@ -10,6 +10,7 @@ constexpr const char* kSubIndex = "nwdaf:subs";
 constexpr const char* kTransferPrefix = "nwdaf:transfer:";
 constexpr const char* kTransferIndex = "nwdaf:transfers";
 constexpr const char* kCounter = "nwdaf:next_id";
+constexpr const char* kLeasePrefix = "nwdaf:notify-lease:";
 
 // A SET with UpdateType::EXIST is the atomic "replace only if present" the PUT routes need: two
 // replicas racing a PUT against a DELETE cannot resurrect a deleted subscription.
@@ -68,6 +69,11 @@ SubscriptionStore::all_subscriptions() {
         }
     }
     return out;
+}
+
+bool SubscriptionStore::claim_notification(const std::string& id, std::chrono::milliseconds lease) {
+    // redis-plus-plus: set(key, val, ttl, UpdateType::NOT_EXIST) is SET key val PX ttl NX.
+    return redis_->set(kLeasePrefix + id, "1", lease, sw::redis::UpdateType::NOT_EXIST);
 }
 
 std::string

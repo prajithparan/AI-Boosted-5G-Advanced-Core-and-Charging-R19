@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -36,6 +37,12 @@ public:
     // Every subscription, for the notifier. A snapshot: the map may change under it, which is fine
     // -- a subscription deleted after the snapshot gets at most one more notification.
     std::vector<std::pair<std::string, sbi_gen::NnwdafEventsSubscription>> all_subscriptions();
+    // ADR-0365: one delivery per subscription per interval across ALL replicas. SET NX PX on
+    // nwdaf:notify-lease:<id>; the replica that wins delivers, the others skip. The lease expires
+    // just before the next interval, so a replica that dies mid-interval costs one late
+    // notification, never a lost subscription. Before this, every replica ran the notifier and a
+    // consumer received one copy per replica -- ADR-0360 shared the state, not the work.
+    bool claim_notification(const std::string& id, std::chrono::milliseconds lease);
 
     std::string create_transfer(const sbi_gen::AnalyticsSubscriptionsTransfer& transfer);
     bool replace_transfer(const std::string& id,

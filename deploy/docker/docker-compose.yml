@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf"
 
   nrf:
     build:
@@ -282,6 +282,33 @@ services:
     ports:
       - "7798:7798"   # Nnwdaf_AnalyticsInfo + Nnwdaf_EventsSubscription (TLS 1.3 + mTLS)
       - "9485:9485"   # Prometheus /metrics
+
+  # ADR-0365: MFAF -- the TS 23.288 Messaging Framework Adaptor over Kafka; state in Valkey.
+  # Replicate with `docker compose up --scale mfaf=N`: replicas share Valkey and join one Kafka
+  # consumer group, so every configuration is visible everywhere and each notification is
+  # delivered once.
+  mfaf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/mfaf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      MFAF_REDIS_URL: tcp://valkey:6379
+      MFAF_EVENT_BUS_BROKERS: kafka:9092
+      MFAF_ADVERTISED_IPV4: mfaf
+    volumes:
+      - certs_data:/build/certs
+    ports:
+      - "7800:7800"   # Nmfaf_3daDataManagement + ContextManagement + inbound/fetch (TLS 1.3 + mTLS)
+      - "9487:9487"   # Prometheus /metrics
 
   smsf:
     build:

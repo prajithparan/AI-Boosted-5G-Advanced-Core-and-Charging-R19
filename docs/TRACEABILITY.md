@@ -5173,3 +5173,27 @@ Control), TS 23.502 §4.2.11 / §4.3.2.2.1 for the AMF/SMF invocation points.
 | NF load analytics | TS 23.288 6.5 (input Table 6.5.2-1: NRF) | `nfs/nwdaf/src/analytics.cpp` nf_load_from_profiles | `test_nwdaf_analytics.cpp` NwdafNfLoad.* |
 | Abnormal behaviour analytics (UNEXPECTED_LARGE_RATE_FLOW, TOO_FREQUENT_SERVICE_ACCESS) | TS 23.288 6.7.5 (output Table 6.7.5.3-1) | `nfs/nwdaf/src/analytics.cpp` detect_abnormal_behaviour | `test_nwdaf_analytics.cpp` NwdafAbnormalBehaviour.* |
 | Data collection from the CHF feature store | TS 23.288 6.2 (this project's own source, ADR-0350) | `nfs/nwdaf/src/feature_store.cpp` | live smoke against 147,237 rows (ADR-0358) |
+
+## MFAF (ADR-0365) and the AnLF notifier lease
+
+Source: `specs/5G_APIs-REL-19/TS29576_Nmfaf_3daDataManagement.yaml`,
+`TS29576_Nmfaf_3caDataManagement.yaml`, `TS29576_Nmfaf_ContextManagement.yaml`, commit
+`bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 2: TS 23.288 V19.7.0 §5A.3.2, procedure §6.2.6.3.4.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Nmfaf_3daDataManagement_Configure, create (`POST /nmfaf-3dadatamanagement/v1/configurations` → 201 + Location, MFAF assigns `mfafNotiInfo`) | TS 29.576 4.2.2.2.2; TS 23.288 6.2.6.3.4 step 5 | `nfs/mfaf/src/main.cpp`, `config_store.cpp` | `test_mfaf.cpp` ConfigureNotifyDeliverFetchAndTransferAcrossReplicas |
+| `MfafConfiguration` oneOf enforced (neither / both → 400 with TS 29.500 cause) | TS 29.576 5.1.6.2.2; TS 29.500 5.2.7.2 | `validate_configuration` | same test |
+| `mfafTransferInfo` refused (MfafTransfer feature not supported) | TS 29.576 5.1.8-1 | same | same test |
+| Nmfaf_3daDataManagement_Configure, update (`PUT .../{transRefId}` → 200 / 404) | TS 29.576 4.2.2.2.3 | `nfs/mfaf/src/main.cpp` | same test (PUT via the other replica) |
+| Nmfaf_3daDataManagement_Deconfigure (`DELETE` → 204 / 404) | TS 29.576 4.2.2.3.2; TS 23.288 step 14 | same | same test |
+| Inbound Nnf_EventExposure_Notify at the MFAF Notification Target Address → Messaging Framework | TS 23.288 6.2.6.3.4 step 7; TS 29.576 4.2.2.2.2 ("determine the MFAF notification information") | `nfs/mfaf/src/main.cpp` `/mfaf-inbound/v1/notifications/{mfafCorreId}`, `libs/event-bus` | same test (posted to replica B with replica A's URI) |
+| Inbound for a deconfigured `mfafCorreId` → 400 `RESOURCE_CONTEXT_NOT_FOUND` | TS 29.500 5.2.7.2 | same | same test |
+| Source-NF bucket selection by `3gpp-Sbi-Callback`, then by shape; unclassifiable dropped and counted | TS 29.500 5.2.3.2.3 / Annex B; TS 29.575 `DataNotification` | `nfs/mfaf/src/classify.cpp` | same test (AMF delivered in `amfEventNotifs`; `{notifId, eventNotifs}` without header never delivered) |
+| Nmfaf_3caDataManagement_Notify (`POST {notificationURI}` with `NmfafDataRetrievalNotification`, `3gpp-Sbi-Callback: Nmfaf_3caDataManagement_Notification`) -- one delivery per inbound across replicas (consumer group) | TS 29.576 4.3.2.3.2; TS 23.288 step 8 | delivery thread in `main.cpp`, `libs/event-bus/consumer.cpp` | same test (exactly one notification after 2 s with two replicas) |
+| Consumer-triggered notification: `FetchInstruction` with `fetchUri`, `fetchCorrIds`, `expiry`; buffer in Valkey with TTL | TS 23.288 5A.4 ("Consumer triggered Notification"); TS 29.576 5.2.6.2.3 | same | same test |
+| Nmfaf_3caDataManagement_Fetch (`POST {fetchUri}` with the ids → 200 `NmfafDataAnaNotification`; consumed buffer → 404) | TS 29.576 4.3.2.2.2; TS 23.288 steps 9-10 | `/mfaf-inbound/v1/fetch` | same test (fetched through the other replica) |
+| Nmfaf_ContextManagement_Transfer (`POST /nmfaf-contextmanagement/v1/transfer` → 200 `configs` + `bufferedNotifs`, local resources removed) | TS 29.576 4.4.2.2.2 | `nfs/mfaf/src/main.cpp` | same test |
+| NRF registration `nfType=MFAF` with the three services | TS 29.510 6.1.6.2.2 | `run_nrf_lifecycle` | live in the same test (two instances registered) |
+| Formatting other than consTrigNotif, processing, `notifEndpoints`, `adrfId` | TS 23.288 5A.4; TS 29.576 5.1.8-1/5.2.8-1 | -- | **not built**, logged as not applied (ADR-0365) |
+| AnLF: one `Nnwdaf_EventsSubscription` notification per subscription per interval across replicas (Valkey lease) | TS 29.520 5.1 (notify); ADR-0359 architecture | `nfs/nwdaf/src/subscription_store.cpp` `claim_notification` | `test_nwdaf_phase_a.cpp` ReplicasDeliverEachNotificationOnce (fails with the lease disabled -- negative control run 2026-09-15) |

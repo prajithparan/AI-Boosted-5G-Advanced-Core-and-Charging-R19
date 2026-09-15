@@ -167,6 +167,12 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29520_Nnwdaf_MLModelProvision.yaml
     TS29520_Nnwdaf_RoamingAnalytics.yaml
     TS29520_Nnwdaf_RoamingData.yaml
+    # ADR-0365: MFAF (TS 29.576) -- all three of its R19 service files (3DA configuration,
+    # 3CA delivery callbacks, ContextManagement transfer). Until now only FetchInstruction had
+    # been generated, pulled in transitively; the NF is generated from its complete surface.
+    TS29576_Nmfaf_3daDataManagement.yaml
+    TS29576_Nmfaf_3caDataManagement.yaml
+    TS29576_Nmfaf_ContextManagement.yaml
     # ADR-0276: NSACF (TS 29.536) -- both of its real R19 API files, so the NF is generated
     # from its complete YAML surface rather than half of it.
     TS29536_Nnsacf_NSAC.yaml
@@ -321,6 +327,9 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelProvision.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingAnalytics.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingData.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_3daDataManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_3caDataManagement.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_ContextManagement.yaml
     # ADR-0276: NSACF (TS 29.536), this project's fifth Tier 2 NF -- Network Slice Admission
     # Control. Both of its real R19 API files, added together: the NSAC service itself and
     # its own event-exposure service, so the NF is generated from the complete YAML surface

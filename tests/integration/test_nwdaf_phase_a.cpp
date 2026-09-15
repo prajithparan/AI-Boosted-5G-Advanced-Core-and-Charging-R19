@@ -7,13 +7,17 @@
 // Nothing seeded, nothing mocked.
 
 #include "sbi_core/http2_client.hpp"
+#include "sbi_core/http2_server.hpp"
 
+#include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "spawn_guard.hpp"
 
@@ -211,4 +215,84 @@ TEST(NwdafPhaseA, SubscriptionsAreSharedAcrossReplicas) {
     r = c.send(put);
     ASSERT_TRUE(r.has_value()) << r.error();
     EXPECT_EQ(r->status, 404);
+}
+
+// ADR-0365: sharing the subscription STATE (ADR-0360) is not the same as sharing the WORK. Before
+// the per-subscription lease, each replica ran its own notifier over the shared store and a
+// consumer received one copy of every notification per replica. Two replicas, one subscription,
+// a 2-second interval, ~2.5 intervals of listening: the receiver must see notifications (the
+// notifier works) and never two within one interval (the lease works). The replicas' ticks are
+// not synchronised, which is the whole point -- the lease, not timing, prevents the duplicate.
+TEST(NwdafPhaseA, ReplicasDeliverEachNotificationOnce) {
+    boost::asio::io_context receiver_ioc;
+    sbi_core::http2::TlsConfig receiver_tls{
+        .cert_path = CERTS_DIR "/hello-nf/cert.pem",
+        .key_path = CERTS_DIR "/hello-nf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Server receiver(receiver_ioc, "127.0.0.1", 19996, receiver_tls);
+    std::mutex arrivals_mutex;
+    std::vector<std::chrono::steady_clock::time_point> arrivals;
+    receiver.add_route("POST", "/nwdaf-notify", [&](const sbi_core::http2::Request& req) {
+        const auto body = json::parse(req.body);
+        EXPECT_TRUE(body.contains("eventNotifications")) << req.body;
+        const std::lock_guard<std::mutex> lock(arrivals_mutex);
+        arrivals.push_back(std::chrono::steady_clock::now());
+        sbi_core::http2::Response resp;
+        resp.status = 204;
+        return resp;
+    });
+    receiver.start();
+    std::thread receiver_thread([&receiver_ioc] { receiver_ioc.run(); });
+
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    setenv("NWDAF_NOTIFICATION_INTERVAL_SECONDS", "2", 1);
+    nf_test::SpawnedProcess replica_a(NWDAF_PATH);
+    setenv("NWDAF_PORT", "7799", 1);
+    setenv("NWDAF_METRICS_BIND_ADDRESS", "0.0.0.0:9486", 1);
+    nf_test::SpawnedProcess replica_b(NWDAF_PATH);
+    unsetenv("NWDAF_PORT");
+    unsetenv("NWDAF_METRICS_BIND_ADDRESS");
+    unsetenv("NWDAF_NOTIFICATION_INTERVAL_SECONDS");
+    const std::string a = kNwdaf;
+    const std::string b = "https://127.0.0.1:7799";
+
+    auto c = make_client();
+    ASSERT_TRUE(wait_up(c, a + kAnalyticsRoot + "/context", 30s)) << "replica A never came up";
+    ASSERT_TRUE(wait_up(c, b + kAnalyticsRoot + "/context", 30s)) << "replica B never came up";
+
+    sbi_core::http2::ClientRequest create;
+    create.method = "POST";
+    create.url = a + kSubsRoot + "/subscriptions";
+    create.headers.emplace("content-type", "application/json");
+    create.body = json{{"eventSubscriptions", json::array({json{{"event", "NF_LOAD"}}})},
+                       {"notificationURI", "https://127.0.0.1:19996/nwdaf-notify"}}
+                      .dump();
+    auto r = c.send(create);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    const std::string location = r->headers.find("location")->second;
+
+    std::this_thread::sleep_for(5s);
+
+    sbi_core::http2::ClientRequest del;
+    del.method = "DELETE";
+    del.url = b + location;
+    r = c.send(del);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204);
+
+    receiver_ioc.stop();
+    receiver_thread.join();
+
+    const std::lock_guard<std::mutex> lock(arrivals_mutex);
+    ASSERT_GE(arrivals.size(), 1U) << "no replica delivered anything";
+    // With a 2 s interval and a 1.8 s lease, two deliveries closer than 1.8 s apart can only be
+    // two replicas both delivering the same tick -- the duplicate this test exists to catch.
+    for (std::size_t i = 1; i < arrivals.size(); ++i) {
+        const auto gap =
+            std::chrono::duration_cast<std::chrono::milliseconds>(arrivals[i] - arrivals[i - 1]);
+        EXPECT_GE(gap.count(), 1700)
+            << "two replicas delivered the same interval (" << gap.count() << " ms apart)";
+    }
 }
