@@ -152,3 +152,14 @@ target_compile_definitions(nwdaf_mtlf_integration_tests PRIVATE
     NWDAF_TRAINING_DIR="${CMAKE_SOURCE_DIR}/nfs/nwdaf/training"
 )
 gtest_discover_tests(nwdaf_mtlf_integration_tests PROPERTIES TIMEOUT 400)
+
+# ADR-0372: the LI_X2/LI_X3 delivery client over real OpenSSL mTLS. Its own binary -- it needs no
+# NF processes (an in-process loopback TLS server stands in for the MDF), only li_core, OpenSSL,
+# and the lab certs. Binds an ephemeral port, so it does not collide with CI's fixed test ports.
+find_package(OpenSSL REQUIRED)
+add_executable(li_x2x3_client_integration_tests test_li_x2x3_client.cpp)
+target_link_libraries(li_x2x3_client_integration_tests PRIVATE
+    li_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_x2x3_client_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_x2x3_client_integration_tests)

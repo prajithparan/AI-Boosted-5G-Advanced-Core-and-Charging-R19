@@ -4,7 +4,9 @@
 #include <openssl/ssl.h>
 
 #include <cerrno>
+#include <csignal>
 #include <cstring>
+#include <mutex>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -59,6 +61,12 @@ struct X2X3Client::Impl {
         if (ctx != nullptr) {
             return {};
         }
+        // A dropped delivery link must become a write error the send()/reconnect path handles,
+        // never a SIGPIPE that terminates the host NF (this is the repo's first raw-socket writer;
+        // OpenSSL's socket BIO uses write(2), which raises SIGPIPE on a closed peer). Ignore it
+        // once, process-wide -- the correct disposition for any network server.
+        static std::once_flag sigpipe_once;
+        std::call_once(sigpipe_once, [] { ::signal(SIGPIPE, SIG_IGN); });
         ctx = SSL_CTX_new(TLS_client_method());
         if (ctx == nullptr) {
             return tl::make_unexpected(ssl_err("SSL_CTX_new"));

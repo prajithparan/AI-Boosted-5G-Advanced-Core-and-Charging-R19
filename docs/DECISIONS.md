@@ -29236,8 +29236,13 @@ and only the `li_core::` exports remain. libxml2 was added to `vcpkg.json`.
 - **No NF is wired to any of this yet.** The MDF2 (increment 3) is the first consumer of the
   X2/X3 client and the X1 server; the AMF IRI-POI (increment 4, which requires showing the
   TS 33.127 6.2.2.4 event list + TS 33.128 6.2.2.2 M/C/O table for approval first) is the first
-  X1-provisioned POI. The X2/X3 client's own loopback delivery test lands as a follow-up commit
-  in this increment (lab PKI in `certs/`), before increment 3 consumes it.
+  X1-provisioned POI. The X2/X3 client is exercised end to end by
+  `tests/integration/test_li_x2x3_client.cpp`: a loopback TLS 1.3 server (the lab AMF cert,
+  `certs/`) accepts the client's connection and the framed PDUs decode back to what was sent.
+  That test surfaced a real defect -- OpenSSL's socket write raised SIGPIPE on a dropped link and
+  killed the process; the client now ignores SIGPIPE once (process-wide, the correct disposition
+  for a network server, and the repo's first raw-socket writer), so a broken link becomes the
+  reconnect-on-next-send error it already returned.
 
 **Rejected.** *pugixml* -- fast and header-only, but no XSD validation; X1 conformance to a
 published schema is the point, and hand-checking every element against table 6.x is exactly the
