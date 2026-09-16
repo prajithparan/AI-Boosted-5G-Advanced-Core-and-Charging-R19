@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Not an ETSI file. ADR-0372: libxml2's schema loader needs a schemaLocation for each imported
+     namespace; the normative TS_103_221_01.xsd imports the 103280 common namespace (and the X1
+     HashedID/DestinationSet sub-schemas) without one. This wrapper supplies those locations and
+     imports the normative schema unchanged, so xmlSchemaParse resolves the whole set. The
+     authoritative schema is still TS_103_221_01.xsd; this only wires the imports. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:x1="http://uri.etsi.org/03221/X1/2017/10"
+           xmlns:c="http://uri.etsi.org/03280/common/2017/07"
+           targetNamespace="urn:5gc-r19:li:x1-validation-wrapper"
+           elementFormDefault="qualified">
+  <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"
+             schemaLocation="../103280/TS_103_280.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10/HashedID"
+             schemaLocation="TS_103_221_01_HashedID.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"
+             schemaLocation="TS_103_221_01.xsd"/>
+</xs:schema>

@@ -17,6 +17,7 @@
     "libpqxx",
     "redis-plus-plus",
     "libmariadb",
+    "libxml2",
     "onnxruntime",
     {
       "name": "curl",

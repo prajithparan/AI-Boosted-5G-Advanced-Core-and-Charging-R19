@@ -10,10 +10,18 @@
 # (li_generated is linked PRIVATE). tests/conformance/test_li_ngap_coexistence is the proof.
 
 find_package(tl-expected CONFIG REQUIRED)
+# ADR-0372: libxml2 for the X1 XML codec (schema-validated), OpenSSL for the X2/X3 mTLS delivery
+# client. Both linked PRIVATE -- no li_core:: header names an libxml2 or OpenSSL type, so a POI
+# that links li_core sees only the C++ API.
+find_package(LibXml2 REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(li_core SHARED
     src/x2x3_pdu.cpp
     src/xiri.cpp
+    src/x1.cpp
+    src/x1_server.cpp
+    src/x2x3_client.cpp
 )
 
 target_include_directories(li_core PUBLIC
@@ -22,7 +30,12 @@ target_include_directories(li_core PUBLIC
 
 target_link_libraries(li_core
     PUBLIC 5gc_project_options tl::expected
-    PRIVATE li_generated
+    PRIVATE li_generated LibXml2::LibXml2 OpenSSL::SSL OpenSSL::Crypto
+)
+
+# ADR-0372: the ETSI X1 schema set (committed, BSD-3-Clause) the X1 codec validates against.
+target_compile_definitions(li_core PRIVATE
+    LI_ETSI_SCHEMA_DIR="${CMAKE_SOURCE_DIR}/specs/etsi"
 )
 
 # Everything not part of the li_core:: API stays inside the .so -- including every asn1c symbol.
@@ -32,5 +45,16 @@ set_target_properties(li_core PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
+
+# ADR-0372: the PRIVATE static archives (libxml2, OpenSSL, and li_generated's asn1c runtime) are
+# compiled with default visibility in their own builds, so without this their symbols would land
+# in libli_core.so's dynamic table and collide with the AMF's own OpenSSL/libxml2 (the AMF links
+# both li_core and sbi_core). --exclude-libs,ALL drops every archive-originated symbol from the
+# export table; the li_core:: API stays exported because it is compiled directly into the .so
+# with the visibility-default pragma, not pulled from an archive. Same containment goal as the
+# hidden-visibility presets, extended to the third-party archives ADR-0364 did not yet link.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(li_core PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
 
 target_compile_features(li_core PUBLIC cxx_std_23)

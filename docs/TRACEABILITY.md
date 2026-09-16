@@ -5294,3 +5294,23 @@ TS 29.520 V19.7.0 §4.7 (`specs/3gpp/TS_29.520_j70.txt`). Stage 2: TS 23.288 V19
 | Nnwdaf_MLModelMonitor_Notify (`POST {notificationUri}` `MLModelMonitorNotify`, `3gpp-Sbi-Callback: Nnwdaf_MLModelMonitor_myNotification`; below threshold / recovery / PERIODIC `repPeriod`; one replica per subscription per tick) | TS 29.520 4.7.2.6.2; TS 23.288 6.2E.3.3 step 6 | `main.cpp` accuracy thread | same test |
 | MTLF: degradation on `accuMeetInd=false` / `mlModelAcc` below threshold → re-train (cooldown) → Nnwdaf_MLModelProvision_Notify `modelUpdateInd` | TS 23.288 6.2E.3.3 steps 8-9 | `mtlf.cpp` `on_monitor_notification`, `run` | same test (re-provision with a new `modelUniqueId`, data-growth trigger disabled) |
 | MTLF-based accuracy from ADRF inference data (6.2E.2), `anaFeedbacks` acted on, `modelAccuInd` transfer re-association, `consumerSetId`-only registrations, 6.2D analytics accuracy exposure | TS 23.288 6.2E.2, 6.2D, 6.1.1 | -- | **not built** / **disclosed** (ADR-0370) |
+
+## Lawful Interception -- X1 provisioning, NE server + keepalive, X2/X3 delivery client (ADR-0372)
+
+Increment 2 of the LI programme (ADR-0364 delivered increment 1: the TS 103 221-2 X2/X3 PDU codec
+and the TS 33.128 xIRI payload codec in `libs/li-core`). Schemas: ETSI TS 103 221-1 V1.23.1 and
+TS 103 280 (`specs/etsi/103221-1/`, `103280/`, commit `e531df0`, BSD-3-Clause) wired through the
+project-owned wrapper `specs/etsi/103221-1/x1-validation.xsd` (`specs/etsi/SOURCES.md`). No NF is
+wired to this yet -- it is the interface floor for the MDF2 (increment 3) and the AMF POI
+(increment 4).
+
+| Procedure | ETSI/TS clause | Source | Test |
+|---|---|---|---|
+| X1 request parsing: `X1Request` container → typed `RequestBody` variant, message discriminated by `xsi:type`; identifiers (admfIdentifier/neIdentifier/x1TransactionId/version/messageTimestamp) | TS 103 221-1 6.2, 6.3, Annex A schema | `libs/li-core/src/x1.cpp` `parse_request` | `test_li_x1.cpp` ParsesActivateTaskAndReadsTheTargetIdentifier |
+| Runtime XSD validation both directions (request in, response out); schema-invalid input → TopLevelError (6.1) | TS 103 221-1 7.2.1, clause 6.1 | `x1.cpp` `schema_valid`, `serialise_response`, `serialise_top_level_error` | RejectsANonSchemaValidDocumentAsTopLevelError |
+| Attacker-facing hardening: `XML_PARSE_NONET`, no `XML_PARSE_NOENT` (XXE / entity-expansion refused); `xmlInitParser` + a validate mutex for NF worker threads | TS 103 221-1 (network-facing NE), defensive | `x1.cpp` `load_schema`, `schema_valid`, `parse_request` | RejectsExternalEntityXxe |
+| NE server: task-management callbacks (activate/modify/deactivate/deactivate-all/create/remove/remove-all) → OK/Error `ResponseItem`; per-request identity check before any store action | TS 103 221-1 6.3, 6.5 | `x1_server.cpp` `handle_request`, `TaskStoreCallbacks` | ServerAcceptsActivateAndAnswersAValidResponse, IdentityCheckRejectsBeforeStoreAction, DeactivateAndCreateDestinationRoundTrip |
+| X1 error codes: duplicate XID = 2010; unsupported request (incl. GetTaskDetails) = 1080; keepalive-not-supported = 1070 | TS 103 221-1 table 6.7-3 | `x1_server.cpp` `code_text`, dispatch | DuplicateXidIsErrorCode2010, UnsupportedRequestTypeIsError1080, PingIsAcknowledged |
+| Keepalive state machine: P2 no-X1 window → fault (9050), any X1 request clears it; ACK starts P3 → deactivate-all (10000) when allowed; deactivate-all gated by config | TS 103 221-1 6.6.2 | `x1_server.cpp` `KeepaliveMonitor` | RaisesFaultAfterP2AndClearsOnNextRequest, DeactivatesAllTasksWhenAllowedAndAdmfNeverAcks, AckStartsP3ThenDeactivatesIfStillSilent |
+| X2/X3 delivery client: blocking mTLS, `validate()`+`encode()` a TS 103 221-2 PDU, keepalive PDUs, reconnect on broken link | TS 103 221-2 5.x; TS 33.128 5.3 | `libs/li-core/src/x2x3_client.cpp` | loopback delivery test -- follow-up commit this increment |
+| GetTaskDetails full TaskStatus response (provisioningStatus + listOfFaults); NF wiring (MDF2, AMF POI); X2/X3 client loopback path | TS 103 221-1 6.4 | -- | **not built** / **disclosed** (ADR-0372; GetTaskDetails answered 1080) |
