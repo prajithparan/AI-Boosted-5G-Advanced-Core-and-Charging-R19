@@ -44,7 +44,7 @@ struct AccuracySummary {
     std::int64_t inferences = 0; // judged predictions in the window
     std::int64_t correct = 0;
     double mean_abs_deviation = 0;
-    std::int64_t accuracy_pct() const {
+    [[nodiscard]] std::int64_t accuracy_pct() const {
         return inferences == 0 ? 0 : (100 * correct + inferences / 2) / inferences;
     }
 };

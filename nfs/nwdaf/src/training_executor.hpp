@@ -16,8 +16,8 @@
 
 #include <chrono>
 #include <cstdint>
-#include <expected>
 #include <string>
+#include <tl/expected.hpp>
 #include <vector>
 
 namespace nwdaf {
@@ -37,7 +37,7 @@ struct TrainingResult {
 class TrainingExecutor {
 public:
     virtual ~TrainingExecutor() = default;
-    virtual std::expected<TrainingResult, std::string> train(const TrainingJob& job) = 0;
+    virtual tl::expected<TrainingResult, std::string> train(const TrainingJob& job) = 0;
 };
 
 struct SubprocessExecutorOptions {
@@ -51,7 +51,7 @@ struct SubprocessExecutorOptions {
 class SubprocessExecutor final : public TrainingExecutor {
 public:
     explicit SubprocessExecutor(SubprocessExecutorOptions options);
-    std::expected<TrainingResult, std::string> train(const TrainingJob& job) override;
+    tl::expected<TrainingResult, std::string> train(const TrainingJob& job) override;
 
 private:
     SubprocessExecutorOptions options_;

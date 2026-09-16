@@ -28846,6 +28846,8 @@ producers here): not built. Sanity limits: `ml_model_download_max_bytes`, `data_
 while adding them: the **sanitize** job had never applied CHF's PostgreSQL and Doris schemas
 (only the build job had), which is why `test_cap_scoped_charging` answered `-1` from its
 rating-decision query on the ASan/TSan legs alone. Both steps are now in that job too.
+Confirmed 2026-09-16 (run 35010144850): with the schemas applied, `CapScopedCharging` passes on
+both sanitizer legs; the diagnostic print in the test's query helper stays, it is cheap.
 
 **Tests.** `tests/integration/test_adrf.cpp` against real NRF, Valkey, Doris, PostgreSQL:
 store/retrieve/delete by id and data set with the lifetime bound and the oneOf refusal;

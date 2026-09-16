@@ -25,7 +25,7 @@ namespace nwdaf {
 // contract, two spellings.
 inline constexpr std::size_t kNfLoadLags = 4;
 inline constexpr std::size_t kNfLoadFeatureCount = 6;
-inline constexpr const char* kNfLoadFeatureNames[kNfLoadFeatureCount] = {
+inline constexpr std::array<const char*, kNfLoadFeatureCount> kNfLoadFeatureNames = {
     "load_lag3",
     "load_lag2",
     "load_lag1",
@@ -58,8 +58,8 @@ public:
     // previous session, if any) when ONNX Runtime rejects the bytes.
     bool load(const std::string& onnx_bytes, std::int64_t model_unique_id);
     void unload();
-    bool loaded() const { return session_ != nullptr; }
-    std::int64_t model_unique_id() const { return model_unique_id_; }
+    [[nodiscard]] bool loaded() const { return session_ != nullptr; }
+    [[nodiscard]] std::int64_t model_unique_id() const { return model_unique_id_; }
 
     // One prediction, clamped to the NRF's 0..100 load scale. std::nullopt when no model is
     // loaded or the run fails -- the caller falls back to statistics, never to a guess.

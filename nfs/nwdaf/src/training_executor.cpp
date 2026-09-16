@@ -12,9 +12,11 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sstream>
+#include <string>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 extern char** environ;
 
@@ -40,12 +42,12 @@ std::string tail_of(const std::filesystem::path& p, std::size_t max_bytes) {
 SubprocessExecutor::SubprocessExecutor(SubprocessExecutorOptions options)
     : options_(std::move(options)) {}
 
-std::expected<TrainingResult, std::string> SubprocessExecutor::train(const TrainingJob& job) {
+tl::expected<TrainingResult, std::string> SubprocessExecutor::train(const TrainingJob& job) {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::create_directories(options_.workdir, ec);
     if (ec) {
-        return std::unexpected("training workdir " + options_.workdir + ": " + ec.message());
+        return tl::make_unexpected("training workdir " + options_.workdir + ": " + ec.message());
     }
     const auto stamp = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           std::chrono::system_clock::now().time_since_epoch())
@@ -59,7 +61,7 @@ std::expected<TrainingResult, std::string> SubprocessExecutor::train(const Train
         std::ofstream out(dataset);
         out << job.dataset.dump();
         if (!out) {
-            return std::unexpected("cannot write " + dataset.string());
+            return tl::make_unexpected("cannot write " + dataset.string());
         }
     }
 
@@ -96,7 +98,7 @@ std::expected<TrainingResult, std::string> SubprocessExecutor::train(const Train
         posix_spawnp(&pid, options_.python.c_str(), &actions, nullptr, argv.data(), environ);
     posix_spawn_file_actions_destroy(&actions);
     if (rc != 0) {
-        return std::unexpected("cannot start " + options_.python + ": " + std::strerror(rc));
+        return tl::make_unexpected("cannot start " + options_.python + ": " + std::strerror(rc));
     }
     spdlog::info("nwdaf: training {} started (pid {}, {} -> {})",
                  job.event,
@@ -112,18 +114,19 @@ std::expected<TrainingResult, std::string> SubprocessExecutor::train(const Train
             break;
         }
         if (w < 0) {
-            return std::unexpected(std::string("waitpid: ") + std::strerror(errno));
+            return tl::make_unexpected(std::string("waitpid: ") + std::strerror(errno));
         }
         if (std::chrono::steady_clock::now() > deadline) {
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
-            return std::unexpected("training exceeded " + std::to_string(options_.timeout.count()) +
-                                   "s and was killed; log tail: " + tail_of(log, 1000));
+            return tl::make_unexpected("training exceeded " +
+                                       std::to_string(options_.timeout.count()) +
+                                       "s and was killed; log tail: " + tail_of(log, 1000));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        return std::unexpected(
+        return tl::make_unexpected(
             "training exited with " +
             (WIFEXITED(status) ? std::to_string(WEXITSTATUS(status)) : std::string("a signal")) +
             "; log tail: " + tail_of(log, 1500));
@@ -131,12 +134,12 @@ std::expected<TrainingResult, std::string> SubprocessExecutor::train(const Train
     TrainingResult result;
     result.onnx_bytes = read_file(model);
     if (result.onnx_bytes.empty()) {
-        return std::unexpected("training produced no model at " + model.string());
+        return tl::make_unexpected("training produced no model at " + model.string());
     }
     try {
         result.report = nlohmann::json::parse(read_file(report));
     } catch (const std::exception& e) {
-        return std::unexpected("training report unreadable: " + std::string(e.what()));
+        return tl::make_unexpected("training report unreadable: " + std::string(e.what()));
     }
     fs::remove(dataset, ec); // the model and the report stay for the operator; the dataset is bulk
     return result;
