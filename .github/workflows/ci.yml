@@ -911,7 +911,14 @@ jobs:
         run: |
           RUN=
           if [ "${{ matrix.sanitizer }}" = "tsan" ]; then RUN="setarch $(uname -m) -R"; fi  # see the Build step
-          $RUN ctest --test-dir build --output-on-failure --timeout 120
+          # --timeout 300 here, not the build leg's 120: ASan/UBSan (and TSan) instrument every
+          # memory access, so the same test runs 2-3x slower under a sanitizer. A multi-NF + Doris
+          # integration test (NwdafPhaseC.AdrfStoresNwdafCollectedDataThroughDataManagement) that
+          # passes well under 120s uninstrumented landed at 120.13s under ASan on a loaded runner
+          # and was killed at the bound -- a false failure, not a hang. 300s keeps the fail-fast
+          # intent (a genuinely hung NF still fails in 5 min, far short of ctest's default) while
+          # giving sanitized runs the headroom they legitimately need. The build leg stays at 120.
+          $RUN ctest --test-dir build --output-on-failure --timeout 300
 
   lint:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
