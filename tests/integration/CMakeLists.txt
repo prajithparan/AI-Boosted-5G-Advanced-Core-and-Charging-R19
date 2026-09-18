@@ -163,3 +163,12 @@ target_link_libraries(li_x2x3_client_integration_tests PRIVATE
 target_compile_definitions(li_x2x3_client_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_x2x3_client_integration_tests)
+
+# ADR-0375: the MDF2 receiving side, driven by the real client over real mTLS. Same shape -- its
+# own binary, li_core + OpenSSL + the lab certs, an ephemeral port, no NF processes.
+add_executable(li_x2x3_server_integration_tests test_li_x2x3_server.cpp)
+target_link_libraries(li_x2x3_server_integration_tests PRIVATE
+    li_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_x2x3_server_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_x2x3_server_integration_tests)

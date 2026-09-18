@@ -24,6 +24,7 @@ add_library(li_core SHARED
     src/x1_server.cpp
     src/x2x3_client.cpp
     src/hi2.cpp
+    src/x2x3_server.cpp
 )
 
 target_include_directories(li_core PUBLIC
