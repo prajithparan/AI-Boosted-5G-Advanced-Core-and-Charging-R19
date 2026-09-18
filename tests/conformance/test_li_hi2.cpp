@@ -33,18 +33,18 @@ std::vector<std::uint8_t> sample_xiri() {
 
 hi2::IriMessage sample_message(std::vector<std::uint8_t> iri_payload) {
     hi2::IriMessage message;
-    message.liid = "LIID-2026-0001";
-    message.communication_identifier.operator_identifier = "5GC-R19-OP";
-    message.communication_identifier.network_element_identifier = "amf-01";
-    message.communication_identifier.communication_identity_number = 4242;
-    message.communication_identifier.delivery_country_code = "GB";
-    message.sequence_number = 7;
-    message.authorization_country_code = "GB";
-    message.interception_point_id = "AMF-IRI";
-    message.extended_interception_point_id = "amf-01.5gc.example.net";
-    message.network_function_identifier = "amf-01.5gc.example.net";
-    message.timestamp = hi2::Timestamp{1789000000, 123456};
-    message.timestamp_qualifier = hi2::TimestampQualifier::TimeOfInterception;
+    message.header.liid = "LIID-2026-0001";
+    message.header.communication_identifier.operator_identifier = "5GC-R19-OP";
+    message.header.communication_identifier.network_element_identifier = "amf-01";
+    message.header.communication_identifier.communication_identity_number = 4242;
+    message.header.communication_identifier.delivery_country_code = "GB";
+    message.header.sequence_number = 7;
+    message.header.authorization_country_code = "GB";
+    message.header.interception_point_id = "AMF-IRI";
+    message.header.extended_interception_point_id = "amf-01.5gc.example.net";
+    message.header.network_function_identifier = "amf-01.5gc.example.net";
+    message.header.timestamp = hi2::Timestamp{1789000000, 123456};
+    message.header.timestamp_qualifier = hi2::TimestampQualifier::TimeOfInterception;
     message.iri_type = hi2::IriType::Report;
     message.iri_payload = std::move(iri_payload);
     return message;
@@ -64,21 +64,23 @@ TEST(LiHi2PsPdu, EncodesAndDecodesEveryHeaderField) {
     const auto received = hi2::decode_iri_message(*bytes);
     ASSERT_TRUE(received.has_value()) << (received ? "" : received.error());
 
-    EXPECT_EQ(received->liid, sent.liid);
-    EXPECT_EQ(received->communication_identifier, sent.communication_identifier);
-    EXPECT_EQ(received->sequence_number, sent.sequence_number);
-    EXPECT_EQ(received->authorization_country_code, sent.authorization_country_code);
-    EXPECT_EQ(received->interception_point_id, sent.interception_point_id);
-    EXPECT_EQ(received->extended_interception_point_id, sent.extended_interception_point_id);
-    EXPECT_EQ(received->network_function_identifier, sent.network_function_identifier);
+    EXPECT_EQ(received->header.liid, sent.header.liid);
+    EXPECT_EQ(received->header.communication_identifier, sent.header.communication_identifier);
+    EXPECT_EQ(received->header.sequence_number, sent.header.sequence_number);
+    EXPECT_EQ(received->header.authorization_country_code, sent.header.authorization_country_code);
+    EXPECT_EQ(received->header.interception_point_id, sent.header.interception_point_id);
+    EXPECT_EQ(received->header.extended_interception_point_id,
+              sent.header.extended_interception_point_id);
+    EXPECT_EQ(received->header.network_function_identifier,
+              sent.header.network_function_identifier);
     EXPECT_EQ(received->iri_type, sent.iri_type);
     EXPECT_EQ(received->iri_payload, sent.iri_payload);
     // PSHeader.timeStamp is a GeneralizedTime: seconds survive, the microsecond part rides in the
     // MicroSecondTimeStamp extension.
-    ASSERT_TRUE(received->timestamp.has_value());
-    EXPECT_EQ(received->timestamp->seconds, sent.timestamp->seconds);
-    EXPECT_EQ(received->timestamp->microseconds, sent.timestamp->microseconds);
-    EXPECT_EQ(received->timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
+    ASSERT_TRUE(received->header.timestamp.has_value());
+    EXPECT_EQ(received->header.timestamp->seconds, sent.header.timestamp->seconds);
+    EXPECT_EQ(received->header.timestamp->microseconds, sent.header.timestamp->microseconds);
+    EXPECT_EQ(received->header.timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
 }
 
 // The two identifier fields that are easy to cross: PSHeader.li-psDomainId is the ETSI TS 102
@@ -113,7 +115,7 @@ TEST(LiHi2PsPdu, RejectsAnOversizedLiid) {
     const auto mediated = hi2::mediate_xiri(sample_xiri(), {});
     ASSERT_TRUE(mediated.has_value());
     hi2::IriMessage message = sample_message(mediated->iri_payload);
-    message.liid = std::string(26, 'X'); // TS 103 280 LIID is 1..25 octets
+    message.header.liid = std::string(26, 'X'); // TS 103 280 LIID is 1..25 octets
     const auto bytes = hi2::encode_iri_message(message);
     ASSERT_FALSE(bytes.has_value());
     EXPECT_NE(bytes.error().find("1..25"), std::string::npos) << bytes.error();
@@ -180,14 +182,14 @@ TEST(LiHi2Mediation, TagsMatchedAndOtherTargetIdentifiersWithTheirProvenance) {
 
     // Table 5.5.1-1: NFID -> networkFunctionIdentifier, IPID -> extendedInterceptionPointID, and
     // the PDU timestamp with qualifier timeOfInterception(1).
-    EXPECT_EQ(message->network_function_identifier, "amf-01.5gc.example.net");
-    EXPECT_EQ(message->extended_interception_point_id, "AMF-IRI-POI-1");
-    ASSERT_TRUE(message->timestamp.has_value());
-    EXPECT_EQ(message->timestamp->seconds, 1789000000u);
-    EXPECT_EQ(message->timestamp->microseconds, 123456u);
-    EXPECT_EQ(message->timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
-    EXPECT_EQ(message->liid, "LIID-2026-0001");
-    EXPECT_EQ(message->sequence_number, 11u);
+    EXPECT_EQ(message->header.network_function_identifier, "amf-01.5gc.example.net");
+    EXPECT_EQ(message->header.extended_interception_point_id, "AMF-IRI-POI-1");
+    ASSERT_TRUE(message->header.timestamp.has_value());
+    EXPECT_EQ(message->header.timestamp->seconds, 1789000000u);
+    EXPECT_EQ(message->header.timestamp->microseconds, 123456u);
+    EXPECT_EQ(message->header.timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
+    EXPECT_EQ(message->header.liid, "LIID-2026-0001");
+    EXPECT_EQ(message->header.sequence_number, 11u);
 
     // The identifiers ride inside the BER IRIPayload: the IMSI digits and the E.164 digits are
     // both there, and provenance matchedOn(3)/other(4) are single-octet ENUMERATED values.
@@ -286,4 +288,60 @@ TEST(LiHi2TargetIdentifier, RefusesAnIdentifierWithNoAsn1Alternative) {
     const auto mediated = hi2::mediate_xiri(sample_xiri(), {suci});
     ASSERT_FALSE(mediated.has_value());
     EXPECT_NE(mediated.error().find("no alternative"), std::string::npos) << mediated.error();
+}
+
+// ETSI TS 102 232-1 clause 6.3: the session-layer TRI messages ride in the same PS-PDU envelope.
+// The subset of ADR-0373 originally dropped the tRIPayload alternative; ADR-0376 restored it,
+// because clause 6.3.4's keep-alive IS a TRI and a Delivery Function cannot do without one.
+TEST(LiHi2Tri, EncodesAndDecodesTheKeepalivePair) {
+    hi2::TriMessage keepalive;
+    keepalive.header.liid = "LIID-2026-0001";
+    keepalive.header.communication_identifier.operator_identifier = "5GC-R19-OP";
+    keepalive.header.sequence_number = 42;
+    keepalive.header.timestamp = hi2::Timestamp{1789000000, 0};
+    keepalive.type = hi2::TriType::KeepAlive;
+
+    const auto bytes = hi2::encode_tri_message(keepalive);
+    ASSERT_TRUE(bytes.has_value()) << (bytes ? "" : bytes.error());
+    const auto decoded = hi2::decode_tri_message(*bytes);
+    ASSERT_TRUE(decoded.has_value()) << (decoded ? "" : decoded.error());
+    EXPECT_EQ(decoded->type, hi2::TriType::KeepAlive);
+    // Clause 6.3.4: the response carries the sequence number of the keep-alive that caused it.
+    EXPECT_EQ(decoded->header.sequence_number, 42u);
+    EXPECT_EQ(decoded->header.liid, "LIID-2026-0001");
+
+    hi2::TriMessage response = *decoded;
+    response.type = hi2::TriType::KeepAliveResponse;
+    const auto response_bytes = hi2::encode_tri_message(response);
+    ASSERT_TRUE(response_bytes.has_value());
+    const auto response_decoded = hi2::decode_tri_message(*response_bytes);
+    ASSERT_TRUE(response_decoded.has_value());
+    EXPECT_EQ(response_decoded->type, hi2::TriType::KeepAliveResponse);
+    EXPECT_EQ(response_decoded->header.sequence_number, 42u);
+}
+
+// A reader has to route a received PS-PDU before it can decode it.
+TEST(LiHi2Tri, PayloadKindDistinguishesIriFromTri) {
+    const auto mediated = hi2::mediate_xiri(sample_xiri(), {});
+    ASSERT_TRUE(mediated.has_value());
+    const auto iri_bytes = hi2::encode_iri_message(sample_message(mediated->iri_payload));
+    ASSERT_TRUE(iri_bytes.has_value());
+
+    hi2::TriMessage keepalive;
+    keepalive.header.liid = "LIID-2026-0001";
+    keepalive.header.communication_identifier.operator_identifier = "5GC-R19-OP";
+    keepalive.type = hi2::TriType::KeepAlive;
+    const auto tri_bytes = hi2::encode_tri_message(keepalive);
+    ASSERT_TRUE(tri_bytes.has_value());
+
+    const auto iri_kind = hi2::payload_kind(*iri_bytes);
+    ASSERT_TRUE(iri_kind.has_value());
+    EXPECT_EQ(*iri_kind, hi2::PayloadKind::Iri);
+    const auto tri_kind = hi2::payload_kind(*tri_bytes);
+    ASSERT_TRUE(tri_kind.has_value());
+    EXPECT_EQ(*tri_kind, hi2::PayloadKind::Tri);
+
+    // And each decoder refuses the other's PDU rather than returning something empty.
+    EXPECT_FALSE(hi2::decode_tri_message(*iri_bytes).has_value());
+    EXPECT_FALSE(hi2::decode_iri_message(*tri_bytes).has_value());
 }

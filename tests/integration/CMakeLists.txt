@@ -172,3 +172,11 @@ target_link_libraries(li_x2x3_server_integration_tests PRIVATE
 target_compile_definitions(li_x2x3_server_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_x2x3_server_integration_tests)
+
+# ADR-0376: the LI_HI2 Delivery Function against a loopback LEMF. Same shape as the two above.
+add_executable(li_hi2_client_integration_tests test_li_hi2_client.cpp)
+target_link_libraries(li_hi2_client_integration_tests PRIVATE
+    li_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_hi2_client_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_hi2_client_integration_tests)

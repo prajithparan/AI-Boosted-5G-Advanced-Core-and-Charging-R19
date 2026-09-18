@@ -189,10 +189,10 @@ TEST(LiX2X3Server, MediatesAReceivedXiriIntoAnHi2PsPdu) {
     ASSERT_TRUE(hi2_bytes.has_value()) << (hi2_bytes ? "" : hi2_bytes.error());
     const auto message = hi2::decode_iri_message(*hi2_bytes);
     ASSERT_TRUE(message.has_value()) << (message ? "" : message.error());
-    EXPECT_EQ(message->liid, "LIID-2026-0001");
-    EXPECT_EQ(message->network_function_identifier, "amf-01.5gc.example.net");
-    EXPECT_EQ(message->extended_interception_point_id, "AMF-IRI-POI-1");
-    EXPECT_EQ(message->timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
+    EXPECT_EQ(message->header.liid, "LIID-2026-0001");
+    EXPECT_EQ(message->header.network_function_identifier, "amf-01.5gc.example.net");
+    EXPECT_EQ(message->header.extended_interception_point_id, "AMF-IRI-POI-1");
+    EXPECT_EQ(message->header.timestamp_qualifier, hi2::TimestampQualifier::TimeOfInterception);
     const std::string payload(message->iri_payload.begin(), message->iri_payload.end());
     EXPECT_NE(payload.find("204081234567890"), std::string::npos);
 

@@ -37,6 +37,7 @@ extern "C" {
 #include <PS-PDU.h>
 #include <PSIRIPayload.h>
 #include <RELATIVE-OID.h>
+#include <TRIPayload.h>
 #include <TargetIdentifier.h>
 #include <XIRIEvent.h>
 #include <XIRIPayload.h>
@@ -368,13 +369,18 @@ mediate_xiri(std::span<const std::uint8_t> xiri_payload,
     return result;
 }
 
-tl::expected<std::vector<std::uint8_t>, std::string> encode_iri_message(const IriMessage& message) {
-    if (message.liid.empty() || message.liid.size() > 25) {
+namespace {
+
+// Shared by every PS-PDU this file builds: the clause-5.2 PSHeader. Every length and format the
+// ASN.1 constrains is checked here, so a caller gets a named error rather than a constraint
+// failure inside asn1c.
+tl::expected<void, std::string> fill_ps_header(PSHeader_t& header, const PsHeader& src) {
+    if (src.liid.empty() || src.liid.size() > 25) {
         return tl::make_unexpected(
             std::string("LIID must be 1..25 octets (TS 103 280 LIID), got ") +
-            std::to_string(message.liid.size()));
+            std::to_string(src.liid.size()));
     }
-    const auto& cid = message.communication_identifier;
+    const auto& cid = src.communication_identifier;
     if (cid.operator_identifier.empty() || cid.operator_identifier.size() > 16) {
         return tl::make_unexpected(std::string("operatorIdentifier must be 1..16 octets"));
     }
@@ -385,29 +391,21 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_iri_message(const Ir
     if (cid.delivery_country_code && cid.delivery_country_code->size() != 2) {
         return tl::make_unexpected(std::string("deliveryCountryCode must be 2 characters"));
     }
-    if (message.authorization_country_code && message.authorization_country_code->size() != 2) {
+    if (src.authorization_country_code && src.authorization_country_code->size() != 2) {
         return tl::make_unexpected(std::string("authorizationCountryCode must be 2 characters"));
     }
-    if (message.interception_point_id &&
-        (message.interception_point_id->empty() || message.interception_point_id->size() > 8)) {
+    if (src.interception_point_id &&
+        (src.interception_point_id->empty() || src.interception_point_id->size() > 8)) {
         return tl::make_unexpected(std::string("interceptionPointID must be 1..8 characters"));
     }
-    if (message.iri_payload.empty()) {
-        return tl::make_unexpected(std::string("IRIContents.threeGPP33128DefinedIRI is empty"));
-    }
 
-    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(alloc<PS_PDU_t>());
-    if (!pdu) {
-        return tl::make_unexpected(std::string("allocation failed"));
-    }
-    PSHeader_t& header = pdu->pSHeader;
     if (OBJECT_IDENTIFIER_set_arcs(
             &header.li_psDomainId, kLiPsDomainIdArcs, std::size(kLiPsDomainIdArcs)) != 0) {
         return tl::make_unexpected(std::string("li-psDomainId allocation failed"));
     }
     if (OCTET_STRING_fromBuf(&header.lawfulInterceptionIdentifier,
-                             message.liid.data(),
-                             static_cast<int>(message.liid.size())) != 0) {
+                             src.liid.data(),
+                             static_cast<int>(src.liid.size())) != 0) {
         return tl::make_unexpected(std::string("LIID allocation failed"));
     }
     if (OCTET_STRING_fromBuf(&header.communicationIdentifier.networkIdentifier.operatorIdentifier,
@@ -444,126 +442,97 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_iri_message(const Ir
         }
         header.communicationIdentifier.deliveryCountryCode = dcc;
     }
-    header.sequenceNumber = message.sequence_number;
-    if (message.authorization_country_code) {
-        auto* acc = alloc<PrintableString_t>();
-        if (acc == nullptr ||
-            OCTET_STRING_fromBuf(acc,
-                                 message.authorization_country_code->data(),
-                                 static_cast<int>(message.authorization_country_code->size())) !=
-                0) {
-            return tl::make_unexpected(std::string("authorizationCountryCode allocation failed"));
+    header.sequenceNumber = src.sequence_number;
+
+    const auto optional_printable = [](PrintableString_t*& slot,
+                                       const std::optional<std::string>& value,
+                                       const char* what) -> tl::expected<void, std::string> {
+        if (!value) {
+            return {};
         }
-        header.authorizationCountryCode = acc;
-    }
-    if (message.interception_point_id) {
-        auto* ipid = alloc<PrintableString_t>();
-        if (ipid == nullptr ||
-            OCTET_STRING_fromBuf(ipid,
-                                 message.interception_point_id->data(),
-                                 static_cast<int>(message.interception_point_id->size())) != 0) {
-            return tl::make_unexpected(std::string("interceptionPointID allocation failed"));
+        auto* field = alloc<PrintableString_t>();
+        if (field == nullptr ||
+            OCTET_STRING_fromBuf(field, value->data(), static_cast<int>(value->size())) != 0) {
+            return tl::make_unexpected(std::string(what) + " allocation failed");
         }
-        header.interceptionPointID = ipid;
-    }
-    if (message.extended_interception_point_id) {
-        auto* ext = alloc<OCTET_STRING_t>();
-        if (ext == nullptr ||
-            OCTET_STRING_fromBuf(
-                ext,
-                message.extended_interception_point_id->data(),
-                static_cast<int>(message.extended_interception_point_id->size())) != 0) {
-            return tl::make_unexpected(
-                std::string("extendedInterceptionPointID allocation failed"));
+        slot = field;
+        return {};
+    };
+    const auto optional_octets = [](OCTET_STRING_t*& slot,
+                                    const std::optional<std::string>& value,
+                                    const char* what) -> tl::expected<void, std::string> {
+        if (!value) {
+            return {};
         }
-        header.extendedInterceptionPointID = ext;
-    }
-    if (message.network_function_identifier) {
-        auto* nfid = alloc<OCTET_STRING_t>();
-        if (nfid == nullptr ||
-            OCTET_STRING_fromBuf(nfid,
-                                 message.network_function_identifier->data(),
-                                 static_cast<int>(message.network_function_identifier->size())) !=
-                0) {
-            return tl::make_unexpected(std::string("networkFunctionIdentifier allocation failed"));
+        auto* field = alloc<OCTET_STRING_t>();
+        if (field == nullptr ||
+            OCTET_STRING_fromBuf(field, value->data(), static_cast<int>(value->size())) != 0) {
+            return tl::make_unexpected(std::string(what) + " allocation failed");
         }
-        header.networkFunctionIdentifier = nfid;
+        slot = field;
+        return {};
+    };
+    if (auto r = optional_printable(header.authorizationCountryCode,
+                                    src.authorization_country_code,
+                                    "authorizationCountryCode");
+        !r) {
+        return r;
     }
-    if (message.timestamp) {
+    if (auto r = optional_printable(
+            header.interceptionPointID, src.interception_point_id, "interceptionPointID");
+        !r) {
+        return r;
+    }
+    if (auto r = optional_octets(header.extendedInterceptionPointID,
+                                 src.extended_interception_point_id,
+                                 "extendedInterceptionPointID");
+        !r) {
+        return r;
+    }
+    if (auto r = optional_octets(header.networkFunctionIdentifier,
+                                 src.network_function_identifier,
+                                 "networkFunctionIdentifier");
+        !r) {
+        return r;
+    }
+
+    if (src.timestamp) {
         auto* gt = alloc<GeneralizedTime_t>();
-        if (gt == nullptr || !set_generalized_time(*gt, message.timestamp->seconds)) {
+        if (gt == nullptr || !set_generalized_time(*gt, src.timestamp->seconds)) {
             return tl::make_unexpected(std::string("PSHeader timeStamp allocation failed"));
         }
         header.timeStamp = gt;
         auto* micro = alloc<MicroSecondTimeStamp_t>();
         if (micro == nullptr ||
-            asn_umax2INTEGER(&micro->seconds, static_cast<uintmax_t>(message.timestamp->seconds)) !=
+            asn_umax2INTEGER(&micro->seconds, static_cast<uintmax_t>(src.timestamp->seconds)) !=
                 0) {
             return tl::make_unexpected(std::string("microSecondTimeStamp allocation failed"));
         }
-        micro->microSeconds = static_cast<long>(message.timestamp->microseconds);
+        micro->microSeconds = static_cast<long>(src.timestamp->microseconds);
         header.microSecondTimeStamp = micro;
     }
-    // Table 5.5.1-1: "the timestamp qualifier shall be present" on IRI messages.
+    // Table 5.5.1-1: "the timestamp qualifier shall be present" on IRI messages. Harmless on a
+    // TRI, whose other header fields are "any value" (clause 6.3.4).
     auto* qualifier = alloc<TimeStampQualifier_t>();
     if (qualifier == nullptr) {
         return tl::make_unexpected(std::string("timeStampQualifier allocation failed"));
     }
-    *qualifier = static_cast<long>(message.timestamp_qualifier);
+    *qualifier = static_cast<long>(src.timestamp_qualifier);
     header.timeStampQualifier = qualifier;
-
-    // One PSIRIPayload in the sequence (no aggregation, see the header note).
-    pdu->payload.present = Payload_PR_iRIPayloadSequence;
-    auto* iri_payload = alloc<PSIRIPayload_t>();
-    if (iri_payload == nullptr) {
-        return tl::make_unexpected(std::string("PSIRIPayload allocation failed"));
-    }
-    auto* iri_type = alloc<IRIType_t>();
-    if (iri_type == nullptr) {
-        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
-        return tl::make_unexpected(std::string("IRI-Type allocation failed"));
-    }
-    *iri_type = static_cast<long>(message.iri_type);
-    iri_payload->iRIType = iri_type;
-    iri_payload->iRIContents.present = IRIContents_PR_threeGPP33128DefinedIRI;
-    if (OCTET_STRING_fromBuf(&iri_payload->iRIContents.choice.threeGPP33128DefinedIRI,
-                             reinterpret_cast<const char*>(message.iri_payload.data()),
-                             static_cast<int>(message.iri_payload.size())) != 0) {
-        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
-        return tl::make_unexpected(std::string("threeGPP33128DefinedIRI allocation failed"));
-    }
-    if (ASN_SEQUENCE_ADD(&pdu->payload.choice.iRIPayloadSequence.list, iri_payload) != 0) {
-        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
-        return tl::make_unexpected(std::string("iRIPayloadSequence append failed"));
-    }
-
-    return der_encode_to_vector(asn_DEF_PS_PDU, pdu.get());
+    return {};
 }
 
-tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::uint8_t> bytes) {
-    PS_PDU_t* raw = nullptr;
-    const asn_dec_rval_t dr = ber_decode(
-        nullptr, &asn_DEF_PS_PDU, reinterpret_cast<void**>(&raw), bytes.data(), bytes.size());
-    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(raw);
-    if (dr.code != RC_OK) {
-        return tl::make_unexpected(std::string(dr.code == RC_WMORE ? "truncated" : "malformed") +
-                                   " PS-PDU");
-    }
-    if (dr.consumed != bytes.size()) {
-        return tl::make_unexpected(std::string("trailing bytes after the PS-PDU"));
-    }
-
-    const PSHeader_t& header = pdu->pSHeader;
+tl::expected<PsHeader, std::string> read_ps_header(const PSHeader_t& header) {
     asn_oid_arc_t domain[16];
     const ssize_t domain_count =
         OBJECT_IDENTIFIER_get_arcs(&header.li_psDomainId, domain, std::size(domain));
     if (domain_count != static_cast<ssize_t>(std::size(kLiPsDomainIdArcs)) ||
         !std::equal(std::begin(kLiPsDomainIdArcs), std::end(kLiPsDomainIdArcs), domain)) {
-        return tl::make_unexpected(std::string("PSHeader.li-psDomainId is not the TS 102 232-1 "
-                                               "version43 domain id"));
+        return tl::make_unexpected(
+            std::string("PSHeader.li-psDomainId is not the TS 102 232-1 version43 domain id"));
     }
 
-    IriMessage out;
+    PsHeader out;
     out.liid = octets_to_std(header.lawfulInterceptionIdentifier);
     out.communication_identifier.operator_identifier =
         octets_to_std(header.communicationIdentifier.networkIdentifier.operatorIdentifier);
@@ -595,8 +564,8 @@ tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::ui
     if (header.timeStamp != nullptr) {
         const auto seconds = read_generalized_time(*header.timeStamp);
         if (!seconds) {
-            return tl::make_unexpected(std::string("PSHeader.timeStamp is not a readable "
-                                                   "GeneralizedTime"));
+            return tl::make_unexpected(
+                std::string("PSHeader.timeStamp is not a readable GeneralizedTime"));
         }
         Timestamp ts{*seconds, 0};
         if (header.microSecondTimeStamp != nullptr) {
@@ -607,11 +576,83 @@ tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::ui
     if (header.timeStampQualifier != nullptr) {
         out.timestamp_qualifier = static_cast<TimestampQualifier>(*header.timeStampQualifier);
     }
+    return out;
+}
 
-    if (pdu->payload.present != Payload_PR_iRIPayloadSequence) {
+tl::expected<AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU>, std::string>
+decode_ps_pdu(std::span<const std::uint8_t> bytes) {
+    PS_PDU_t* raw = nullptr;
+    const asn_dec_rval_t dr = ber_decode(
+        nullptr, &asn_DEF_PS_PDU, reinterpret_cast<void**>(&raw), bytes.data(), bytes.size());
+    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(raw);
+    if (dr.code != RC_OK) {
+        return tl::make_unexpected(std::string(dr.code == RC_WMORE ? "truncated" : "malformed") +
+                                   " PS-PDU");
+    }
+    if (dr.consumed != bytes.size()) {
+        return tl::make_unexpected(std::string("trailing bytes after the PS-PDU"));
+    }
+    return pdu;
+}
+
+} // namespace
+
+tl::expected<std::vector<std::uint8_t>, std::string> encode_iri_message(const IriMessage& message) {
+    if (message.iri_payload.empty()) {
+        return tl::make_unexpected(std::string("IRIContents.threeGPP33128DefinedIRI is empty"));
+    }
+    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(alloc<PS_PDU_t>());
+    if (!pdu) {
+        return tl::make_unexpected(std::string("allocation failed"));
+    }
+    if (auto r = fill_ps_header(pdu->pSHeader, message.header); !r) {
+        return tl::make_unexpected(r.error());
+    }
+
+    // One PSIRIPayload in the sequence: no aggregation (TS 102 232-1 clause 6.2.3), ADR-0374.
+    pdu->payload.present = Payload_PR_iRIPayloadSequence;
+    auto* iri_payload = alloc<PSIRIPayload_t>();
+    if (iri_payload == nullptr) {
+        return tl::make_unexpected(std::string("PSIRIPayload allocation failed"));
+    }
+    auto* iri_type = alloc<IRIType_t>();
+    if (iri_type == nullptr) {
+        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
+        return tl::make_unexpected(std::string("IRI-Type allocation failed"));
+    }
+    *iri_type = static_cast<long>(message.iri_type);
+    iri_payload->iRIType = iri_type;
+    iri_payload->iRIContents.present = IRIContents_PR_threeGPP33128DefinedIRI;
+    if (OCTET_STRING_fromBuf(&iri_payload->iRIContents.choice.threeGPP33128DefinedIRI,
+                             reinterpret_cast<const char*>(message.iri_payload.data()),
+                             static_cast<int>(message.iri_payload.size())) != 0) {
+        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
+        return tl::make_unexpected(std::string("threeGPP33128DefinedIRI allocation failed"));
+    }
+    if (ASN_SEQUENCE_ADD(&pdu->payload.choice.iRIPayloadSequence.list, iri_payload) != 0) {
+        ASN_STRUCT_FREE(asn_DEF_PSIRIPayload, iri_payload);
+        return tl::make_unexpected(std::string("iRIPayloadSequence append failed"));
+    }
+
+    return der_encode_to_vector(asn_DEF_PS_PDU, pdu.get());
+}
+
+tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::uint8_t> bytes) {
+    auto pdu = decode_ps_pdu(bytes);
+    if (!pdu) {
+        return tl::make_unexpected(pdu.error());
+    }
+    if ((*pdu)->payload.present != Payload_PR_iRIPayloadSequence) {
         return tl::make_unexpected(std::string("PS-PDU payload is not an iRIPayloadSequence"));
     }
-    const auto& list = pdu->payload.choice.iRIPayloadSequence.list;
+    auto header = read_ps_header((*pdu)->pSHeader);
+    if (!header) {
+        return tl::make_unexpected(header.error());
+    }
+
+    IriMessage out;
+    out.header = *header;
+    const auto& list = (*pdu)->payload.choice.iRIPayloadSequence.list;
     if (list.count != 1) {
         return tl::make_unexpected(std::string("expected exactly one PSIRIPayload, got ") +
                                    std::to_string(list.count));
@@ -627,6 +668,86 @@ tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::ui
     const OCTET_STRING_t& payload = iri.iRIContents.choice.threeGPP33128DefinedIRI;
     out.iri_payload.assign(payload.buf, payload.buf + payload.size);
     return out;
+}
+
+tl::expected<std::vector<std::uint8_t>, std::string> encode_tri_message(const TriMessage& message) {
+    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(alloc<PS_PDU_t>());
+    if (!pdu) {
+        return tl::make_unexpected(std::string("allocation failed"));
+    }
+    if (auto r = fill_ps_header(pdu->pSHeader, message.header); !r) {
+        return tl::make_unexpected(r.error());
+    }
+    pdu->payload.present = Payload_PR_tRIPayload;
+    switch (message.type) {
+        case TriType::KeepAlive:
+            pdu->payload.choice.tRIPayload.present = TRIPayload_PR_keep_alive;
+            break;
+        case TriType::KeepAliveResponse:
+            pdu->payload.choice.tRIPayload.present = TRIPayload_PR_keep_aliveResponse;
+            break;
+        case TriType::PduAcknowledgementRequest:
+            pdu->payload.choice.tRIPayload.present = TRIPayload_PR_pDUAcknowledgementRequest;
+            break;
+        case TriType::PduAcknowledgementResponse:
+            pdu->payload.choice.tRIPayload.present = TRIPayload_PR_pDUAcknowledgementResponse;
+            break;
+    }
+    return der_encode_to_vector(asn_DEF_PS_PDU, pdu.get());
+}
+
+tl::expected<TriMessage, std::string> decode_tri_message(std::span<const std::uint8_t> bytes) {
+    auto pdu = decode_ps_pdu(bytes);
+    if (!pdu) {
+        return tl::make_unexpected(pdu.error());
+    }
+    if ((*pdu)->payload.present != Payload_PR_tRIPayload) {
+        return tl::make_unexpected(std::string("PS-PDU payload is not a tRIPayload"));
+    }
+    auto header = read_ps_header((*pdu)->pSHeader);
+    if (!header) {
+        return tl::make_unexpected(header.error());
+    }
+    TriMessage out;
+    out.header = *header;
+    switch ((*pdu)->payload.choice.tRIPayload.present) {
+        case TRIPayload_PR_keep_alive:
+            out.type = TriType::KeepAlive;
+            break;
+        case TRIPayload_PR_keep_aliveResponse:
+            out.type = TriType::KeepAliveResponse;
+            break;
+        case TRIPayload_PR_pDUAcknowledgementRequest:
+            out.type = TriType::PduAcknowledgementRequest;
+            break;
+        case TRIPayload_PR_pDUAcknowledgementResponse:
+            out.type = TriType::PduAcknowledgementResponse;
+            break;
+        default:
+            return tl::make_unexpected(
+                std::string("TRIPayload alternative ") +
+                std::to_string(static_cast<int>((*pdu)->payload.choice.tRIPayload.present)) +
+                " is not one this subset models (TS 102 232-1 clause 6.3, ADR-0376)");
+    }
+    return out;
+}
+
+tl::expected<PayloadKind, std::string> payload_kind(std::span<const std::uint8_t> bytes) {
+    auto pdu = decode_ps_pdu(bytes);
+    if (!pdu) {
+        return tl::make_unexpected(pdu.error());
+    }
+    switch ((*pdu)->payload.present) {
+        case Payload_PR_iRIPayloadSequence:
+            return PayloadKind::Iri;
+        case Payload_PR_cCPayloadSequence:
+            return PayloadKind::Cc;
+        case Payload_PR_tRIPayload:
+            return PayloadKind::Tri;
+        default:
+            return tl::make_unexpected(
+                std::string("PS-PDU carries no payload alternative this subset models"));
+    }
 }
 
 tl::expected<std::vector<std::uint8_t>, std::string>
@@ -670,23 +791,24 @@ mediate_x2_pdu(const Pdu& pdu, const MediationContext& context) {
     }
 
     IriMessage message;
-    message.liid = context.liid;
-    message.communication_identifier = context.communication_identifier;
-    message.sequence_number = context.sequence_number;
-    message.authorization_country_code = context.authorization_country_code;
-    message.interception_point_id = context.interception_point_id;
+    message.header.liid = context.liid;
+    message.header.communication_identifier = context.communication_identifier;
+    message.header.sequence_number = context.sequence_number;
+    message.header.authorization_country_code = context.authorization_country_code;
+    message.header.interception_point_id = context.interception_point_id;
     message.iri_type = context.iri_type;
     message.iri_payload = std::move(mediated->iri_payload);
     // Table 5.5.1-1 mappings that come from the PDU itself.
-    message.network_function_identifier = text_attribute(pdu, AttributeType::NetworkFunctionId);
-    message.extended_interception_point_id =
+    message.header.network_function_identifier =
+        text_attribute(pdu, AttributeType::NetworkFunctionId);
+    message.header.extended_interception_point_id =
         text_attribute(pdu, AttributeType::InterceptionPointId);
     if (const auto observed = timestamp(pdu)) {
-        message.timestamp = Timestamp{observed->seconds, observed->nanoseconds / 1000};
+        message.header.timestamp = Timestamp{observed->seconds, observed->nanoseconds / 1000};
     }
     // Table 5.5.2-1: "if the timestamp field is set, the timestamp qualifier ... shall be present
     // and set to timeOfInterception(1)" -- the PDU timestamp is the time the POI observed it.
-    message.timestamp_qualifier = TimestampQualifier::TimeOfInterception;
+    message.header.timestamp_qualifier = TimestampQualifier::TimeOfInterception;
 
     return encode_iri_message(message);
 }

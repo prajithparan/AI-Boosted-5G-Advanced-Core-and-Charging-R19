@@ -17,10 +17,15 @@
 --      (produced by li_generated, increment 1) into that octet string as opaque bytes, so this
 --      module has NO dependency on TS33128Payloads and cannot clash with it. In the full module
 --      both are extension additions (after the `...`); here each is the sole root alternative.
---   2. Payload keeps only iRIPayloadSequence [0] and cCPayloadSequence [1]. The third root
---      alternative tRIPayload [2] and the extension additions [3]-[7] (hI1-Operation,
---      encryptionContainer, threeGPP-HI1-Operation, iLHIPayload, hI4Payload) are dropped: each
---      names a module this closure does not carry, and none of them is a 5G IRI/CC delivery.
+--   2. Payload keeps its three root alternatives (iRIPayloadSequence [0], cCPayloadSequence [1],
+--      tRIPayload [2]); the extension additions [3]-[7] (hI1-Operation, encryptionContainer,
+--      threeGPP-HI1-Operation, iLHIPayload, hI4Payload) are dropped, each naming a module this
+--      closure does not carry and none of them a 5G IRI/CC delivery. TRIPayload itself is trimmed
+--      to its self-contained alternatives, which is what the clause-6.3 session layer uses: the
+--      keep-alive / keep-aliveResponse of 6.3.4 and the pDUAcknowledgement pair of 6.3.6 are all
+--      NULL. integrityCheck [0], operatorLeaMessage [8], optionRequest [9], optionResponse [10]
+--      (and optionComplete [11], meaningless without them) each pull in a closure of their own
+--      and are dropped. See the type's own comment below.
 --   3. The full module's own `IRIPayload` / `CCPayload` SEQUENCE types are renamed here to
 --      `PSIRIPayload` / `PSCCPayload`: TS33128Payloads (compiled into the same li_generated
 --      library) also defines `IRIPayload` and `CCPayload`, and asn1c writes one flat directory, so
@@ -35,10 +40,10 @@
 --      HI2Operations). They sit after the `...` extension marker, so removing them is wire-neutral.
 --
 -- Wire-neutral is a claim about ENCODING what a 5G MDF2/MDF3 sends, NOT about decoding everything
--- the full module can carry: a PS-PDU whose Payload is tRIPayload [2], or whose IRIContents is an
--- alternative other than [19], will not decode here as that alternative: it is an unrecognized
--- tag in an extensible CHOICE. Nothing in this project produces or consumes those; a
--- general-purpose TS 102 232-1 decoder needs the full module.
+-- the full module can carry: a PS-PDU whose IRIContents is an alternative other than [19], or
+-- whose TRIPayload is one of the four dropped above, will not decode here as that alternative: it
+-- is an unrecognized tag in an extensible CHOICE. Nothing in this project produces or consumes
+-- those; a general-purpose TS 102 232-1 decoder needs the full module.
 --
 -- The li-psDomainId OBJECT IDENTIFIER value below is the authoritative on-wire domain id from the
 -- version43 module and is what the MDF sets in PSHeader.li-psDomainId. See ETSI TS 102 232-1 and
@@ -85,7 +90,28 @@ Payload ::= CHOICE
 {
     iRIPayloadSequence      [0] SEQUENCE OF PSIRIPayload,
     cCPayloadSequence       [1] SEQUENCE OF PSCCPayload,
+    tRIPayload              [2] TRIPayload,
     ...
+}
+
+-- Trimmed: the alternatives kept are the self-contained ones the clause-6.3 session layer needs
+-- (keep-alive and keep-aliveResponse of 6.3.4, pDUAcknowledgement of 6.3.6), plus the other
+-- alternatives that carry no type of their own. Dropped: integrityCheck [0] (IntegrityCheck),
+-- operatorLeaMessage [8] (OperatorLeaMessage), optionRequest [9] / optionResponse [10]
+-- (OptionRequest/OptionResponse): each pulls in its own closure, and none is used by this MDF.
+-- optionComplete [11] is dropped with them: it is meaningless without the negotiation exchange.
+TRIPayload ::= CHOICE
+{
+    testPDU                         [1] NULL,
+    paddingPDU                      [2] OCTET STRING,
+    keep-alive                      [3] NULL,
+    keep-aliveResponse              [4] NULL,
+    firstSegmentFlag                [5] NULL,
+    lastSegmentFlag                 [6] NULL,
+    ...,
+    cINReset                        [7] NULL,
+    pDUAcknowledgementRequest       [12] NULL,
+    pDUAcknowledgementResponse      [13] NULL
 }
 
 CommunicationIdentifier ::= SEQUENCE

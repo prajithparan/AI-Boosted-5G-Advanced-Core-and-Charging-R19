@@ -76,23 +76,51 @@ struct Timestamp {
     bool operator==(const Timestamp&) const = default;
 };
 
-// One LI_HI2 message: exactly one PS-PDU carrying one IRI payload. Aggregating several IRI
-// payloads into one PDU (TS 102 232-1 clause 6.2.3) is not done here -- see the header note in
-// hi2.cpp and ADR-0374.
-struct IriMessage {
+// ETSI TS 102 232-1 PSHeader (clause 5.2), the part every PS-PDU carries whatever its payload.
+// TS 33.128 table 5.5.1-1 adds the 5G-specific requirements on it for IRI messages.
+struct PsHeader {
     std::string liid; // TS 103 280 LIID: 1..25 octets
     CommunicationIdentifier communication_identifier;
     std::uint32_t sequence_number = 0;
-    std::optional<std::string> authorization_country_code;     // PSHeader [2], 2 characters
-    std::optional<std::string> interception_point_id;          // PSHeader [6], 1..8 characters
-    std::optional<std::string> extended_interception_point_id; // PSHeader [9] <- LI_X2 IPID
-    std::optional<std::string> network_function_identifier;    // PSHeader [10] <- LI_X2 NFID
-    std::optional<Timestamp> timestamp;                        // PSHeader [5] and [7]
+    std::optional<std::string> authorization_country_code;     // [2], 2 characters
+    std::optional<std::string> interception_point_id;          // [6], 1..8 characters
+    std::optional<std::string> extended_interception_point_id; // [9] <- LI_X2 IPID
+    std::optional<std::string> network_function_identifier;    // [10] <- LI_X2 NFID
+    std::optional<Timestamp> timestamp;                        // [5] and [7]
     TimestampQualifier timestamp_qualifier = TimestampQualifier::TimeOfInterception;
+
+    bool operator==(const PsHeader&) const = default;
+};
+
+// One LI_HI2 IRI message: one PS-PDU carrying one IRI payload. Aggregating several IRI payloads
+// into one PDU (TS 102 232-1 clause 6.2.3) is not done here -- see ADR-0374.
+struct IriMessage {
+    PsHeader header;
     IriType iri_type = IriType::Report;
     std::vector<std::uint8_t> iri_payload; // BER TS33128Payloads.IRIPayload
 
     bool operator==(const IriMessage&) const = default;
+};
+
+// The session-layer messages of TS 102 232-1 clause 6.3, carried in the same PS-PDU envelope as a
+// TRIPayload: the keep-alive pair of clause 6.3.4 and the PDU-acknowledgement pair of 6.3.6. Each
+// alternative is an ASN.1 NULL, so the type IS the whole message.
+enum class TriType : std::uint8_t {
+    KeepAlive,
+    KeepAliveResponse,
+    PduAcknowledgementRequest,
+    PduAcknowledgementResponse,
+};
+
+// Clause 6.3.4: "The sequence number increments for each keep-alive sent within the same instance
+// of the Delivery Function ... The timestamp and version shall be set appropriately. All other
+// header fields shall be filled in with any value." The response echoes the request's sequence
+// number with its own timestamp.
+struct TriMessage {
+    PsHeader header;
+    TriType type = TriType::KeepAlive;
+
+    bool operator==(const TriMessage&) const = default;
 };
 
 // Encode one PS-PDU (BER). Every length/format constraint the ASN.1 states is checked first, so a
@@ -102,6 +130,14 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_iri_message(const Ir
 // Decode one PS-PDU back. Used by the tests and by a receiving LEMF-side tool; an MDF2 does not
 // need it.
 tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::uint8_t> bytes);
+
+// The same for a session-layer TRI PS-PDU (clause 6.3.4 / 6.3.6).
+tl::expected<std::vector<std::uint8_t>, std::string> encode_tri_message(const TriMessage& message);
+tl::expected<TriMessage, std::string> decode_tri_message(std::span<const std::uint8_t> bytes);
+
+// What kind of payload a received PS-PDU carries, so a reader can route it before decoding.
+enum class PayloadKind : std::uint8_t { Iri, Cc, Tri };
+tl::expected<PayloadKind, std::string> payload_kind(std::span<const std::uint8_t> bytes);
 
 // Step 1 above. `xiri_payload` is the BER XIRIPayload from an LI_X2 PDU's payload (Payload Format
 // 2). Returns the BER IRIPayload for IRIContents.threeGPP33128DefinedIRI.

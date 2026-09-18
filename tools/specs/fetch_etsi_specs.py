@@ -29,6 +29,10 @@ UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) spec-fetch 5gc-r19"}
 SPECS = [
     ("10322101", "01.23.01", "TS_103_221-1_v1.23.1"),
     ("10322102", "01.10.01", "TS_103_221-2_v1.10.1"),
+    # The HI2/HI3 delivery specification: the PS-PDU of ADR-0373 and the clause-6.4 TCP transport
+    # profile the MDF2 delivers over. v3.38.1 is the latest published version and the one whose
+    # ASN.1 module the vendored LI-PS-PDU.asn carries (module OID version43).
+    ("10223201", "03.38.01", "TS_102_232-1_v3.38.1"),
 ]
 
 
