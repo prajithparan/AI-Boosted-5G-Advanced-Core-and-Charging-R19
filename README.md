@@ -30,7 +30,15 @@ not implement it, and a title should not need a footnote to be true.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
 original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what that changed).
-### Architecture
+
+Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg package name) stay as
+short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
+architectural choice made (and rejected) along the way.
+
+[![CI](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+<h2 align="center">Architecture</h2>
 
 **Open the image for full size** — it is drawn at poster density, like the R19 poster it
 follows. Solid tiles exist in this repository and are tested. **Dashed tiles are in scope and
@@ -53,91 +61,6 @@ Updated as part of every NF's definition of done (`CLAUDE.md`); conventions in
     </picture>
   </a>
 </p>
-
-**Open-source products, with the license each actually ships under** (from the vcpkg port
-metadata and the projects' own LICENSE files — not recalled). P1 is strict OSI-only; the two rows
-that need a word are marked.
-
-| Layer | Product | Version | License |
-|---|---|---|---|
-| CDR analytics / feature store | Apache Doris | 4.1.3 | Apache-2.0 |
-| Event bus | Apache Kafka (KRaft) | 3.9.0 | Apache-2.0 |
-| Relational | PostgreSQL | 16 | PostgreSQL License |
-| Session cache | **Valkey** | 8 | BSD-3-Clause — replaces Redis 7.4 (RSALv2/SSPL, not OSI), per ADR-0044 |
-| Inference | ONNX Runtime | 1.23.2 | MIT |
-| Model tracking | MLflow | sidecar | Apache-2.0 |
-| Model training (sidecars) | scikit-learn · skl2onnx · onnx | sidecar | BSD-3-Clause · Apache-2.0 · Apache-2.0 |
-| HTTP/2 · TLS | nghttp2 · OpenSSL · curl | 1.69 · 3.6.3 · 8.21 | MIT · Apache-2.0 · curl |
-| Async | Boost.Asio / Beast | 1.91 | BSL-1.0 |
-| JSON | nlohmann/json · simdjson | 3.12 · 4.6.6 | MIT · Apache-2.0 OR MIT |
-| Kafka client | librdkafka | 2.14.2 | BSD-2-Clause (port metadata unset; LICENSE file verified) |
-| DB clients | libpqxx · redis-plus-plus · libmariadb | 8.0.2 · 1.3.15 · 3.4.8 | BSD-3-Clause · Apache-2.0 · LGPL-2.1+ |
-| Telemetry · logging | opentelemetry-cpp · spdlog | 1.28 · 1.17 | Apache-2.0 · MIT |
-| Auth | jwt-cpp | 0.7.2 | MIT |
-| Errors | tl-expected | 1.3.1 | CC0-1.0 — a public-domain dedication OSI declined to list (2012). Permissive; **flagged for P1 review**, not hidden |
-| Tests | GoogleTest · libFuzzer | 1.17 | BSD-3-Clause · Apache-2.0 WITH LLVM-exception |
-
-### What that means in practice
-
-**On charging — the whole surface, not a demo slice.**
-
-- **All 25 charging-information types TS 32.291 defines** are detected, scoped and stored — the
-  complete set, not a convenient subset.
-- **Charge anything that arrives.** 5G N40, 4G Diameter Gy and CAMEL/CAP all rate from the *same*
-  catalog against the *same* offerings. A tariff written once prices the 5G session, the legacy
-  data session and the CAMEL voice call.
-- **613 AVP names** generated from TS 32.299 and agreed by four independent derivations before a
-  single one is emitted, so a Gy attribute is scopable **by name**, never only by number — and an
-  AVP the dictionary has never heard of is still scopable the moment it arrives.
-- **Duplicate-safe by construction.** TS 29.500 clause 5.2.8 idempotency keys are claimed
-  atomically *before* a charging request is processed, so a retransmitted Release cannot
-  double-charge or orphan a session.
-- **3,000,000 CDRs across 75,000 subscribers**, driven through the real N40 path — *charged*, not
-  inserted — with zero failures, zero dropped writes and zero sequence-gap alarms.
-
-**On AI — advisory, auditable, and switchable off.**
-
-- **Inference is in-process C++** via ONNX Runtime. No Python anywhere on the runtime path, ever;
-  training is a sidecar that produces an artifact, not a dependency.
-- **AI quota sizing ships with a kill switch, default OFF.** Billing is not a place to discover
-  what a model does.
-- **Every AI-influenced decision is auditable**: the RatingDecision row records the model id and
-  version, the input feature vector, the output score, and *which deterministic bound actually
-  applied* — so an operator can always answer "why was I charged this?"
-- **One feature store, computed once** from CHF's own CDRs, so a model, a revenue query and a bill
-  run cannot quietly disagree about the same subscriber's usage.
-- **Every model versioned in MLflow** with training-data lineage and a drift path through
-  `Nnwdaf_MLModelMonitor`.
-
-### Security compliance — 3GPP 33-series, Release 19
-
-Assessed against the specifications fetched from the official 3GPP archive
-(`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
-clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
-**Stated honestly: this is a partial-compliance picture with one hard gap, not a certification.**
-
-| TS | Subject | Applies here | Status |
-|---|---|---|---|
-| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing**, NRF discovery authorization missing, no SEPP/N32 |
-| 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 only; profile requires TLS 1.2 support too |
-| 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; **duplicate JSON keys silently accepted** (§4.3.6.3); management-plane baseline not yet assessed |
-| 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Not implemented.** 33.127 requires POIs in AMF, SMF, UPF, UDM, SMSF, NEF, NWDAF, an NRF SIRF, and **§7.22 an IRI-POI in the CHF**. A licensed operator cannot deploy without this. |
-| 33.528 | SCAS for PCF | Core | Unapproved shell — the document itself says "shall not be implemented"; defers to 33.117 |
-| 33.535 | AKMA | In scope (AAnF, Tier 2) | Not built yet |
-| 33.122 | CAPIF security | In scope (Tier 3) | Not built yet |
-| 33.203 | IMS access security | In scope (IMS AS, Tier 3) | Not built yet |
-| 33.220 / 33.224 | GBA / GBA Push | Out of scope (`nfs/bsf` is the 5G BSF of TS 29.521, not GBA's) | — |
-| 33.102 / 33.401 | 3G / EPS security | Out of scope (no EPC; 4G charging *interfaces* only) | — |
-| 33.106 / 33.107 / 33.108 | 3G/EPS LI | Superseded by 33.126/127/128 per their own Scope | — |
-| 33.246 / 33.511 / 33.256 / 33.536 | MBMS, gNB SCAS, UAS, V2X | Out of scope | — |
-| 33.258 | *(requested)* | **Not a published 3GPP TS** — the archive has 33.250/256/259 only | — |
-
-Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg package name) stay as
-short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
-architectural choice made (and rejected) along the way.
-
-[![CI](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 <h2 align="center">Source of truth</h2>
 
@@ -207,7 +130,32 @@ UDR has an HPA; moving the other NFs' state out of process is scheduled with **P
 ranked list of what would still block a production deployment, is in
 [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md).
 
-<h3 align="center">Commercial products the CHF/BSS model supports today</h3>
+<h2 align="center">Open-source products</h2>
+
+**With the license each actually ships under** (from the vcpkg port
+metadata and the projects' own LICENSE files — not recalled). P1 is strict OSI-only; the two rows
+that need a word are marked.
+
+| Layer | Product | Version | License |
+|---|---|---|---|
+| CDR analytics / feature store | Apache Doris | 4.1.3 | Apache-2.0 |
+| Event bus | Apache Kafka (KRaft) | 3.9.0 | Apache-2.0 |
+| Relational | PostgreSQL | 16 | PostgreSQL License |
+| Session cache | **Valkey** | 8 | BSD-3-Clause — replaces Redis 7.4 (RSALv2/SSPL, not OSI), per ADR-0044 |
+| Inference | ONNX Runtime | 1.23.2 | MIT |
+| Model tracking | MLflow | sidecar | Apache-2.0 |
+| Model training (sidecars) | scikit-learn · skl2onnx · onnx | sidecar | BSD-3-Clause · Apache-2.0 · Apache-2.0 |
+| HTTP/2 · TLS | nghttp2 · OpenSSL · curl | 1.69 · 3.6.3 · 8.21 | MIT · Apache-2.0 · curl |
+| Async | Boost.Asio / Beast | 1.91 | BSL-1.0 |
+| JSON | nlohmann/json · simdjson | 3.12 · 4.6.6 | MIT · Apache-2.0 OR MIT |
+| Kafka client | librdkafka | 2.14.2 | BSD-2-Clause (port metadata unset; LICENSE file verified) |
+| DB clients | libpqxx · redis-plus-plus · libmariadb | 8.0.2 · 1.3.15 · 3.4.8 | BSD-3-Clause · Apache-2.0 · LGPL-2.1+ |
+| Telemetry · logging | opentelemetry-cpp · spdlog | 1.28 · 1.17 | Apache-2.0 · MIT |
+| Auth | jwt-cpp | 0.7.2 | MIT |
+| Errors | tl-expected | 1.3.1 | CC0-1.0 — a public-domain dedication OSI declined to list (2012). Permissive; **flagged for P1 review**, not hidden |
+| Tests | GoogleTest · libFuzzer | 1.17 | BSD-3-Clause · Apache-2.0 WITH LLVM-exception |
+
+<h2 align="center">Commercial products the CHF/BSS model supports today</h2>
 
 Product and tariff definitions are **TMF620 catalog data, not code** (principle P7): CHF's rating
 engine reads `ratingGroup`, `validityTime`, `quotaHoldingTime` and the volume/time/unit quota
@@ -256,7 +204,39 @@ problem rather than a re-architecture.
 
 Full phase plan: [`PROMPT.md`](PROMPT.md).
 
-<h3 align="center">AI capabilities</h3>
+<h2 align="center">What that means in practice</h2>
+
+**On charging — the whole surface, not a demo slice.**
+
+- **All 25 charging-information types TS 32.291 defines** are detected, scoped and stored — the
+  complete set, not a convenient subset.
+- **Charge anything that arrives.** 5G N40, 4G Diameter Gy and CAMEL/CAP all rate from the *same*
+  catalog against the *same* offerings. A tariff written once prices the 5G session, the legacy
+  data session and the CAMEL voice call.
+- **613 AVP names** generated from TS 32.299 and agreed by four independent derivations before a
+  single one is emitted, so a Gy attribute is scopable **by name**, never only by number — and an
+  AVP the dictionary has never heard of is still scopable the moment it arrives.
+- **Duplicate-safe by construction.** TS 29.500 clause 5.2.8 idempotency keys are claimed
+  atomically *before* a charging request is processed, so a retransmitted Release cannot
+  double-charge or orphan a session.
+- **3,000,000 CDRs across 75,000 subscribers**, driven through the real N40 path — *charged*, not
+  inserted — with zero failures, zero dropped writes and zero sequence-gap alarms.
+
+**On AI — advisory, auditable, and switchable off.**
+
+- **Inference is in-process C++** via ONNX Runtime. No Python anywhere on the runtime path, ever;
+  training is a sidecar that produces an artifact, not a dependency.
+- **AI quota sizing ships with a kill switch, default OFF.** Billing is not a place to discover
+  what a model does.
+- **Every AI-influenced decision is auditable**: the RatingDecision row records the model id and
+  version, the input feature vector, the output score, and *which deterministic bound actually
+  applied* — so an operator can always answer "why was I charged this?"
+- **One feature store, computed once** from CHF's own CDRs, so a model, a revenue query and a bill
+  run cannot quietly disagree about the same subscriber's usage.
+- **Every model versioned in MLflow** with training-data lineage and a drift path through
+  `Nnwdaf_MLModelMonitor`.
+
+<h2 align="center">AI capabilities</h2>
 
 One AI feature is built and running in the charging path. Everything else on this list is not
 built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
@@ -281,6 +261,29 @@ Python, serve ONNX in-process from C++, keep features in Redis, clamp the model'
 bounded multiplier on a deterministic decision, and log every advisory with the bound that applied.
 That shape is what additional models plug into. Calling the system "AI-powered" today would be
 overstating a single clamped regressor behind a default-off switch.
+
+<h2 align="center">Security compliance — 3GPP 33-series, Release 19</h2>
+
+Assessed against the specifications fetched from the official 3GPP archive
+(`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
+clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
+**Stated honestly: this is a partial-compliance picture with one hard gap, not a certification.**
+
+| TS | Subject | Applies here | Status |
+|---|---|---|---|
+| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing**, NRF discovery authorization missing, no SEPP/N32 |
+| 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 only; profile requires TLS 1.2 support too |
+| 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; **duplicate JSON keys silently accepted** (§4.3.6.3); management-plane baseline not yet assessed |
+| 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Not implemented.** 33.127 requires POIs in AMF, SMF, UPF, UDM, SMSF, NEF, NWDAF, an NRF SIRF, and **§7.22 an IRI-POI in the CHF**. A licensed operator cannot deploy without this. |
+| 33.528 | SCAS for PCF | Core | Unapproved shell — the document itself says "shall not be implemented"; defers to 33.117 |
+| 33.535 | AKMA | In scope (AAnF, Tier 2) | Not built yet |
+| 33.122 | CAPIF security | In scope (Tier 3) | Not built yet |
+| 33.203 | IMS access security | In scope (IMS AS, Tier 3) | Not built yet |
+| 33.220 / 33.224 | GBA / GBA Push | Out of scope (`nfs/bsf` is the 5G BSF of TS 29.521, not GBA's) | — |
+| 33.102 / 33.401 | 3G / EPS security | Out of scope (no EPC; 4G charging *interfaces* only) | — |
+| 33.106 / 33.107 / 33.108 | 3G/EPS LI | Superseded by 33.126/127/128 per their own Scope | — |
+| 33.246 / 33.511 / 33.256 / 33.536 | MBMS, gNB SCAS, UAS, V2X | Out of scope | — |
+| 33.258 | *(requested)* | **Not a published 3GPP TS** — the archive has 33.250/256/259 only | — |
 
 <h2 align="center">Capability-completeness gap-closure</h2>
 
