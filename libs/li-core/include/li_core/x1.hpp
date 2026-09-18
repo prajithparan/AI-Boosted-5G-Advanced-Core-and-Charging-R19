@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tl/expected.hpp>
 #include <variant>
 #include <vector>
@@ -79,6 +80,15 @@ struct TargetIdentifier {
     std::string element; // the XSD choice element name, always set
     std::string value;
 };
+
+// Parse the inner XML of a TS 103 221-2 Matched/Other Target Identifier conditional attribute
+// (clause 5.3.18/5.3.19: "the contents of the TargetIdentifier tag without the enclosing
+// TargetIdentifier tag itself, encoded in UTF-8"), e.g. "<imsi>204081234567890</imsi>", into the
+// same struct a TaskDetails carries. The fragment is NOT schema-validated -- it is not a document
+// the X1 schema describes -- so this is the element-name lookup of table 6.2.1.2-2 with the same
+// hardened parser settings as parse_request (XML_PARSE_NONET, NOENT deliberately unset). An
+// element the table does not name parses as Kind::Other with `element` set, never dropped.
+tl::expected<TargetIdentifier, std::string> parse_target_identifier_fragment(std::string_view xml);
 
 enum class DeliveryType : std::uint8_t { X2Only, X3Only, X2AndX3 };
 

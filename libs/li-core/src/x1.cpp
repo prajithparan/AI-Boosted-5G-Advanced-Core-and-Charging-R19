@@ -376,6 +376,33 @@ const char* schema_path() {
     return p.c_str();
 }
 
+tl::expected<TargetIdentifier, std::string> parse_target_identifier_fragment(std::string_view xml) {
+    // The attribute carries the CHILDREN of a TargetIdentifier element, so it has no single root:
+    // wrap it in one. Same hardened settings as parse_request -- NONET on, NOENT deliberately off
+    // (this fragment reaches us from an X2 PDU, which is as attacker-facing as X1).
+    const std::string wrapped = "<TargetIdentifier>" + std::string(xml) + "</TargetIdentifier>";
+    xmlDocPtr doc = xmlReadMemory(
+        wrapped.data(), static_cast<int>(wrapped.size()), "ti.xml", nullptr, XML_PARSE_NONET);
+    if (doc == nullptr) {
+        return tl::make_unexpected(
+            std::string("target identifier fragment is not well-formed XML"));
+    }
+    struct DocGuard {
+        xmlDocPtr d;
+        ~DocGuard() { xmlFreeDoc(d); }
+    } guard{doc};
+
+    xmlNodePtr root = xmlDocGetRootElement(doc);
+    if (root == nullptr) {
+        return tl::make_unexpected(std::string("target identifier fragment is empty"));
+    }
+    TargetIdentifier out = read_target(root);
+    if (out.element.empty()) {
+        return tl::make_unexpected(std::string("target identifier fragment has no element"));
+    }
+    return out;
+}
+
 tl::expected<RequestContainer, ParseError> parse_request(const std::string& xml) {
     // XML_PARSE_NONET blocks network fetches; NOENT is deliberately NOT set. With NOENT libxml2
     // substitutes internal/external entities into the tree, which on this attacker-facing X1

@@ -1,6 +1,7 @@
 # Lawful Interception core (ADR-0364): the ETSI TS 103 221-2 X2/X3 PDU codec every POI and the
-# MDF2/MDF3 share, and the TS 33.128 xIRI payload facade over the asn1c-generated TS33128Payloads
-# codec (libs/li-generated).
+# MDF2/MDF3 share, the TS 33.128 xIRI payload facade over the asn1c-generated TS33128Payloads
+# codec (libs/li-generated), the X1 provisioning codec and NE server (ADR-0372), and the LI_HI2
+# mediation + ETSI TS 102 232-1 PS-PDU envelope the MDF2 delivers to the LEMF (ADR-0374).
 #
 # SHARED, unlike every other libs/* target, on purpose. li_generated's symbols collide with
 # ngap_generated's (47 type names shared between TS 33.128 and TS 38.413, plus two copies of the
@@ -22,6 +23,7 @@ add_library(li_core SHARED
     src/x1.cpp
     src/x1_server.cpp
     src/x2x3_client.cpp
+    src/hi2.cpp
 )
 
 target_include_directories(li_core PUBLIC
