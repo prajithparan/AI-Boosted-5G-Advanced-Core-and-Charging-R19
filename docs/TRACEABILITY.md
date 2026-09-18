@@ -5295,7 +5295,7 @@ TS 29.520 V19.7.0 §4.7 (`specs/3gpp/TS_29.520_j70.txt`). Stage 2: TS 23.288 V19
 | MTLF: degradation on `accuMeetInd=false` / `mlModelAcc` below threshold → re-train (cooldown) → Nnwdaf_MLModelProvision_Notify `modelUpdateInd` | TS 23.288 6.2E.3.3 steps 8-9 | `mtlf.cpp` `on_monitor_notification`, `run` | same test (re-provision with a new `modelUniqueId`, data-growth trigger disabled) |
 | MTLF-based accuracy from ADRF inference data (6.2E.2), `anaFeedbacks` acted on, `modelAccuInd` transfer re-association, `consumerSetId`-only registrations, 6.2D analytics accuracy exposure | TS 23.288 6.2E.2, 6.2D, 6.1.1 | -- | **not built** / **disclosed** (ADR-0370) |
 
-## Lawful Interception -- X1 provisioning, NE server + keepalive, X2/X3 delivery client (ADR-0372)
+## Lawful Interception -- X1 provisioning, NE server + keepalive, X2/X3 delivery client (ADR-0372), HI2/HI3 PS-PDU codec (ADR-0373)
 
 Increment 2 of the LI programme (ADR-0364 delivered increment 1: the TS 103 221-2 X2/X3 PDU codec
 and the TS 33.128 xIRI payload codec in `libs/li-core`). Schemas: ETSI TS 103 221-1 V1.23.1 and
@@ -5313,4 +5313,5 @@ wired to this yet -- it is the interface floor for the MDF2 (increment 3) and th
 | X1 error codes: duplicate XID = 2010; unsupported request (incl. GetTaskDetails) = 1080; keepalive-not-supported = 1070 | TS 103 221-1 table 6.7-3 | `x1_server.cpp` `code_text`, dispatch | DuplicateXidIsErrorCode2010, UnsupportedRequestTypeIsError1080, PingIsAcknowledged |
 | Keepalive state machine: P2 no-X1 window → fault (9050), any X1 request clears it; ACK starts P3 → deactivate-all (10000) when allowed; deactivate-all gated by config | TS 103 221-1 6.6.2 | `x1_server.cpp` `KeepaliveMonitor` | RaisesFaultAfterP2AndClearsOnNextRequest, DeactivatesAllTasksWhenAllowedAndAdmfNeverAcks, AckStartsP3ThenDeactivatesIfStillSilent |
 | X2/X3 delivery client: blocking mTLS, `validate()`+`encode()` a TS 103 221-2 PDU, keepalive PDUs, reconnect on broken link (SIGPIPE ignored so a dropped link never kills the host NF) | TS 103 221-2 5.x; TS 33.128 5.3 | `libs/li-core/src/x2x3_client.cpp` | `test_li_x2x3_client.cpp` DeliversPdusOverMtlsAndTheyDecodeBack, RejectsANonConformantPduBeforeConnecting |
+| HI2/HI3 delivery envelope: `PS-PDU`/`PSHeader`/`PSIRIPayload`/`PSCCPayload` carrying a TS 33.128 payload in `threeGPP33128DefinedIRI [19]` / `threeGPP33128DefinedCC [23]`, compiled from a hand-derived 5G closure of the version43 module | ETSI TS 102 232-1 (LI-PS-PDU version43); TS 33.128 5.5 | `specs/etsi/102232-1/LI-PS-PDU-3GPP-subset.asn` -> `li_generated` (`asn_DEF_PS_PDU`) | **codec only, unexercised** -- no `li_core` facade and no round-trip test yet (ADR-0373; both arrive with the MDF2) |
 | GetTaskDetails full TaskStatus response (provisioningStatus + listOfFaults); NF wiring (MDF2, AMF POI) | TS 103 221-1 6.4 | -- | **not built** / **disclosed** (ADR-0372; GetTaskDetails answered 1080) |

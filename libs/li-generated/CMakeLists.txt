@@ -2,9 +2,9 @@
 # configure time via asn1c and compiles it into the li_generated library. Same CMake shape as
 # libs/ngap-generated (configure-time execute_process so file(GLOB) has output, add_custom_command
 # to regenerate on module change), same patched asn1c -- see that file's header for the tool's
-# provenance. See docs/DECISIONS.md ADR-0364.
+# provenance. See docs/DECISIONS.md ADR-0364 (this library) and ADR-0373 (the TS 102 232-1 subset).
 #
-# Two ASN.1 modules go in together, because asn1c resolves IMPORTS across the files on one command
+# Three ASN.1 modules go in together, because asn1c resolves IMPORTS across the files on one command
 # line, not from a search path:
 #   - specs/3gpp/33128-attachments/TS33128Payloads.asn -- TS 33.128 V19.7.0 Annex A, module OID
 #     ... ts33128(19) r19(19) version7(7), verbatim from the 3GPP attachment archive.
@@ -13,6 +13,13 @@
 #     (6 types), extracted by tools/li-asn1/trim_ipaccess.py from the ETSI schema repository at the
 #     module version TS33128Payloads names (version18). Feeding asn1c the full IPAccessPDU would pull
 #     in the whole legacy LI-PS-PDU/HI2/HI3 module family through its own IMPORTS.
+#   - specs/etsi/102232-1/LI-PS-PDU-3GPP-subset.asn -- the ETSI TS 102 232-1 PS-PDU (the HI2/HI3
+#     delivery envelope, ADR-0373), trimmed to the 5G closure: PS-PDU/PSHeader/Payload
+#     and the threeGPP33128DefinedIRI/CC OCTET STRING alternatives that carry a TS 33.128 IRI/CC
+#     payload. The full LI-PS-PDU.asn (vendored beside it for provenance) IMPORTS ~25 legacy
+#     delivery-variant modules; the subset drops them all and is self-contained. Its own IRIPayload
+#     and CCPayload are renamed PSIRIPayload/PSCCPayload so they do not clash with TS33128Payloads'
+#     identically named types in this same flat directory. Provenance in specs/etsi/SOURCES.md.
 #
 # Encoding: X2 payloads are BER-encoded XIRIPayload structures (TS 33.128 table 5.3.2-1), so this
 # codec is built for BER/DER only -- -no-gen-PER/-no-gen-OER. The asn1c skeleton still copies its
@@ -39,6 +46,7 @@ endif()
 set(LI_ASN1_MODULES
     ${CMAKE_SOURCE_DIR}/specs/3gpp/33128-attachments/TS33128Payloads.asn
     ${CMAKE_SOURCE_DIR}/specs/etsi/102232-3/IPAccessPDU-IPIRIPacketReport-subset.asn
+    ${CMAKE_SOURCE_DIR}/specs/etsi/102232-1/LI-PS-PDU-3GPP-subset.asn
 )
 set(LI_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/li_gen)
 

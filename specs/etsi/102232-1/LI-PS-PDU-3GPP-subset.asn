@@ -1,0 +1,176 @@
+-- LI-PS-PDU-3GPP-Subset: the 5G HI2/HI3 delivery closure of ETSI TS 102 232-1 LI-PS-PDU.
+--
+-- DERIVED, NOT VERBATIM. Hand-extracted by this project from the ETSI TS 102 232-1 module
+-- `LI-PS-PDU.asn` (module OID li-ps(5) genHeader(1) version43(43); the full file is vendored
+-- verbatim alongside this one, BSD-3-Clause, provenance in specs/etsi/SOURCES.md). It keeps only
+-- the types a 5G MDF2/MDF3 needs to deliver a TS 33.128 IRI/CC record to the LEMF over LI_HI2/
+-- LI_HI3, and drops the ~25 legacy delivery-variant IMPORTS (Email, IPAccess, L2, IP-multimedia,
+-- PSTN/ISDN, UMTS/EPS/CONF/ProSe/GCSE HI2/HI3, TS 101 909, ILHI) that the full module pulls in.
+--
+-- Five edits. Each is wire-neutral for the types kept: type names never appear on the wire; a
+-- CHOICE alternative carries the same context tag whether or not its siblings are present and
+-- whether it sits before or after the extension marker; and `OCTET STRING (CONTAINING X)` encodes
+-- identically to an OCTET STRING holding X's BER.
+--   1. IRIContents / CCContents keep ONLY the threeGPP33128DefinedIRI [19] / threeGPP33128DefinedCC
+--      [23] alternatives, with the `CONTAINING TS33128Payloads.IRIPayload/CCPayload` constraint
+--      dropped to a plain OCTET STRING. The MDF puts the already-BER-encoded TS 33.128 payload
+--      (produced by li_generated, increment 1) into that octet string as opaque bytes, so this
+--      module has NO dependency on TS33128Payloads and cannot clash with it. In the full module
+--      both are extension additions (after the `...`); here each is the sole root alternative.
+--   2. Payload keeps only iRIPayloadSequence [0] and cCPayloadSequence [1]. The third root
+--      alternative tRIPayload [2] and the extension additions [3]-[7] (hI1-Operation,
+--      encryptionContainer, threeGPP-HI1-Operation, iLHIPayload, hI4Payload) are dropped: each
+--      names a module this closure does not carry, and none of them is a 5G IRI/CC delivery.
+--   3. The full module's own `IRIPayload` / `CCPayload` SEQUENCE types are renamed here to
+--      `PSIRIPayload` / `PSCCPayload`: TS33128Payloads (compiled into the same li_generated
+--      library) also defines `IRIPayload` and `CCPayload`, and asn1c writes one flat directory, so
+--      the ETSI names would overwrite the 33128 ones. Every other kept type name is collision-free
+--      against TS33128Payloads and against the TS 102 232-3 subset (checked).
+--   4. LawfulInterceptionIdentifier is `::= Common-Parameters.LIID` in the full module. The ETSI
+--      TS 103 280 definition it resolves to (`LIID ::= OCTET STRING (SIZE (1..25))`, module
+--      version281(281), vendored verbatim at specs/etsi/103280/TS_103_280.asn1) is inlined
+--      below, so this closure IMPORTS nothing at all.
+--   5. Extension-addition fields that referenced dropped external modules are removed
+--      (CommunicationIdentifier.cINExtension -> UmtsHI2Operations; NetworkIdentifier.eTSI671NEID ->
+--      HI2Operations). They sit after the `...` extension marker, so removing them is wire-neutral.
+--
+-- Wire-neutral is a claim about ENCODING what a 5G MDF2/MDF3 sends, NOT about decoding everything
+-- the full module can carry: a PS-PDU whose Payload is tRIPayload [2], or whose IRIContents is an
+-- alternative other than [19], will not decode here as that alternative: it is an unrecognized
+-- tag in an extensible CHOICE. Nothing in this project produces or consumes those; a
+-- general-purpose TS 102 232-1 decoder needs the full module.
+--
+-- The li-psDomainId OBJECT IDENTIFIER value below is the authoritative on-wire domain id from the
+-- version43 module and is what the MDF sets in PSHeader.li-psDomainId. See ETSI TS 102 232-1 and
+-- TS 33.128 clause 5.5.
+
+LI-PS-PDU-3GPP-Subset
+{itu-t(0) identified-organization(4) etsi(0) securityDomain(2) lawfulIntercept(2) li-ps(5) genHeader(1) version43(43)}
+
+DEFINITIONS IMPLICIT TAGS ::=
+
+BEGIN
+
+-- On-wire domain id (verbatim from LI-PS-PDU version43): {0 4 0 2 2 5 1 43}
+lawfulInterceptDomainId OBJECT IDENTIFIER ::= {itu-t(0) identified-organization(4) etsi(0) securityDomain(2) lawfulIntercept(2)}
+li-psDomainId           OBJECT IDENTIFIER ::= {lawfulInterceptDomainId li-ps(5) genHeader(1) version43(43)}
+
+-- Included from ETSI TS 103 280 [Common-Parameters]: LIID ::= OCTET STRING (SIZE (1..25)).
+-- Inlined rather than imported; it is the only 103 280 type this closure needs.
+LawfulInterceptionIdentifier ::= OCTET STRING (SIZE (1..25))
+
+PS-PDU ::= SEQUENCE
+{
+    pSHeader    [1] PSHeader,
+    payload     [2] Payload
+}
+
+PSHeader ::= SEQUENCE
+{
+    li-psDomainId                   [0] OBJECT IDENTIFIER,
+    lawfulInterceptionIdentifier    [1] LawfulInterceptionIdentifier,
+    authorizationCountryCode        [2] PrintableString (SIZE (2)) OPTIONAL,
+    communicationIdentifier         [3] CommunicationIdentifier,
+    sequenceNumber                  [4] INTEGER (0..4294967295),
+    timeStamp                       [5] GeneralizedTime OPTIONAL,
+    ...,
+    interceptionPointID             [6] PrintableString (SIZE (1..8)) OPTIONAL,
+    microSecondTimeStamp            [7] MicroSecondTimeStamp OPTIONAL,
+    timeStampQualifier              [8] TimeStampQualifier OPTIONAL,
+    extendedInterceptionPointID     [9] OCTET STRING (SIZE (1..65535)) OPTIONAL,
+    networkFunctionIdentifier       [10] OCTET STRING (SIZE (1..65535)) OPTIONAL
+}
+
+Payload ::= CHOICE
+{
+    iRIPayloadSequence      [0] SEQUENCE OF PSIRIPayload,
+    cCPayloadSequence       [1] SEQUENCE OF PSCCPayload,
+    ...
+}
+
+CommunicationIdentifier ::= SEQUENCE
+{
+    networkIdentifier               [0] NetworkIdentifier,
+    communicationIdentityNumber     [1] INTEGER (0..4294967295) OPTIONAL,
+    deliveryCountryCode             [2] PrintableString (SIZE (2)) OPTIONAL,
+    ...
+}
+
+NetworkIdentifier ::= SEQUENCE
+{
+    operatorIdentifier          [0] OCTET STRING (SIZE(1..16)),
+    networkElementIdentifier    [1] OCTET STRING (SIZE(1..16)) OPTIONAL,
+    ...
+}
+
+TimeStampQualifier ::= ENUMERATED
+{
+    unknown(0),
+    timeOfInterception(1),
+    timeOfMediation(2),
+    ...,
+    timeOfAggregation(3)
+}
+
+MicroSecondTimeStamp ::= SEQUENCE
+{
+    seconds         [0] INTEGER (0..18446744073709551615),
+    microSeconds    [1] INTEGER (0..999999),
+    ...
+}
+
+PayloadDirection ::= ENUMERATED
+{
+    fromTarget(0),
+    toTarget(1),
+    ...,
+    indeterminate(2),
+    combined(3),
+    notapplicable(4)
+}
+
+-- Renamed from LI-PS-PDU.IRIPayload (collides with TS33128Payloads.IRIPayload).
+PSIRIPayload ::= SEQUENCE
+{
+    iRIType                 [0] IRIType OPTIONAL,
+    timeStamp               [1] GeneralizedTime OPTIONAL,
+    iRIContents             [2] IRIContents,
+    ...,
+    microSecondTimeStamp    [3] MicroSecondTimeStamp OPTIONAL,
+    timeStampQualifier      [4] TimeStampQualifier OPTIONAL,
+    sessionDirection        [5] PayloadDirection OPTIONAL,
+    payloadDirection        [6] PayloadDirection OPTIONAL
+}
+
+IRIType ::= ENUMERATED
+{
+    iRI-Begin(1),
+    iRI-End(2),
+    iRI-Continue(3),
+    iRI-Report(4)
+}
+
+IRIContents ::= CHOICE
+{
+    threeGPP33128DefinedIRI     [19] OCTET STRING,
+    ...
+}
+
+-- Renamed from LI-PS-PDU.CCPayload (collides with TS33128Payloads.CCPayload).
+PSCCPayload ::= SEQUENCE
+{
+    payloadDirection        [0] PayloadDirection OPTIONAL,
+    timeStamp               [1] GeneralizedTime OPTIONAL,
+    cCContents              [2] CCContents,
+    ...,
+    microSecondTimeStamp    [3] MicroSecondTimeStamp OPTIONAL,
+    timeStampQualifier      [4] TimeStampQualifier OPTIONAL
+}
+
+CCContents ::= CHOICE
+{
+    threeGPP33128DefinedCC      [23] OCTET STRING,
+    ...
+}
+
+END
