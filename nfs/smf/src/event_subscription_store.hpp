@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <vector>
 #include <string>
 #include <unordered_map>
 
@@ -32,6 +33,9 @@ public:
     bool update(const std::string& sub_id, nlohmann::json subscription);
 
     bool remove(const std::string& sub_id);
+
+    // A copy of every stored subscription, for the QOS_MON producer to iterate (ADR-0379).
+    std::vector<nlohmann::json> snapshot();
 
 private:
     std::mutex mutex_;

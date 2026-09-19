@@ -33,4 +33,14 @@ bool EventSubscriptionStore::remove(const std::string& sub_id) {
     return subscriptions_.erase(sub_id) > 0;
 }
 
+std::vector<nlohmann::json> EventSubscriptionStore::snapshot() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<nlohmann::json> out;
+    out.reserve(subscriptions_.size());
+    for (const auto& [id, sub] : subscriptions_) {
+        out.push_back(sub);
+    }
+    return out;
+}
+
 } // namespace smf

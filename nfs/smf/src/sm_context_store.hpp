@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <vector>
 #include <string>
 #include <unordered_map>
 
@@ -31,6 +32,9 @@ public:
     bool update(const std::string& sm_context_ref, nlohmann::json context);
 
     bool remove(const std::string& sm_context_ref);
+
+    // A copy of every live SM context, for the QOS_MON producer to iterate (ADR-0379).
+    std::vector<nlohmann::json> snapshot();
 
 private:
     std::mutex mutex_;

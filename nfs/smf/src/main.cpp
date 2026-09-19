@@ -135,6 +135,7 @@
 #include "TS29542_Nsmf_NIDD.hpp"
 #include "ambr.hpp"
 #include "event_subscription_store.hpp"
+#include "qos_mon_producer.hpp"
 #include "nas_5gsm_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
 #include "pfcp_core/common_ies.hpp"
@@ -4171,6 +4172,50 @@ int main() {
                 std::ref(upf_endpoint_store),
                 std::ref(pfcp_peer))
         .detach();
+
+    // ADR-0379: the Nsmf_EventExposure QOS_MON producer. A background thread periodically emits a
+    // QOS_MON notification, per subscribed slice/session, to each subscription's notifUri -- the
+    // feed the NWDAF collects for SERVICE_EXPERIENCE analytics (TS 23.288 6.4). The per-flow latency
+    // is synthesized (this project has no real UPF QoS measurement) -- a disclosed lab data source;
+    // the subscription matching, notification shape and delivery are real. Off (interval 0) leaves
+    // Nsmf_EventExposure a subscription-only shell exactly as before.
+    const int qos_mon_interval =
+        nf_config::optional<int>(config, "qos_mon_interval_seconds", "SMF_QOS_MON_INTERVAL_SECONDS")
+            .value_or(30);
+    if (qos_mon_interval > 0) {
+        std::thread([&event_subs, &sm_contexts, qos_mon_interval] {
+            const sbi_core::http2::TlsConfig notif_tls{
+                .cert_path = CERTS_DIR "/smf/cert.pem",
+                .key_path = CERTS_DIR "/smf/key.pem",
+                .ca_path = CERTS_DIR "/ca/ca.crt",
+            };
+            sbi_core::http2::Client notif_client(notif_tls);
+            std::uint64_t tick = 0;
+            while (true) {
+                std::this_thread::sleep_for(std::chrono::seconds(qos_mon_interval));
+                ++tick;
+                std::time_t now = std::time(nullptr);
+                std::tm tm{};
+                gmtime_r(&now, &tm);
+                char timestamp[32];
+                std::strftime(timestamp, sizeof timestamp, "%Y-%m-%dT%H:%M:%SZ", &tm);
+                const auto notifs = smf::qos_mon::build_qos_mon_notifications(
+                    event_subs.snapshot(), sm_contexts.snapshot(), tick, timestamp);
+                for (const auto& notif : notifs) {
+                    sbi_core::http2::ClientRequest req;
+                    req.method = "POST";
+                    req.url = notif.notif_uri;
+                    req.headers.emplace("content-type", "application/json");
+                    req.body = notif.body.dump();
+                    if (const auto r = notif_client.send(req); !r) {
+                        spdlog::debug(
+                            "smf: QOS_MON notify to {} failed: {}", notif.notif_uri, r.error());
+                    }
+                }
+            }
+        }).detach();
+        spdlog::info("smf: Nsmf_EventExposure QOS_MON producer on (every {}s)", qos_mon_interval);
+    }
 
     server.start();
     spdlog::info("smf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

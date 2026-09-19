@@ -33,4 +33,14 @@ bool SmContextStore::remove(const std::string& sm_context_ref) {
     return contexts_.erase(sm_context_ref) > 0;
 }
 
+std::vector<nlohmann::json> SmContextStore::snapshot() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<nlohmann::json> out;
+    out.reserve(contexts_.size());
+    for (const auto& [ref, ctx] : contexts_) {
+        out.push_back(ctx);
+    }
+    return out;
+}
+
 } // namespace smf
