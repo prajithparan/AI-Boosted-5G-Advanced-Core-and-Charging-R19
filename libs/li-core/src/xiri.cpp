@@ -17,6 +17,8 @@
 // here, never from a public header -- see xiri.hpp and ADR-0364.
 extern "C" {
 #include <AMFDeregistration.h>
+#include <AMFIdentifierAssociation.h>
+#include <AMFIdentifierDeassociation.h>
 #include <AMFLocationUpdate.h>
 #include <AMFRegistration.h>
 #include <AMFStartOfInterceptionWithRegisteredUE.h>
@@ -394,6 +396,66 @@ tl::expected<AmfLocationUpdate, std::string> extract(const AMFLocationUpdate_t& 
     return out;
 }
 
+tl::expected<void, std::string> fill(AMFIdentifierAssociation_t& out,
+                                     const AmfIdentifierAssociation& src) {
+    // sUPI, gUTI, location are all M (non-OPTIONAL); location is embedded, filled in place.
+    if (auto r = fill_supi(out.sUPI, src.supi); !r) {
+        return r;
+    }
+    if (auto r = fill_guti(out.gUTI, src.guti); !r) {
+        return r;
+    }
+    return fill_location(out.location, src.location);
+}
+
+tl::expected<AmfIdentifierAssociation, std::string>
+extract(const AMFIdentifierAssociation_t& src) {
+    AmfIdentifierAssociation out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.guti = extract_guti(src.gUTI);
+    out.location = extract_location(src.location);
+    return out;
+}
+
+tl::expected<void, std::string> fill(AMFIdentifierDeassociation_t& out,
+                                     const AmfIdentifierDeassociation& src) {
+    // sUPI, gUTI are M; location is OPTIONAL (an asn1c pointer allocated only when present).
+    if (auto r = fill_supi(out.sUPI, src.supi); !r) {
+        return r;
+    }
+    if (auto r = fill_guti(out.gUTI, src.guti); !r) {
+        return r;
+    }
+    if (src.location) {
+        auto* loc = alloc_optional<Location_t>();
+        if (loc == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        out.location = loc;
+        return fill_location(*loc, *src.location);
+    }
+    return {};
+}
+
+tl::expected<AmfIdentifierDeassociation, std::string>
+extract(const AMFIdentifierDeassociation_t& src) {
+    AmfIdentifierDeassociation out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.guti = extract_guti(src.gUTI);
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    return out;
+}
+
 } // namespace
 
 tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const Event& event) {
@@ -423,6 +485,12 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, AmfLocationUpdate>) {
                 payload->event.present = XIRIEvent_PR_locationUpdate;
                 return fill(payload->event.choice.locationUpdate, variant_event);
+            } else if constexpr (std::is_same_v<T, AmfIdentifierAssociation>) {
+                payload->event.present = XIRIEvent_PR_aMFIdentifierAssociation;
+                return fill(payload->event.choice.aMFIdentifierAssociation, variant_event);
+            } else if constexpr (std::is_same_v<T, AmfIdentifierDeassociation>) {
+                payload->event.present = XIRIEvent_PR_aMFIdentifierDeassociation;
+                return fill(payload->event.choice.aMFIdentifierDeassociation, variant_event);
             }
         },
         event);
@@ -497,6 +565,22 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(location_update.error());
             }
             out.event = *location_update;
+            return out;
+        }
+        case XIRIEvent_PR_aMFIdentifierAssociation: {
+            auto assoc = extract(payload->event.choice.aMFIdentifierAssociation);
+            if (!assoc) {
+                return tl::unexpected(assoc.error());
+            }
+            out.event = *assoc;
+            return out;
+        }
+        case XIRIEvent_PR_aMFIdentifierDeassociation: {
+            auto deassoc = extract(payload->event.choice.aMFIdentifierDeassociation);
+            if (!deassoc) {
+                return tl::unexpected(deassoc.error());
+            }
+            out.event = *deassoc;
             return out;
         }
         default:

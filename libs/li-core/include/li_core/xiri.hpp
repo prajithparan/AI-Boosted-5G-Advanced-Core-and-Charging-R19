@@ -184,10 +184,31 @@ struct AmfLocationUpdate {
     bool operator==(const AmfLocationUpdate&) const = default;
 };
 
+// XIRIEvent.aMFIdentifierAssociation [62] AMFIdentifierAssociation -- TS 33.128 clause 6.2.2.2.7,
+// table 6.2.2.2.7-1. M members: sUPI, gUTI, location. Generated only when identifier-association
+// reporting is enabled for the target (clause 6.2.2.1); that gating lives at the POI, not here.
+struct AmfIdentifierAssociation {
+    Supi supi;
+    FiveGGuti guti;
+    Location location;
+    bool operator==(const AmfIdentifierAssociation&) const = default;
+};
+
+// XIRIEvent.aMFIdentifierDeassociation [186] AMFIdentifierDeassociation -- table 6.2.2.2.7-2.
+// M members: sUPI, gUTI; location is OPTIONAL here (unlike association).
+struct AmfIdentifierDeassociation {
+    Supi supi;
+    FiveGGuti guti;
+    std::optional<Location> location;
+    bool operator==(const AmfIdentifierDeassociation&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
-                           AmfLocationUpdate>;
+                           AmfLocationUpdate,
+                           AmfIdentifierAssociation,
+                           AmfIdentifierDeassociation>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

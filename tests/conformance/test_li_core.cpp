@@ -423,3 +423,51 @@ TEST(Xiri, AmfLocationUpdateRoundTripsNrAndEutraUserLocation) {
     nr_update.location.user_location->nr->ncgi.nr_cell_id = std::uint64_t{1} << 36;
     EXPECT_FALSE(xiri::encode_xiri_payload(nr_update).has_value());
 }
+
+// TS 33.128 clause 6.2.2.2.7 -- the AMFIdentifierAssociation xIRI (SUPI<->5G-GUTI binding), with
+// a mandatory location, reusing the SUPI/GUTI/Location codecs.
+TEST(Xiri, AmfIdentifierAssociationRoundTrips) {
+    xiri::AmfIdentifierAssociation assoc;
+    assoc.supi = xiri::Imsi{"244071234567890"};
+    assoc.guti = {"244", "07", 1, 2, 3, 0x01020304};
+    xiri::NrLocation nr;
+    nr.tai = {{"244", "07"}, {0xAB, 0xCD}};
+    nr.ncgi = {{"244", "07"}, 0x123456789};
+    assoc.location.user_location = xiri::UserLocation{nr, std::nullopt};
+
+    const auto bytes = xiri::encode_xiri_payload(assoc);
+    ASSERT_TRUE(bytes.has_value()) << bytes.error();
+    const auto decoded = xiri::decode_xiri_payload(*bytes);
+    ASSERT_TRUE(decoded.has_value()) << decoded.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::AmfIdentifierAssociation>(decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfIdentifierAssociation>(decoded->event), assoc);
+}
+
+// TS 33.128 clause 6.2.2.2.7 (table 6.2.2.2.7-2) -- the AMFIdentifierDeassociation xIRI. location
+// is OPTIONAL here, so both the present and absent cases must round-trip.
+TEST(Xiri, AmfIdentifierDeassociationRoundTripsWithAndWithoutLocation) {
+    xiri::AmfIdentifierDeassociation deassoc;
+    deassoc.supi = xiri::Nai{"deassoc@op.example"};
+    deassoc.guti = {"310", "410", 7, 8, 9, 0xFEEDF00D};
+
+    // Absent location (the common deassociation case).
+    const auto no_loc = xiri::encode_xiri_payload(deassoc);
+    ASSERT_TRUE(no_loc.has_value()) << no_loc.error();
+    const auto no_loc_decoded = xiri::decode_xiri_payload(*no_loc);
+    ASSERT_TRUE(no_loc_decoded.has_value()) << no_loc_decoded.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event), deassoc);
+    EXPECT_FALSE(std::get<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event).location.has_value());
+
+    // Present location encodes to different bytes and still round-trips.
+    xiri::EutraLocation eutra;
+    eutra.tai = {{"310", "410"}, {0x11, 0x22, 0x33}};
+    eutra.ecgi = {{"310", "410"}, 0x0FEDCBA};
+    deassoc.location = xiri::Location{xiri::UserLocation{std::nullopt, eutra}};
+    const auto with_loc = xiri::encode_xiri_payload(deassoc);
+    ASSERT_TRUE(with_loc.has_value()) << with_loc.error();
+    EXPECT_NE(*no_loc, *with_loc);
+    const auto with_loc_decoded = xiri::decode_xiri_payload(*with_loc);
+    ASSERT_TRUE(with_loc_decoded.has_value()) << with_loc_decoded.error();
+    EXPECT_EQ(std::get<xiri::AmfIdentifierDeassociation>(with_loc_decoded->event), deassoc);
+}
