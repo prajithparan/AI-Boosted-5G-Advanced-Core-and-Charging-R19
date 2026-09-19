@@ -5350,3 +5350,17 @@ TS33128Payloads asn1c codecs (83 shared type names); the containment holds (see 
 | Registration detection hook: on RegistrationAccept (5G-GUTI allocated), a target UE's SUPI+GUTI -> AMFRegistration xIRI over LI_X2 | TS 33.127 6.2.2.4 (Registration) | `nfs/amf/src/ngap_task.cpp` `handle_uplink_nas_transport_smc_complete` (g_li_poi hook) | `test_li_amf_poi.cpp` (end-to-end via report_registration) |
 | li_core + ngap_generated coexist in one binary (83 shared TS33128Payloads/NGAP type names) | ADR-0364 symbol containment | `nfs/amf/CMakeLists.txt` (amf links li_core), `tests/conformance/test_li_ngap_coexistence.cpp` | amf target links clean; LiNgapCoexistence.BothCodecsWorkInOneProcess |
 | Deregistration / LocationUpdate / IdentifierAssociation / IdentifierDeassociation / StartOfInterception detection hooks | TS 33.127 6.2.2.4 | -- | **not built** / **disclosed** (ADR-0378): blocked on the NGAP user-location parse, the X1 IdentifierAssocationExtensions gating parse, an AMF deregistration procedure, and POI<->AMF registration-state coupling respectively -- codecs done, no conformant trigger yet |
+
+## NWDAF completion -- SERVICE_EXPERIENCE data path + the VFL hook (ADR-0379, ADR-0380)
+
+The third mandated analytic (slice-SLA / service experience) made real end to end, plus the
+vertical-federated-learning hook. Energy-efficiency is flagged as blocked (no R19 Nnwdaf SBI
+surface -- TS 23.288 6.16 is OAM/TS 28.552-sourced), not fabricated.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| SMF Nsmf_EventExposure QOS_MON producer: emit a per-slice/session QOS_MON notification (snssai + ul/dl/rtDelays) to each subscription's notifUri; any S-NSSAI matched/echoed verbatim; synthesized latency (disclosed) | TS 29.508 (Nsmf_EventExposure, SmfEvent QOS_MON, EventNotification); TS 23.288 6.4 | `nfs/smf/src/qos_mon_producer.{hpp,cpp}`, `nfs/smf/src/main.cpp` emitter thread | `test_smf_qos_mon.cpp` SmfQosMon.* (4) |
+| NWDAF subscribes to the SMF QOS_MON at startup (one replica) and collects the reports on an inbound route into the smf_qos_mon timeline | TS 29.508; TS 23.288 6.2/6.4 | `nfs/nwdaf/src/main.cpp` (startup subscription + /qos-mon route), `nfs/nwdaf/src/qos_mon_collect.{hpp,cpp}` | `test_nwdaf_qos_mon_collect.cpp` NwdafQosMonCollect.* (2) |
+| SERVICE_EXPERIENCE analytic: aggregate the collected QOS_MON per-slice latency into a per-S-NSSAI ServiceExperienceInfo (svcExprc MOS, variance, SUPIs, confidence); honours the snssais filter; verbatim S-NSSAI; served over Nnwdaf_AnalyticsInfo and Nnwdaf_EventsSubscription; advertised in NwdafInfo eventIds | TS 23.288 6.4; TS 29.520 (ServiceExperienceInfo, AnalyticsData.svcExps, NwdafEvent SERVICE_EXPERIENCE) | `nfs/nwdaf/src/analytics.cpp` `service_experience`, `nfs/nwdaf/src/main.cpp` compute() dispatch + eventIds | `test_nwdaf_analytics.cpp` NwdafServiceExperience.* (2) |
+| VFL hook: Nnwdaf_VFLTraining / Nnwdaf_VFLInference subscription CRUD (POST/GET/PUT/PATCH-merge/DELETE), bearer-checked; coordination Phase D (disclosed) | TS 29.520 (Nnwdaf_VFLTraining, Nnwdaf_VFLInference) | `nfs/nwdaf/src/vfl_subscription_store.{hpp,cpp}`, `nfs/nwdaf/src/main.cpp` `register_vfl_crud` | `test_nwdaf_vfl.cpp` NwdafVflStore.* |
+| Energy-efficiency analytic | TS 23.288 6.16 (OAM / TS 28.552 sourced) | -- | **not built** / **disclosed** (ADR-0380): no R19 Nnwdaf SBI eventId/DTO exists; would require inventing an API -- flagged, not fabricated |
