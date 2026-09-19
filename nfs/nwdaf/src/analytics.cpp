@@ -375,4 +375,107 @@ nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
     return out;
 }
 
+namespace {
+// TS 29.571 BitRate ("<n> <unit>") -> bits per second. SI prefixes (1000-based), per the spec's
+// "standard symbols from the International System of Units". nullopt for a malformed value.
+std::optional<double> bitrate_to_bps(const nlohmann::json& v) {
+    if (!v.is_string()) {
+        return std::nullopt;
+    }
+    const std::string s = v.get<std::string>();
+    const auto sp = s.find(' ');
+    if (sp == std::string::npos) {
+        return std::nullopt;
+    }
+    double value = 0.0;
+    try {
+        value = std::stod(s.substr(0, sp));
+    } catch (...) {
+        return std::nullopt;
+    }
+    const std::string unit = s.substr(sp + 1);
+    double mult = 0.0;
+    if (unit == "bps") {
+        mult = 1.0;
+    } else if (unit == "Kbps") {
+        mult = 1e3;
+    } else if (unit == "Mbps") {
+        mult = 1e6;
+    } else if (unit == "Gbps") {
+        mult = 1e9;
+    } else if (unit == "Tbps") {
+        mult = 1e12;
+    } else {
+        return std::nullopt;
+    }
+    return value * mult;
+}
+} // namespace
+
+std::vector<SliceEnergyEfficiency>
+energy_efficiency(const std::vector<nlohmann::json>& qos_mon_reports,
+                  const std::optional<nlohmann::json>& snssai_filter,
+                  const EnergyModel& model,
+                  double window_seconds) {
+    struct Agg {
+        nlohmann::json snssai;
+        std::vector<double> total_bps;
+    };
+    // Keyed on the serialised full S-NSSAI, so every standardised or operator-specific slice is a
+    // distinct opaque group -- never coerced or dropped.
+    std::map<std::string, Agg> by_slice;
+    for (const auto& report : qos_mon_reports) {
+        if (!report.is_object() || !report.contains("snssai")) {
+            continue;
+        }
+        const nlohmann::json& snssai = report.at("snssai");
+        if (snssai_filter && *snssai_filter != snssai) {
+            continue; // verbatim filter, any SST/SD
+        }
+        double bps = 0.0;
+        bool any = false;
+        if (report.contains("ulDataRate")) {
+            if (const auto b = bitrate_to_bps(report.at("ulDataRate"))) {
+                bps += *b;
+                any = true;
+            }
+        }
+        if (report.contains("dlDataRate")) {
+            if (const auto b = bitrate_to_bps(report.at("dlDataRate"))) {
+                bps += *b;
+                any = true;
+            }
+        }
+        if (!any) {
+            continue; // no rate reported -> contributes nothing to volume, honestly
+        }
+        Agg& a = by_slice[snssai.dump()];
+        a.snssai = snssai;
+        a.total_bps.push_back(bps);
+    }
+
+    std::vector<SliceEnergyEfficiency> out;
+    for (auto& [key, a] : by_slice) {
+        (void)key;
+        const double n = static_cast<double>(a.total_bps.size());
+        double sum = 0.0;
+        for (const double v : a.total_bps) {
+            sum += v;
+        }
+        const double mean_bps = sum / n;
+
+        SliceEnergyEfficiency ee;
+        ee.snssai = a.snssai; // echoed verbatim
+        ee.samples = a.total_bps.size();
+        ee.data_volume_bits = mean_bps * window_seconds;
+        const double volume_gb = ee.data_volume_bits / 8.0 / 1e9;
+        ee.energy_joules =
+            model.static_watts_per_slice * window_seconds + model.joules_per_gigabyte * volume_gb;
+        ee.efficiency_bit_per_joule =
+            ee.energy_joules > 0.0 ? ee.data_volume_bits / ee.energy_joules : 0.0;
+        out.push_back(std::move(ee));
+    }
+    return out;
+}
+
 } // namespace nwdaf

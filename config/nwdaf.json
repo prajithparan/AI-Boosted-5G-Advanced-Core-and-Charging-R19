@@ -32,6 +32,8 @@
   "abnormal_session_count_threshold": 50,
   "abnormal_max_exception_level": 10,
   "abnormal_confidence_full_at_sessions": 30,
+  "energy_static_watts_per_slice": 120.0,
+  "energy_joules_per_gigabyte": 300.0,
   "feature_store_host": "127.0.0.1",
   "feature_store_port": 9030,
   "feature_store_user": "root",

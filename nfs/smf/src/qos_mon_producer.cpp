@@ -34,6 +34,19 @@ unsigned synth_delay_ms(const std::string& key, std::uint64_t tick, unsigned sal
     return 5U + static_cast<unsigned>(h % 50ULL);
 }
 
+// A deterministic synthesized data rate as a TS 29.571 BitRate string ("<n> Mbps", 1..200),
+// hashed from the session key and tick like the delays. Disclosed lab data -- no real UPF
+// throughput measurement exists. This is the real ulDataRate/dlDataRate EventNotification field
+// (TS 29.508), populated so an energy-efficiency consumer (NWDAF, TS 28.554) has a per-slice
+// volume signal; the field and its BitRate format are the YAML's, only the value is synthesized.
+std::string synth_bitrate_mbps(const std::string& key, std::uint64_t tick, unsigned salt) {
+    std::uint64_t h = tick * 40503ULL + salt;
+    for (const char c : key) {
+        h = h * 131ULL + static_cast<unsigned char>(c);
+    }
+    return std::to_string(1U + static_cast<unsigned>(h % 200ULL)) + " Mbps";
+}
+
 } // namespace
 
 std::vector<Notification>
@@ -79,6 +92,9 @@ build_qos_mon_notifications(const std::vector<nlohmann::json>& subscriptions,
             notification["ulDelays"] = nlohmann::json::array({ul});
             notification["dlDelays"] = nlohmann::json::array({dl});
             notification["rtDelays"] = nlohmann::json::array({ul + dl});
+            // Real TS 29.508 fields (BitRate), for the TS 28.554 energy-efficiency consumer.
+            notification["ulDataRate"] = synth_bitrate_mbps(key, tick, 3);
+            notification["dlDataRate"] = synth_bitrate_mbps(key, tick, 4);
             event_notifs.push_back(std::move(notification));
         }
         if (event_notifs.empty()) {

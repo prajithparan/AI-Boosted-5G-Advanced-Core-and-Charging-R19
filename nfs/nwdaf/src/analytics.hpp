@@ -117,4 +117,39 @@ std::vector<sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription>
 service_experience(const std::vector<nlohmann::json>& qos_mon_reports,
                    const std::optional<nlohmann::json>& snssai_filter);
 
+// Energy-efficiency analytics (R19 addition, TS 23.288 clause 6.16; KPI per TS 28.554 clause
+// 6.7.1). The 5G SBI carries NO Nnwdaf energy eventId -- energy is OAM/TS 28.552-sourced -- so
+// this is deliberately NOT an NwdafEvent answered over Nnwdaf_AnalyticsInfo; it is computed here
+// and exposed as an OAM-style Prometheus metric (main.cpp). The KPI is TS 28.554's Energy
+// Efficiency: data volume divided by energy consumption, per S-NSSAI. Data volume is taken from
+// the collected SMF QOS_MON reports' ulDataRate/dlDataRate (real TS 29.508 BitRate fields) meaned
+// and integrated over the window; energy consumption comes from a DISCLOSED, configurable power
+// model that stands in for the TS 28.552 PEEC measurement this lab has no telemetry for -- the
+// same disclosed-synthesis discipline as SERVICE_EXPERIENCE's latency->MOS mapping and ADR-0337's
+// offered load, and never a fabricated API field. Every S-NSSAI is grouped and echoed verbatim
+// (any standardised or operator-specific SST, any SD); the optional filter matches verbatim.
+struct EnergyModel {
+    // Disclosed stand-in for the TS 28.552 PNF energy-consumption measurement (PEEC). Both come
+    // from config, never a source literal (no-hardcoded-config rule).
+    double static_watts_per_slice = 0.0; // baseline power drawn per active slice, in watts
+    double joules_per_gigabyte = 0.0;    // dynamic energy per GB carried on the slice
+};
+
+struct SliceEnergyEfficiency {
+    nlohmann::json snssai;                 // echoed verbatim
+    double data_volume_bits = 0.0;         // meaned rate * window
+    double energy_joules = 0.0;
+    double efficiency_bit_per_joule = 0.0; // TS 28.554 EE = DV / EC
+    std::size_t samples = 0;
+};
+
+// Aggregates the collected QOS_MON reports per S-NSSAI into a slice energy-efficiency KPI over a
+// window of `window_seconds`. A report with no ul/dl data rate contributes nothing to volume (it
+// cannot, honestly). A slice with no rate samples is omitted rather than reported as zero.
+std::vector<SliceEnergyEfficiency>
+energy_efficiency(const std::vector<nlohmann::json>& qos_mon_reports,
+                  const std::optional<nlohmann::json>& snssai_filter,
+                  const EnergyModel& model,
+                  double window_seconds);
+
 } // namespace nwdaf
