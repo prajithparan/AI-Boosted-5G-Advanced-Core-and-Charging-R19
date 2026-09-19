@@ -97,10 +97,13 @@
 #include <vector>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "TS29520_Nnwdaf_VFLInference.hpp"
+#include "TS29520_Nnwdaf_VFLTraining.hpp"
 #include "accuracy_monitor.hpp"
 #include "analytics.hpp"
 #include "collection_store.hpp"
 #include "qos_mon_collect.hpp"
+#include "vfl_subscription_store.hpp"
 #include "feature_store.hpp"
 #include "ml_consumer.hpp"
 #include "ml_store.hpp"
@@ -124,6 +127,9 @@ constexpr const char* kDataManagementRoot = "/nnwdaf-datamanagement/v1";
 // ADR-0370: the AnLF half of Nnwdaf_MLModelMonitor (subscriptions); the MTLF half
 // (registrations) is in mtlf.cpp.
 constexpr const char* kMonitorRoot = "/nnwdaf-mlmodelmonitor/v1";
+// ADR-0380: the VFL (vertical federated learning) hook -- Nnwdaf_VFLTraining/Nnwdaf_VFLInference.
+constexpr const char* kVflTrainingRoot = "/nnwdaf-vfltraining/v1";
+constexpr const char* kVflInferenceRoot = "/nnwdaf-vflinference/v1";
 constexpr const char* kMonitorCallback = "Nnwdaf_MLModelMonitor_myNotification";
 // The NWDAF's own, non-3GPP URIs: where its collections deliver, and the fetchUri it hands out.
 // Same convention as the MFAF's /mfaf-inbound/v1 and the ADRF's /adrf-inbound/v1.
@@ -155,6 +161,108 @@ std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::R
         return r;
     }
     return verifier.verify(value.substr(kPrefix.size()));
+}
+
+// ADR-0380: the VFL hook's subscription CRUD, one instance per resource family. The lifecycle
+// (create/retrieve/update/merge-patch/delete) is real and conformant to the TS 29.520 YAML; the
+// federated-training coordination the subscription would drive (multi-party model exchange between
+// MTLFs) is Phase D and not implemented -- disclosed. SubT is the subscription body DTO, PatchT its
+// merge-patch DTO.
+template <typename SubT, typename PatchT>
+void register_vfl_crud(sbi_core::http2::Server& server,
+                       const std::string& root,
+                       nwdaf::VflSubscriptionStore& store,
+                       sbi_core::jwt::Verifier& verifier) {
+    const std::string collection = root + "/subscriptions";
+    const std::string item = collection + "/{subscriptionId}";
+
+    server.add_route("POST", collection, [&store, &verifier, collection](
+                                             const sbi_core::http2::Request& req) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+        }
+        sbi_core::http2::Response err;
+        auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
+        if (!body) {
+            return err;
+        }
+        const auto id = store.create(nlohmann::json(*body));
+        sbi_core::http2::Response resp;
+        resp.status = 201;
+        resp.headers.emplace("location", collection + "/" + id);
+        resp.headers.emplace("content-type", "application/json");
+        resp.body = nlohmann::json(*body).dump();
+        return resp;
+    });
+
+    server.add_route(
+        "GET", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto sub = store.get(req.path_params.at("subscriptionId"));
+            if (!sub) {
+                return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 200;
+            resp.headers.emplace("content-type", "application/json");
+            resp.body = sub->dump();
+            return resp;
+        });
+
+    server.add_route("PUT", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+        }
+        sbi_core::http2::Response err;
+        auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
+        if (!body) {
+            return err;
+        }
+        if (!store.replace(req.path_params.at("subscriptionId"), nlohmann::json(*body))) {
+            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+        }
+        sbi_core::http2::Response resp;
+        resp.status = 200;
+        resp.headers.emplace("content-type", "application/json");
+        resp.body = nlohmann::json(*body).dump();
+        return resp;
+    });
+
+    server.add_route("PATCH", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+        }
+        sbi_core::http2::Response err;
+        auto patch = sbi_core::http2::parse_json_body<PatchT>(req, err);
+        if (!patch) {
+            return err;
+        }
+        const auto merged =
+            store.merge_patch(req.path_params.at("subscriptionId"), nlohmann::json(*patch));
+        if (!merged) {
+            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+        }
+        sbi_core::http2::Response resp;
+        resp.status = 200;
+        resp.headers.emplace("content-type", "application/json");
+        resp.body = merged->dump();
+        return resp;
+    });
+
+    server.add_route(
+        "DELETE", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            if (!store.remove(req.path_params.at("subscriptionId"))) {
+                return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
 }
 
 // A query parameter carrying a JSON object (TS 29.500 style for structured params). Absent is
@@ -793,6 +901,18 @@ int main() {
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+
+    // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
+    // real; the federated-training coordination the subscriptions would drive is Phase D (disclosed).
+    nwdaf::VflSubscriptionStore vfl_training_store("nwdaf-vflt-");
+    nwdaf::VflSubscriptionStore vfl_inference_store("nwdaf-vfli-");
+    register_vfl_crud<sbi_gen::VflTrainingSubs_Nnwdaf_VFLTraining,
+                      sbi_gen::VflTrainingSubsPatch_Nnwdaf_VFLTraining>(
+        server, kVflTrainingRoot, vfl_training_store, verifier);
+    register_vfl_crud<sbi_gen::VflInferSub_Nnwdaf_VFLInference,
+                      sbi_gen::VflInferSubPatch_Nnwdaf_VFLInference>(
+        server, kVflInferenceRoot, vfl_inference_store, verifier);
+
     if (const auto tps_limit = sbi_core::read_tps_limit(config); tps_limit.enabled()) {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }
