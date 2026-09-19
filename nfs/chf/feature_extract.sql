@@ -41,6 +41,6 @@ SELECT
          THEN SUM(COALESCE(used_total_volume, 0)) / SUM(COALESCE(granted_total_volume, 0))
          ELSE 0 END                                      AS grant_utilisation,
     NOW()                                                AS computed_at
-FROM chf_prod.cdr
+FROM chf_cdr.cdr
 WHERE recorded_date = :feature_date
 GROUP BY subscriber_identifier;

@@ -50,22 +50,61 @@ fi
 run_gen() { "$GEN" --chf "$CHF_URL" --cert "$CERT" --key "$KEY" --ca "$CA" \
     --subscribers "$2" --sessions "$1" --concurrency "$CONCURRENCY" --updates "$UPDATES"; }
 
-echo "== warm-up: $WARMUP_SESSIONS sessions over 1000 subscribers to measure throughput =="
+# Warm-up MUST use the same --subscribers as the full run: profile_for(idx, total_subscribers)
+# derives segment/product/volume from BOTH the index AND the total, so a SUPI drawn at total=1000
+# would get a different (contradictory) profile than the same SUPI at total=100000. Same total ->
+# the warm-up's CDRs are consistent members of the final corpus (refs stay unique via Redis INCR),
+# so they need not be cleaned out afterwards.
+echo "== warm-up: $WARMUP_SESSIONS sessions over $SUBSCRIBERS subscribers to measure throughput =="
 start=$(date +%s)
-run_gen "$WARMUP_SESSIONS" 1000
+run_gen "$WARMUP_SESSIONS" "$SUBSCRIBERS"
 elapsed=$(( $(date +%s) - start )); elapsed=$(( elapsed > 0 ? elapsed : 1 ))
 rate=$(( WARMUP_SESSIONS / elapsed ))
 echo "  warm-up: $WARMUP_SESSIONS sessions in ${elapsed}s = ~${rate} CDR/s"
-[[ $rate -gt 0 ]] && echo "  projected full run: $SESSIONS CDRs ~= $(( SESSIONS / rate / 60 )) min (~$(( SESSIONS / rate / 3600 )) h)"
+if [[ $rate -gt 0 ]]; then
+  remaining=$(( SESSIONS - WARMUP_SESSIONS ))
+  echo "  projected remaining run: $remaining CDRs ~= $(( remaining / rate / 60 )) min (~$(( remaining / rate / 3600 )) h)"
+fi
 
+# The full run generates the REMAINING CDRs (the warm-up's rows already count toward the target).
+REMAINING=$(( SESSIONS - WARMUP_SESSIONS )); [[ $REMAINING -lt 0 ]] && REMAINING=0
+
+# The COMPLETE pipeline is CDR gen -> Doris -> feature store -> NWDAF. The detached job below runs
+# the generator and THEN, on success, extracts the NWDAF feature store for every date the run
+# spanned (extract_features.py prints per-date SQL; pipe it into Doris). Without this stage
+# chf_features.subscriber_features stays empty and the NWDAF half of the scale-up does not exist.
 echo
-echo "== launching full run DETACHED: $SESSIONS CDRs over $SUBSCRIBERS customers (Consumer+Enterprise) =="
-LOG="$LOGDIR/cdrgen-5M-$(date +%Y%m%d-%H%M%S).log"
-setsid nohup "$GEN" --chf "$CHF_URL" --cert "$CERT" --key "$KEY" --ca "$CA" \
-    --subscribers "$SUBSCRIBERS" --sessions "$SESSIONS" --concurrency "$CONCURRENCY" --updates "$UPDATES" \
-    > "$LOG" 2>&1 &
+echo "== launching full pipeline DETACHED: $REMAINING more CDRs over $SUBSCRIBERS customers, then feature extract =="
+LOG="$LOGDIR/pipeline-5M-$(date +%Y%m%d-%H%M%S).log"
+STAGE="$LOGDIR/pipeline-stage-$(date +%Y%m%d-%H%M%S).sh"
+cat > "$STAGE" <<STAGEEOF
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$(pwd)"
+start_date=\$(date +%F)
+echo "[\$(date -Is)] generator: $REMAINING sessions over $SUBSCRIBERS subscribers"
+"$GEN" --chf "$CHF_URL" --cert "$CERT" --key "$KEY" --ca "$CA" \
+    --subscribers "$SUBSCRIBERS" --sessions "$REMAINING" --concurrency "$CONCURRENCY" --updates "$UPDATES"
+gen_rc=\$?
+echo "[\$(date -Is)] generator exited rc=\$gen_rc"
+[[ \$gen_rc -ne 0 ]] && { echo "generator failed -- skipping feature extract"; exit \$gen_rc; }
+end_date=\$(date +%F)
+echo "[\$(date -Is)] feature extract for dates \$start_date .. \$end_date"
+d="\$start_date"
+while :; do
+  echo "[\$(date -Is)] extract_features \$d"
+  python3 tools/chf-features/extract_features.py --date "\$d" \
+    | docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T doris-schema-init \
+        mariadb -h doris -P 9030 -u root --skip-ssl chf_features
+  [[ "\$d" == "\$end_date" ]] && break
+  d=\$(date -I -d "\$d + 1 day")
+done
+echo "[\$(date -Is)] pipeline complete"
+STAGEEOF
+chmod +x "$STAGE"
+setsid nohup bash "$STAGE" > "$LOG" 2>&1 &
 PID=$!
 echo "$PID" > "$LOG.pid"
-echo "  PID $PID   log: $LOG"
+echo "  PID $PID   log: $LOG   stage script: $STAGE"
 echo "  follow:  tail -f \"$LOG\""
 echo "  stop:    kill $PID"

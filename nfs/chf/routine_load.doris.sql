@@ -15,7 +15,7 @@
 -- what makes the whole path safe to retry.
 --
 -- Run once against the database that owns the cdr table, e.g.
---   mysql -h127.0.0.1 -P9030 -uroot -D chf_prod < nfs/chf/routine_load.doris.sql
+--   mysql -h127.0.0.1 -P9030 -uroot -D chf_cdr < nfs/chf/routine_load.doris.sql
 -- Brokers/topic here are the lab compose values (Doris reaches the broker on the compose network's
 -- INTERNAL listener, kafka:29092); a deployment substitutes its own.
 
