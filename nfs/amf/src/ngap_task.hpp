@@ -21,6 +21,10 @@
 // thread" discipline ADR-0006 already established for run_nrf_lifecycle, extended to SCTP by
 // ADR-0030's libs/ngap-core.
 
+namespace amf {
+class LiPoi; // src/li_poi.hpp -- the AMF's LI IRI-POI (ADR-0377); nullptr when LI is disabled
+}
+
 namespace amf::ngap {
 
 // Thread-safe registry mapping a UE's SUPI to enough live state for the SBI HTTP/2 server thread
@@ -115,6 +119,7 @@ void run_ngap_lifecycle(const std::string& bind_address,
                         GnbAssociationRegistry& gnb_associations,
                         std::uint8_t amf_region_id,
                         std::uint16_t amf_set_id,
-                        std::uint8_t amf_pointer);
+                        std::uint8_t amf_pointer,
+                        LiPoi* li_poi);
 
 } // namespace amf::ngap

@@ -12,5 +12,20 @@
   "ngap_bind_port": 38412,
   "amf_region_id": 0,
   "amf_set_id": 0,
-  "amf_pointer": 0
+  "amf_pointer": 0,
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7807,
+    "ne_identifier": "amf-poi-01",
+    "network_function_id": "amf-01.5gc.example.net",
+    "interception_point_id": "AMF-IRI-POI-1",
+    "mdf2_host": "127.0.0.1",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  }
 }

@@ -95,6 +95,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <sw/redis++/redis++.h>
 #include <thread>
@@ -104,6 +105,7 @@
 #include "TS29518_Namf_MBSBroadcast.hpp"
 #include "TS29518_Namf_MBSCommunication.hpp"
 #include "TS29518_Namf_MT.hpp"
+#include "li_poi.hpp"
 #include "nf_config/nf_config.hpp"
 #include "ngap_task.hpp"
 #include "subscriptions.hpp"
@@ -1343,6 +1345,33 @@ int main() {
         });
 
     std::thread(run_nrf_lifecycle, amf_instance_id, nrf_base, advertised_ipv4).detach();
+
+    // LI IRI-POI (ADR-0377), disabled unless config/amf.json's li_poi.enabled is true. Lives for
+    // the process lifetime (main blocks in run_multi_threaded below), so run_ngap_lifecycle's
+    // detached thread may hold a raw pointer to it. nullptr keeps the AMF's behaviour unchanged.
+    std::unique_ptr<amf::LiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        amf::LiPoi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.value("x1_bind_address", std::string{"0.0.0.0"});
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"amf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", amf_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"AMF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/amf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/amf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<amf::LiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
     // NGAP/N2 (SCTP), its own dedicated thread -- see docs/DECISIONS.md ADR-0030/ADR-0031.
     // ngap_bind_address/ngap_bind_port default (config/amf.json) to 127.0.0.5:38412, matching
     // simulators/ransim/config/gnb.yaml's pre-agreed AMF target exactly (ADR-0016) -- now a real
@@ -1360,7 +1389,8 @@ int main() {
                 std::ref(gnb_associations),
                 amf_region_id,
                 amf_set_id,
-                amf_pointer)
+                amf_pointer,
+                li_poi.get())
         .detach();
 
     server.start();

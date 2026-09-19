@@ -20,6 +20,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "amf_ue_id_index_store.hpp"
 #include "gnb_association_registry.hpp"
+#include "li_poi.hpp"
 #include "nas_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
 #include "ngap_core/sctp_socket.hpp"
@@ -158,6 +159,14 @@ constexpr const char* kServingNetworkName = "5G:mnc070.mcc999.3gppnetwork.org";
 // monotonically increasing counter a correct, unambiguous AMF-UE-NGAP-ID allocator -- a real AMF
 // serving many concurrent UEs would need a real allocation/reuse scheme.
 std::atomic<unsigned long> g_next_amf_ue_ngap_id{1};
+
+// The AMF's LI IRI-POI, set once at run_ngap_lifecycle entry (nullptr when LI is disabled). A
+// file-scope pointer rather than a parameter threaded through the five-deep handler call chain
+// (run_ngap_lifecycle -> run_association_thread -> handle_association -> handle_uplink_nas_transport
+// -> handle_uplink_nas_transport_smc_complete), matching this file's existing g_next_amf_ue_ngap_id
+// pattern: the POI is process-lifetime singleton state, exactly like that allocator. Read only on
+// the NGAP task thread(s); set before any association is accepted.
+LiPoi* g_li_poi = nullptr;
 
 // Minimal per-association state carried from Stage 2's InitialUEMessage handler to Stage 3's
 // UplinkNASTransport handler -- both are separate, otherwise-stateless per-message handlers, but
@@ -1518,6 +1527,23 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
                  tmsi,
                  auth_state.amf_ue_id);
 
+    // LI IRI-POI hook (TS 33.127 6.2.2.4 "Registration", ADR-0377). The AMF has admitted the UE
+    // and assigned its 5G-GUTI, so it is registered on the network side; the UE's
+    // RegistrationComplete follows. Fired here, where SUPI + the just-allocated TMSI + this AMF's
+    // GUTI parts are all in scope. No-op unless LI is enabled and this SUPI is a provisioned
+    // target; delivery is best-effort (never breaks the registration). Disclosed: a stricter POI
+    // would wait for RegistrationComplete and carry the UE's actual registration type.
+    if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {
+        GutiParts guti;
+        guti.mcc = kMcc;
+        guti.mnc = kMnc;
+        guti.amf_region_id = amf_region_id;
+        guti.amf_set_id = amf_set_id;
+        guti.amf_pointer = amf_pointer;
+        guti.five_g_tmsi = tmsi;
+        g_li_poi->report_registration(auth_state.supi, guti);
+    }
+
     // Real, persistent security context (gap-closure task #100/ADR-0075) -- uplink_count=1 and
     // downlink_count=2 are the NEXT expected values (SecurityModeComplete already consumed
     // uplink_count=0; RegistrationAccept just consumed downlink_count=1), matching
@@ -2229,7 +2255,12 @@ void run_ngap_lifecycle(const std::string& bind_address,
                         GnbAssociationRegistry& gnb_associations,
                         std::uint8_t amf_region_id,
                         std::uint16_t amf_set_id,
-                        std::uint8_t amf_pointer) {
+                        std::uint8_t amf_pointer,
+                        LiPoi* li_poi) {
+    // Publish the POI for the SMC-complete handler's Registration hook. Set before the accept
+    // loop, so it is visible to every association thread. nullptr when LI is disabled.
+    g_li_poi = li_poi;
+
     ngap_core::SctpSocket listener;
     listener.bind_and_listen(bind_address, bind_port);
     spdlog::info("amf-ngap: listening for NGAP/N2 (SCTP) on {}:{}", bind_address, bind_port);

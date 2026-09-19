@@ -51,17 +51,27 @@ RUN cmake -S . -B build -G Ninja \
 
 FROM ubuntu:24.04 AS runtime
 
+# libxml2: the AMF now hosts an LI IRI-POI (src/li_poi.cpp, ADR-0377) whose LI_X1 server links
+# li_core, which validates X1 documents with libxml2 at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates \
+    openssl ca-certificates libxml2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY --from=builder /build/build/nfs/amf/amf /build/amf
+# The AMF's IRI-POI links li_core (ADR-0377): its build-tree RPATH looks for libli_core.so under
+# /build/build/libs/li-core, and li_core carries LI_ETSI_SCHEMA_DIR=/build/specs/etsi as a
+# compile-time absolute path, so the X1 schema set must be present there or X1 validation fails
+# closed. Same two additions li-mdf.Dockerfile documents.
+COPY --from=builder /build/build/libs/li-core/libli_core.so /build/build/libs/li-core/
+COPY --from=builder /build/specs/etsi /build/specs/etsi
 # CONFIG_DIR is baked in at compile time as /build/config (docs/DECISIONS.md ADR-0077) --
 # config/amf.json is checked-in, non-secret lab default config, so it's copied into the runtime
 # image directly rather than volume-mounted like certs_data (which must come from pki-init).
 COPY config/amf.json /build/config/amf.json
 
-EXPOSE 7778/tcp 9465/tcp
+# 7778 Namf SBI, 9465 Prometheus, 7807 LI_X1 provisioning (the IRI-POI; only bound when
+# li_poi.enabled -- config/amf.json defaults it off).
+EXPOSE 7778/tcp 9465/tcp 7807/tcp
 
 ENTRYPOINT ["/build/amf"]
