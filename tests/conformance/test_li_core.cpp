@@ -386,3 +386,40 @@ TEST(Xiri, AmfStartOfInterceptionWithRegisteredUeRoundTrips) {
     soi.guti.mcc = "31";
     EXPECT_FALSE(xiri::encode_xiri_payload(soi).has_value());
 }
+
+// TS 33.128 clause 6.2.2.2.4 -- the AMFLocationUpdate xIRI, exercising the Location codec through
+// the NGAP user-location path (Location.locationInfo.userLocation).
+TEST(Xiri, AmfLocationUpdateRoundTripsNrAndEutraUserLocation) {
+    // NR: TAI (PLMN + 2-octet TAC) + NCGI (PLMN + 36-bit cell id at the top of the range).
+    xiri::AmfLocationUpdate nr_update;
+    nr_update.supi = xiri::Imsi{"234151234567890"};
+    xiri::NrLocation nr;
+    nr.tai = {{"234", "15"}, {0x00, 0x2A}};
+    nr.ncgi = {{"234", "15"}, (std::uint64_t{1} << 36) - 1};
+    nr_update.location.user_location = xiri::UserLocation{nr, std::nullopt};
+
+    const auto nr_bytes = xiri::encode_xiri_payload(nr_update);
+    ASSERT_TRUE(nr_bytes.has_value()) << nr_bytes.error();
+    const auto nr_decoded = xiri::decode_xiri_payload(*nr_bytes);
+    ASSERT_TRUE(nr_decoded.has_value()) << nr_decoded.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::AmfLocationUpdate>(nr_decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfLocationUpdate>(nr_decoded->event), nr_update);
+
+    // E-UTRA: TAI (3-octet TAC) + ECGI (28-bit cell id).
+    xiri::AmfLocationUpdate eutra_update;
+    eutra_update.supi = xiri::Nai{"user@op.example"};
+    xiri::EutraLocation eutra;
+    eutra.tai = {{"310", "260"}, {0x01, 0x02, 0x03}};
+    eutra.ecgi = {{"310", "260"}, 0x0ABCDEF};
+    eutra_update.location.user_location = xiri::UserLocation{std::nullopt, eutra};
+
+    const auto eutra_bytes = xiri::encode_xiri_payload(eutra_update);
+    ASSERT_TRUE(eutra_bytes.has_value()) << eutra_bytes.error();
+    const auto eutra_decoded = xiri::decode_xiri_payload(*eutra_bytes);
+    ASSERT_TRUE(eutra_decoded.has_value()) << eutra_decoded.error();
+    EXPECT_EQ(std::get<xiri::AmfLocationUpdate>(eutra_decoded->event), eutra_update);
+
+    // The BIT STRING width is enforced: a 37-bit NR cell id is rejected.
+    nr_update.location.user_location->nr->ncgi.nr_cell_id = std::uint64_t{1} << 36;
+    EXPECT_FALSE(xiri::encode_xiri_payload(nr_update).has_value());
+}

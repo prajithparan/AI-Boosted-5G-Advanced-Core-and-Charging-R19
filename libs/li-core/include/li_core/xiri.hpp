@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <tl/expected.hpp>
@@ -113,8 +114,80 @@ struct AmfStartOfInterceptionWithRegisteredUE {
     bool operator==(const AmfStartOfInterceptionWithRegisteredUE&) const = default;
 };
 
-using Event =
-    std::variant<AmfRegistration, AmfDeregistration, AmfStartOfInterceptionWithRegisteredUE>;
+// --- TS 33.128 Location, the 5G NGAP user-location path ------------------------------------
+// Location is a SEQUENCE of seven OPTIONAL branches; the AMF POI reports the NGAP-sourced form,
+// Location.locationInfo.userLocation (table 6.2.2.2.4-1 form 1). Only that path is modelled here;
+// positioningInfo/geoInfo/4G/IMS/coarseLocation, and the non-3GPP/UTRA/GERA/PLMN access types of
+// UserLocation, are deferred (added when a POI that produces them is built). PLMNID/TAI/NCGI/ECGI
+// mandatory members follow the ASN.1 exactly.
+
+// PLMNID ::= SEQUENCE { mCC NumericString(3), mNC NumericString(2..3) }
+struct Plmnid {
+    std::string mcc;
+    std::string mnc;
+    bool operator==(const Plmnid&) const = default;
+};
+
+// TAI ::= SEQUENCE { pLMNID, tAC OCTET STRING(2..3), nID OPTIONAL }
+struct Tai {
+    Plmnid plmn;
+    std::vector<std::uint8_t> tac; // 2..3 octets
+    bool operator==(const Tai&) const = default;
+};
+
+// NCGI ::= SEQUENCE { pLMNID, nRCellID BIT STRING(36), nID OPTIONAL }
+struct Ncgi {
+    Plmnid plmn;
+    std::uint64_t nr_cell_id = 0; // 36 bits
+    bool operator==(const Ncgi&) const = default;
+};
+
+// ECGI ::= SEQUENCE { pLMNID, eUTRACellID BIT STRING(28), nID OPTIONAL }
+struct Ecgi {
+    Plmnid plmn;
+    std::uint32_t eutra_cell_id = 0; // 28 bits
+    bool operator==(const Ecgi&) const = default;
+};
+
+// NRLocation ::= SEQUENCE { tAI, nCGI, ... OPTIONAL }; only the two M members.
+struct NrLocation {
+    Tai tai;
+    Ncgi ncgi;
+    bool operator==(const NrLocation&) const = default;
+};
+
+// EUTRALocation ::= SEQUENCE { tAI, eCGI, ... OPTIONAL }; only the two M members.
+struct EutraLocation {
+    Tai tai;
+    Ecgi ecgi;
+    bool operator==(const EutraLocation&) const = default;
+};
+
+// UserLocation ::= SEQUENCE (all OPTIONAL); the two 5G access types modelled.
+struct UserLocation {
+    std::optional<NrLocation> nr;
+    std::optional<EutraLocation> eutra;
+    bool operator==(const UserLocation&) const = default;
+};
+
+// Location ::= SEQUENCE (all OPTIONAL); only locationInfo.userLocation modelled.
+struct Location {
+    std::optional<UserLocation> user_location;
+    bool operator==(const Location&) const = default;
+};
+
+// XIRIEvent.locationUpdate [3] AMFLocationUpdate -- TS 33.128 clause 6.2.2.2.4, table
+// 6.2.2.2.4-1. M members: sUPI and location; every other member is C/O.
+struct AmfLocationUpdate {
+    Supi supi;
+    Location location;
+    bool operator==(const AmfLocationUpdate&) const = default;
+};
+
+using Event = std::variant<AmfRegistration,
+                           AmfDeregistration,
+                           AmfStartOfInterceptionWithRegisteredUE,
+                           AmfLocationUpdate>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

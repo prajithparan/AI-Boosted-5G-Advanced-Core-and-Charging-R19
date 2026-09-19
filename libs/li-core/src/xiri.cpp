@@ -17,12 +17,23 @@
 // here, never from a public header -- see xiri.hpp and ADR-0364.
 extern "C" {
 #include <AMFDeregistration.h>
+#include <AMFLocationUpdate.h>
 #include <AMFRegistration.h>
 #include <AMFStartOfInterceptionWithRegisteredUE.h>
+#include <BIT_STRING.h>
+#include <ECGI.h>
+#include <EUTRALocation.h>
+#include <Location.h>
+#include <LocationInfo.h>
+#include <NCGI.h>
+#include <NRLocation.h>
 #include <NumericString.h>
+#include <PLMNID.h>
 #include <OBJECT_IDENTIFIER.h>
 #include <OCTET_STRING.h>
 #include <RELATIVE-OID.h>
+#include <TAI.h>
+#include <UserLocation.h>
 #include <XIRIPayload.h>
 #include <asn_codecs.h>
 #include <ber_decoder.h>
@@ -123,6 +134,187 @@ FiveGGuti extract_guti(const FiveGGUTI_t& src) {
     return out;
 }
 
+// asn1c represents an OPTIONAL SEQUENCE member as a pointer the parent's ASN_STRUCT_FREE walks;
+// calloc-zero it so unset OPTIONAL members inside stay absent.
+template <typename T> T* alloc_optional() {
+    return static_cast<T*>(calloc(1, sizeof(T)));
+}
+
+// A BIT STRING (SIZE(n)) holds a fixed-width integer left-aligned in ceil(n/8) octets, with the
+// low `bits_unused` bits of the last octet zero. NRCellID is 36 bits, EUTRACellID 28.
+int set_bit_string(BIT_STRING_t& bs, std::uint64_t value, unsigned bits) {
+    const unsigned bytes = (bits + 7) / 8;
+    const unsigned unused = bytes * 8 - bits;
+    auto* buf = static_cast<std::uint8_t*>(calloc(bytes, 1));
+    if (buf == nullptr) {
+        return -1;
+    }
+    const std::uint64_t packed = value << unused;
+    for (unsigned i = 0; i < bytes; ++i) {
+        buf[bytes - 1 - i] = static_cast<std::uint8_t>(packed >> (8 * i));
+    }
+    bs.buf = buf;
+    bs.size = static_cast<int>(bytes);
+    bs.bits_unused = static_cast<int>(unused);
+    return 0;
+}
+
+std::uint64_t get_bit_string(const BIT_STRING_t& bs) {
+    std::uint64_t v = 0;
+    for (int i = 0; i < bs.size; ++i) {
+        v = (v << 8) | bs.buf[i];
+    }
+    return v >> static_cast<unsigned>(bs.bits_unused);
+}
+
+tl::expected<void, std::string> fill_plmnid(PLMNID_t& out, const Plmnid& plmn) {
+    if (plmn.mcc.size() != 3) {
+        return tl::unexpected("MCC must be 3 digits (MCC ::= NumericString (SIZE(3)))");
+    }
+    if (plmn.mnc.size() < 2 || plmn.mnc.size() > 3) {
+        return tl::unexpected("MNC must be 2..3 digits (MNC ::= NumericString (SIZE(2..3)))");
+    }
+    if (set_numeric_string(out.mCC, plmn.mcc) != 0 || set_numeric_string(out.mNC, plmn.mnc) != 0) {
+        return tl::unexpected("PLMNID allocation failed");
+    }
+    return {};
+}
+
+Plmnid extract_plmnid(const PLMNID_t& src) {
+    return Plmnid{octet_string_to_std(src.mCC), octet_string_to_std(src.mNC)};
+}
+
+tl::expected<void, std::string> fill_tai(TAI_t& out, const Tai& tai) {
+    if (auto r = fill_plmnid(out.pLMNID, tai.plmn); !r) {
+        return r;
+    }
+    if (tai.tac.size() < 2 || tai.tac.size() > 3) {
+        return tl::unexpected("TAC must be 2..3 octets (TAC ::= OCTET STRING (SIZE(2..3)))");
+    }
+    if (OCTET_STRING_fromBuf(&out.tAC,
+                             reinterpret_cast<const char*>(tai.tac.data()),
+                             static_cast<int>(tai.tac.size())) != 0) {
+        return tl::unexpected("TAC allocation failed");
+    }
+    return {};
+}
+
+Tai extract_tai(const TAI_t& src) {
+    Tai out;
+    out.plmn = extract_plmnid(src.pLMNID);
+    out.tac.assign(src.tAC.buf, src.tAC.buf + src.tAC.size);
+    return out;
+}
+
+tl::expected<void, std::string> fill_ncgi(NCGI_t& out, const Ncgi& ncgi) {
+    if (auto r = fill_plmnid(out.pLMNID, ncgi.plmn); !r) {
+        return r;
+    }
+    if (ncgi.nr_cell_id >= (std::uint64_t{1} << 36)) {
+        return tl::unexpected("NRCellID exceeds BIT STRING (SIZE(36))");
+    }
+    if (set_bit_string(out.nRCellID, ncgi.nr_cell_id, 36) != 0) {
+        return tl::unexpected("NRCellID allocation failed");
+    }
+    return {};
+}
+
+Ncgi extract_ncgi(const NCGI_t& src) {
+    Ncgi out;
+    out.plmn = extract_plmnid(src.pLMNID);
+    out.nr_cell_id = get_bit_string(src.nRCellID);
+    return out;
+}
+
+tl::expected<void, std::string> fill_ecgi(ECGI_t& out, const Ecgi& ecgi) {
+    if (auto r = fill_plmnid(out.pLMNID, ecgi.plmn); !r) {
+        return r;
+    }
+    if (ecgi.eutra_cell_id >= (std::uint32_t{1} << 28)) {
+        return tl::unexpected("EUTRACellID exceeds BIT STRING (SIZE(28))");
+    }
+    if (set_bit_string(out.eUTRACellID, ecgi.eutra_cell_id, 28) != 0) {
+        return tl::unexpected("EUTRACellID allocation failed");
+    }
+    return {};
+}
+
+Ecgi extract_ecgi(const ECGI_t& src) {
+    Ecgi out;
+    out.plmn = extract_plmnid(src.pLMNID);
+    out.eutra_cell_id = static_cast<std::uint32_t>(get_bit_string(src.eUTRACellID));
+    return out;
+}
+
+// Location -> LocationInfo -> UserLocation, allocating each OPTIONAL level only when there is
+// something below it to carry.
+tl::expected<void, std::string> fill_location(Location_t& out, const Location& loc) {
+    if (!loc.user_location) {
+        return {}; // Location has no mandatory members; an empty one is valid
+    }
+    const UserLocation& ul = *loc.user_location;
+    auto* info = alloc_optional<LocationInfo_t>();
+    if (info == nullptr) {
+        return tl::unexpected("LocationInfo allocation failed");
+    }
+    out.locationInfo = info;
+    auto* user = alloc_optional<UserLocation_t>();
+    if (user == nullptr) {
+        return tl::unexpected("UserLocation allocation failed");
+    }
+    info->userLocation = user;
+    if (ul.nr) {
+        auto* nr = alloc_optional<NRLocation_t>();
+        if (nr == nullptr) {
+            return tl::unexpected("NRLocation allocation failed");
+        }
+        user->nRLocation = nr;
+        if (auto r = fill_tai(nr->tAI, ul.nr->tai); !r) {
+            return r;
+        }
+        if (auto r = fill_ncgi(nr->nCGI, ul.nr->ncgi); !r) {
+            return r;
+        }
+    }
+    if (ul.eutra) {
+        auto* eutra = alloc_optional<EUTRALocation_t>();
+        if (eutra == nullptr) {
+            return tl::unexpected("EUTRALocation allocation failed");
+        }
+        user->eUTRALocation = eutra;
+        if (auto r = fill_tai(eutra->tAI, ul.eutra->tai); !r) {
+            return r;
+        }
+        if (auto r = fill_ecgi(eutra->eCGI, ul.eutra->ecgi); !r) {
+            return r;
+        }
+    }
+    return {};
+}
+
+Location extract_location(const Location_t& src) {
+    Location out;
+    if (src.locationInfo == nullptr || src.locationInfo->userLocation == nullptr) {
+        return out;
+    }
+    const UserLocation_t& ul = *src.locationInfo->userLocation;
+    UserLocation user;
+    if (ul.nRLocation != nullptr) {
+        NrLocation nr;
+        nr.tai = extract_tai(ul.nRLocation->tAI);
+        nr.ncgi = extract_ncgi(ul.nRLocation->nCGI);
+        user.nr = nr;
+    }
+    if (ul.eUTRALocation != nullptr) {
+        EutraLocation eutra;
+        eutra.tai = extract_tai(ul.eUTRALocation->tAI);
+        eutra.ecgi = extract_ecgi(ul.eUTRALocation->eCGI);
+        user.eutra = eutra;
+    }
+    out.user_location = user;
+    return out;
+}
+
 tl::expected<void, std::string> fill(AMFRegistration_t& out, const AmfRegistration& src) {
     out.registrationType = static_cast<long>(src.registration_type);
     out.registrationResult = static_cast<long>(src.registration_result);
@@ -182,6 +374,26 @@ extract(const AMFStartOfInterceptionWithRegisteredUE_t& src) {
     return out;
 }
 
+tl::expected<void, std::string> fill(AMFLocationUpdate_t& out, const AmfLocationUpdate& src) {
+    // sUPI and location are the M members; location is embedded (non-OPTIONAL) so it is filled in
+    // place, everything below it is the OPTIONAL user-location chain.
+    if (auto r = fill_supi(out.sUPI, src.supi); !r) {
+        return r;
+    }
+    return fill_location(out.location, src.location);
+}
+
+tl::expected<AmfLocationUpdate, std::string> extract(const AMFLocationUpdate_t& src) {
+    AmfLocationUpdate out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    out.location = extract_location(src.location);
+    return out;
+}
+
 } // namespace
 
 tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const Event& event) {
@@ -208,6 +420,9 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
                 payload->event.present = XIRIEvent_PR_startOfInterceptionWithRegisteredUE;
                 return fill(payload->event.choice.startOfInterceptionWithRegisteredUE,
                             variant_event);
+            } else if constexpr (std::is_same_v<T, AmfLocationUpdate>) {
+                payload->event.present = XIRIEvent_PR_locationUpdate;
+                return fill(payload->event.choice.locationUpdate, variant_event);
             }
         },
         event);
@@ -274,6 +489,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(soi.error());
             }
             out.event = *soi;
+            return out;
+        }
+        case XIRIEvent_PR_locationUpdate: {
+            auto location_update = extract(payload->event.choice.locationUpdate);
+            if (!location_update) {
+                return tl::unexpected(location_update.error());
+            }
+            out.event = *location_update;
             return out;
         }
         default:
