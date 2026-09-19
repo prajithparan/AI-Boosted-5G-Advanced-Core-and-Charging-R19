@@ -2,9 +2,9 @@
 // QOS_MON EventNotifications out of an NsmfEventExposureNotification for the collection timeline.
 // Verifies any S-NSSAI (standard or custom, with/without SD) is preserved verbatim.
 
-#include "qos_mon_collect.hpp"
-
 #include <nlohmann/json.hpp>
+
+#include "qos_mon_collect.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,15 +16,14 @@ TEST(NwdafQosMonCollect, ExtractsOnlyQosMonReportsVerbatim) {
     const json notif{
         {"notifId", "n1"},
         {"eventNotifs",
-         json::array(
-             {json{{"event", "QOS_MON"},
-                   {"supi", "imsi-1"},
-                   {"snssai", {{"sst", 200}, {"sd", "0a1b2c"}}}, // operator-specific slice
-                   {"ulDelays", json::array({5})},
-                   {"dlDelays", json::array({7})},
-                   {"rtDelays", json::array({12})}},
-              json{{"event", "PDU_SES_REL"}},                        // not QOS_MON -> dropped
-              json{{"event", "QOS_MON"}, {"snssai", {{"sst", 1}}}}})}}; // standardised eMBB
+         json::array({json{{"event", "QOS_MON"},
+                           {"supi", "imsi-1"},
+                           {"snssai", {{"sst", 200}, {"sd", "0a1b2c"}}}, // operator-specific slice
+                           {"ulDelays", json::array({5})},
+                           {"dlDelays", json::array({7})},
+                           {"rtDelays", json::array({12})}},
+                      json{{"event", "PDU_SES_REL"}}, // not QOS_MON -> dropped
+                      json{{"event", "QOS_MON"}, {"snssai", {{"sst", 1}}}}})}}; // standardised eMBB
 
     const auto out = nwdaf::qos_mon_event_notifs(notif);
     ASSERT_EQ(out.size(), 2u);

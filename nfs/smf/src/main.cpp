@@ -135,7 +135,6 @@
 #include "TS29542_Nsmf_NIDD.hpp"
 #include "ambr.hpp"
 #include "event_subscription_store.hpp"
-#include "qos_mon_producer.hpp"
 #include "nas_5gsm_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
 #include "pfcp_core/common_ies.hpp"
@@ -143,6 +142,7 @@
 #include "pfcp_core/ie.hpp"
 #include "pfcp_core/session_ies.hpp"
 #include "pfcp_peer.hpp"
+#include "qos_mon_producer.hpp"
 #include "sm_context_store.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
@@ -4175,10 +4175,10 @@ int main() {
 
     // ADR-0379: the Nsmf_EventExposure QOS_MON producer. A background thread periodically emits a
     // QOS_MON notification, per subscribed slice/session, to each subscription's notifUri -- the
-    // feed the NWDAF collects for SERVICE_EXPERIENCE analytics (TS 23.288 6.4). The per-flow latency
-    // is synthesized (this project has no real UPF QoS measurement) -- a disclosed lab data source;
-    // the subscription matching, notification shape and delivery are real. Off (interval 0) leaves
-    // Nsmf_EventExposure a subscription-only shell exactly as before.
+    // feed the NWDAF collects for SERVICE_EXPERIENCE analytics (TS 23.288 6.4). The per-flow
+    // latency is synthesized (this project has no real UPF QoS measurement) -- a disclosed lab data
+    // source; the subscription matching, notification shape and delivery are real. Off (interval 0)
+    // leaves Nsmf_EventExposure a subscription-only shell exactly as before.
     const int qos_mon_interval =
         nf_config::optional<int>(config, "qos_mon_interval_seconds", "SMF_QOS_MON_INTERVAL_SECONDS")
             .value_or(30);

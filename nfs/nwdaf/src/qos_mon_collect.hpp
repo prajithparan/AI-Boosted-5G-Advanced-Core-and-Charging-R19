@@ -12,9 +12,10 @@
 namespace nwdaf {
 
 // The QOS_MON EventNotifications carried by one NsmfEventExposureNotification (TS 29.508): every
-// entry of body.eventNotifs whose `event` is "QOS_MON". Each returned object is one EventNotification
-// (its snssai, ul/dl/rtDelays and supi preserved verbatim -- any S-NSSAI, standard or custom).
-// Tolerant of a malformed or non-QOS_MON body: returns an empty vector rather than throwing.
+// entry of body.eventNotifs whose `event` is "QOS_MON". Each returned object is one
+// EventNotification (its snssai, ul/dl/rtDelays and supi preserved verbatim -- any S-NSSAI,
+// standard or custom). Tolerant of a malformed or non-QOS_MON body: returns an empty vector rather
+// than throwing.
 std::vector<nlohmann::json> qos_mon_event_notifs(const nlohmann::json& notification);
 
 } // namespace nwdaf

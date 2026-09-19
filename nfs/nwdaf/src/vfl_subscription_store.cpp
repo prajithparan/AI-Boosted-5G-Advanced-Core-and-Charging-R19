@@ -29,7 +29,7 @@ bool VflSubscriptionStore::replace(const std::string& sub_id, nlohmann::json sub
 }
 
 std::optional<nlohmann::json> VflSubscriptionStore::merge_patch(const std::string& sub_id,
-                                                               const nlohmann::json& patch) {
+                                                                const nlohmann::json& patch) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = subscriptions_.find(sub_id);
     if (it == subscriptions_.end()) {

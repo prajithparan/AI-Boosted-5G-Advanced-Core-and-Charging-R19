@@ -4,12 +4,12 @@
 // and an operator-specific one both grouped and echoed verbatim), the verbatim per-slice filter,
 // and that a report carrying no data rate contributes nothing (no fabricated volume).
 
-#include "analytics.hpp"
-
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cmath>
+
+#include "analytics.hpp"
 
 #include <gtest/gtest.h>
 
@@ -17,10 +17,15 @@ namespace {
 
 using nlohmann::json;
 
-json qos_report(const json& snssai, const std::string& ul, const std::string& dl,
+json qos_report(const json& snssai,
+                const std::string& ul,
+                const std::string& dl,
                 const std::string& supi = "imsi-1") {
-    return json{{"event", "QOS_MON"}, {"snssai", snssai}, {"supi", supi},
-                {"ulDataRate", ul}, {"dlDataRate", dl}};
+    return json{{"event", "QOS_MON"},
+                {"snssai", snssai},
+                {"supi", supi},
+                {"ulDataRate", ul},
+                {"dlDataRate", dl}};
 }
 
 const nwdaf::SliceEnergyEfficiency* find(const std::vector<nwdaf::SliceEnergyEfficiency>& v,
@@ -40,9 +45,9 @@ TEST(NwdafEnergyEfficiency, KpiMathMatchesTs28554Definition) {
     // One report: 100 Mbps up + 100 Mbps down = 200 Mbps total = 2e8 bps.
     const std::vector<json> reports{qos_report(embb, "100 Mbps", "100 Mbps")};
     nwdaf::EnergyModel model;
-    model.static_watts_per_slice = 100.0;   // 100 W baseline
-    model.joules_per_gigabyte = 0.0;        // isolate the static term for an exact check
-    const double window = 10.0;             // seconds
+    model.static_watts_per_slice = 100.0; // 100 W baseline
+    model.joules_per_gigabyte = 0.0;      // isolate the static term for an exact check
+    const double window = 10.0;           // seconds
 
     const auto out = nwdaf::energy_efficiency(reports, std::nullopt, model, window);
     ASSERT_EQ(out.size(), 1u);

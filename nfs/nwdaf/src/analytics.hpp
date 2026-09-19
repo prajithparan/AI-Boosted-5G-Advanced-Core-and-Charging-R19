@@ -38,13 +38,13 @@
 //   * excepTrend needs two consecutive days for the same subscriber; when only one row exists it
 //     is omitted rather than reported as STABLE.
 
+#include <nlohmann/json.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 #include "TS26510_CommonData_grp.hpp"
 
@@ -136,8 +136,8 @@ struct EnergyModel {
 };
 
 struct SliceEnergyEfficiency {
-    nlohmann::json snssai;                 // echoed verbatim
-    double data_volume_bits = 0.0;         // meaned rate * window
+    nlohmann::json snssai;         // echoed verbatim
+    double data_volume_bits = 0.0; // meaned rate * window
     double energy_joules = 0.0;
     double efficiency_bit_per_joule = 0.0; // TS 28.554 EE = DV / EC
     std::size_t samples = 0;

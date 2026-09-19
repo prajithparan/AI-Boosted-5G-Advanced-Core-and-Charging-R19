@@ -3,11 +3,11 @@
 // S-NSSAI handling the user required -- a standardised SST (1/2/3) and an operator-specific one
 // (128-255, with an SD) are both matched and echoed verbatim, never coerced or dropped.
 
-#include "qos_mon_producer.hpp"
-
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+
+#include "qos_mon_producer.hpp"
 
 #include <gtest/gtest.h>
 
@@ -27,18 +27,20 @@ json qos_mon_subscription(const std::string& notif_id,
     if (!slice_filter.is_null()) {
         event_sub["snssai"] = slice_filter;
     }
-    return json{{"notifId", notif_id}, {"notifUri", notif_uri}, {"eventSubs", json::array({event_sub})}};
+    return json{
+        {"notifId", notif_id}, {"notifUri", notif_uri}, {"eventSubs", json::array({event_sub})}};
 }
 
 } // namespace
 
 TEST(SmfQosMon, ReportsEverySliceVerbatimStandardAndCustom) {
-    const json embb{{"sst", 1}};                          // standardised eMBB
-    const json custom{{"sst", 200}, {"sd", "0a1b2c"}};    // operator-specific slice with an SD
+    const json embb{{"sst", 1}};                       // standardised eMBB
+    const json custom{{"sst", 200}, {"sd", "0a1b2c"}}; // operator-specific slice with an SD
     const std::vector<json> sessions{session("imsi-111", embb), session("imsi-222", custom)};
     const std::vector<json> subs{qos_mon_subscription("n1", "https://nwdaf.example/notify")};
 
-    const auto out = smf::qos_mon::build_qos_mon_notifications(subs, sessions, 7, "2026-09-19T00:00:00Z");
+    const auto out =
+        smf::qos_mon::build_qos_mon_notifications(subs, sessions, 7, "2026-09-19T00:00:00Z");
     ASSERT_EQ(out.size(), 1u);
     EXPECT_EQ(out[0].notif_uri, "https://nwdaf.example/notify");
     EXPECT_EQ(out[0].body.at("notifId"), "n1");
@@ -82,7 +84,9 @@ TEST(SmfQosMon, SkipsNonQosMonNoUriAndNoMatch) {
     const std::vector<json> sessions{session("imsi-1", json{{"sst", 1}})};
     const std::vector<json> subs{
         // not a QOS_MON subscriber
-        json{{"notifId", "a"}, {"notifUri", "https://x/1"}, {"eventSubs", json::array({{{"event", "PDU_SES_REL"}}})}},
+        json{{"notifId", "a"},
+             {"notifUri", "https://x/1"},
+             {"eventSubs", json::array({{{"event", "PDU_SES_REL"}}})}},
         // QOS_MON but no notifUri
         json{{"notifId", "b"}, {"eventSubs", json::array({{{"event", "QOS_MON"}}})}},
         // QOS_MON scoped to a slice no session has -> no eventNotifs -> skipped

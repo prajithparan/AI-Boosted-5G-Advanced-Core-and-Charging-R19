@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
-#include <vector>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Private to nfs/smf -- not shared with any other NF, per CLAUDE.md's "no NF includes another
 // NF's private headers" rule.

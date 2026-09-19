@@ -1,9 +1,9 @@
 // The NWDAF VFL hook's subscription store (ADR-0380): create/get/replace/merge-patch/remove,
 // backing the Nnwdaf_VFLTraining and Nnwdaf_VFLInference subscription resources.
 
-#include "vfl_subscription_store.hpp"
-
 #include <nlohmann/json.hpp>
+
+#include "vfl_subscription_store.hpp"
 
 #include <gtest/gtest.h>
 

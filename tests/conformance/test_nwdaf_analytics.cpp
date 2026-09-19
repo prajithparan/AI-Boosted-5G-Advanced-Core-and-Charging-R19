@@ -221,9 +221,9 @@ nlohmann::json qos_report(const nlohmann::json& snssai, const std::string& supi,
 TEST(NwdafServiceExperience, AggregatesPerSliceStandardAndCustomVerbatim) {
     const nlohmann::json embb{{"sst", 1}};
     const nlohmann::json custom{{"sst", 200}, {"sd", "0a1b2c"}};
-    const std::vector<nlohmann::json> reports{
-        qos_report(embb, "imsi-1", 10),   qos_report(embb, "imsi-2", 20),
-        qos_report(custom, "imsi-3", 90)};
+    const std::vector<nlohmann::json> reports{qos_report(embb, "imsi-1", 10),
+                                              qos_report(embb, "imsi-2", 20),
+                                              qos_report(custom, "imsi-3", 90)};
 
     const auto out = nwdaf::service_experience(reports, std::nullopt);
     ASSERT_EQ(out.size(), 2u);
@@ -263,7 +263,8 @@ TEST(NwdafServiceExperience, FilterMatchesTheCustomSliceOnlyAndEmptyIsEmpty) {
     const std::vector<nlohmann::json> reports{qos_report(embb, "imsi-1", 10),
                                               qos_report(custom, "imsi-2", 40)};
 
-    const auto only_custom = nwdaf::service_experience(reports, std::optional<nlohmann::json>(custom));
+    const auto only_custom =
+        nwdaf::service_experience(reports, std::optional<nlohmann::json>(custom));
     ASSERT_EQ(only_custom.size(), 1u);
     EXPECT_EQ(nlohmann::json(*only_custom.front().snssai), custom);
 

@@ -102,16 +102,16 @@
 #include "accuracy_monitor.hpp"
 #include "analytics.hpp"
 #include "collection_store.hpp"
-#include "qos_mon_collect.hpp"
-#include "vfl_subscription_store.hpp"
 #include "feature_store.hpp"
 #include "ml_consumer.hpp"
 #include "ml_store.hpp"
 #include "model_runtime.hpp"
 #include "mtlf.hpp"
 #include "nf_config/nf_config.hpp"
+#include "qos_mon_collect.hpp"
 #include "subscription_store.hpp"
 #include "training_executor.hpp"
+#include "vfl_subscription_store.hpp"
 
 using json = nlohmann::json;
 
@@ -185,40 +185,39 @@ void register_vfl_crud(sbi_core::http2::Server& server,
     const std::string collection = root + "/subscriptions";
     const std::string item = collection + "/{subscriptionId}";
 
-    server.add_route("POST", collection, [&store, &verifier, collection](
-                                             const sbi_core::http2::Request& req) {
-        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-        }
-        sbi_core::http2::Response err;
-        auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
-        if (!body) {
-            return err;
-        }
-        const auto id = store.create(nlohmann::json(*body));
-        sbi_core::http2::Response resp;
-        resp.status = 201;
-        resp.headers.emplace("location", collection + "/" + id);
-        resp.headers.emplace("content-type", "application/json");
-        resp.body = nlohmann::json(*body).dump();
-        return resp;
-    });
-
     server.add_route(
-        "GET", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+        "POST", collection, [&store, &verifier, collection](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
-            const auto sub = store.get(req.path_params.at("subscriptionId"));
-            if (!sub) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<SubT>(req, err);
+            if (!body) {
+                return err;
             }
+            const auto id = store.create(nlohmann::json(*body));
             sbi_core::http2::Response resp;
-            resp.status = 200;
+            resp.status = 201;
+            resp.headers.emplace("location", collection + "/" + id);
             resp.headers.emplace("content-type", "application/json");
-            resp.body = sub->dump();
+            resp.body = nlohmann::json(*body).dump();
             return resp;
         });
+
+    server.add_route("GET", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+        }
+        const auto sub = store.get(req.path_params.at("subscriptionId"));
+        if (!sub) {
+            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+        }
+        sbi_core::http2::Response resp;
+        resp.status = 200;
+        resp.headers.emplace("content-type", "application/json");
+        resp.body = sub->dump();
+        return resp;
+    });
 
     server.add_route("PUT", item, [&store, &verifier](const sbi_core::http2::Request& req) {
         if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
@@ -260,18 +259,17 @@ void register_vfl_crud(sbi_core::http2::Server& server,
         return resp;
     });
 
-    server.add_route(
-        "DELETE", item, [&store, &verifier](const sbi_core::http2::Request& req) {
-            if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
-                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
-            }
-            if (!store.remove(req.path_params.at("subscriptionId"))) {
-                return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
-            }
-            sbi_core::http2::Response resp;
-            resp.status = 204;
-            return resp;
-        });
+    server.add_route("DELETE", item, [&store, &verifier](const sbi_core::http2::Request& req) {
+        if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
+            return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+        }
+        if (!store.remove(req.path_params.at("subscriptionId"))) {
+            return sbi_core::http2::problem_response(404, "Not Found", "no such subscription");
+        }
+        sbi_core::http2::Response resp;
+        resp.status = 204;
+        return resp;
+    });
 }
 
 // A query parameter carrying a JSON object (TS 29.500 style for structured params). Absent is
@@ -962,7 +960,8 @@ int main() {
     sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
 
     // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
-    // real; the federated-training coordination the subscriptions would drive is Phase D (disclosed).
+    // real; the federated-training coordination the subscriptions would drive is Phase D
+    // (disclosed).
     nwdaf::VflSubscriptionStore vfl_training_store("nwdaf-vflt-");
     nwdaf::VflSubscriptionStore vfl_inference_store("nwdaf-vfli-");
     register_vfl_crud<sbi_gen::VflTrainingSubs_Nnwdaf_VFLTraining,
@@ -2099,14 +2098,13 @@ int main() {
     // same shape as the DCCF collection. Retries until the SMF answers 201.
     std::thread qos_mon_sub_thread([&] {
         if (!smf_base ||
-            !collected.open_collection(
-                kSmfQosMonSource, json{{"replica", instance_id}, {"selfBase", self_base}})) {
+            !collected.open_collection(kSmfQosMonSource,
+                                       json{{"replica", instance_id}, {"selfBase", self_base}})) {
             return; // not configured, or another replica holds the QOS_MON subscription
         }
-        const json subscription{
-            {"notifId", "nwdaf-qosmon-" + instance_id},
-            {"notifUri", self_base + std::string(kInboundPrefix) + "/qos-mon"},
-            {"eventSubs", json::array({json{{"event", "QOS_MON"}}})}};
+        const json subscription{{"notifId", "nwdaf-qosmon-" + instance_id},
+                                {"notifUri", self_base + std::string(kInboundPrefix) + "/qos-mon"},
+                                {"eventSubs", json::array({json{{"event", "QOS_MON"}}})}};
         while (running.load()) {
             long status = -1;
             std::string error;
@@ -2132,9 +2130,10 @@ int main() {
                              *smf_base);
                 return;
             }
-            spdlog::warn("nwdaf: SMF QOS_MON subscription not accepted yet (status {} {}), retrying",
-                         status,
-                         error);
+            spdlog::warn(
+                "nwdaf: SMF QOS_MON subscription not accepted yet (status {} {}), retrying",
+                status,
+                error);
             if (!pause(10)) {
                 return;
             }
