@@ -629,7 +629,15 @@ void run_nrf_lifecycle(const std::string& instance_id,
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
-        http_client.send(patch_req);
+        // A dropped heartbeat lets the NRF deregister this NWDAF, so a failure is worth a line
+        // rather than the silent fire-and-forget that tripped -Wunused-result on send()'s
+        // [[nodiscard]] result.
+        auto hb_resp = http_client.send(patch_req);
+        if (!hb_resp) {
+            spdlog::warn("nwdaf: NRF heartbeat failed: {}", hb_resp.error());
+        } else if (hb_resp->status < 200 || hb_resp->status >= 300) {
+            spdlog::warn("nwdaf: NRF heartbeat rejected (HTTP {})", hb_resp->status);
+        }
     }
 }
 
