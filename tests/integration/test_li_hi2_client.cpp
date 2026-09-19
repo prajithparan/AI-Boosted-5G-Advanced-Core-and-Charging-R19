@@ -77,14 +77,19 @@ public:
     }
     ~LoopbackLemf() {
         running_.store(false);
+        // shutdown() wakes the blocked accept(); listen_fd_ is only closed and cleared once the
+        // serve thread has joined, so its read of listen_fd_ in accept() cannot race this write
+        // (TSan, test_li_hi2_client.cpp:138 vs :83).
         if (listen_fd_ >= 0) {
             ::shutdown(listen_fd_, SHUT_RDWR);
-            ::close(listen_fd_);
-            listen_fd_ = -1;
         }
         drop_connection();
         if (thread_.joinable()) {
             thread_.join();
+        }
+        if (listen_fd_ >= 0) {
+            ::close(listen_fd_);
+            listen_fd_ = -1;
         }
         if (ctx_ != nullptr) {
             SSL_CTX_free(ctx_);

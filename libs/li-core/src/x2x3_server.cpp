@@ -319,13 +319,19 @@ void X2X3Server::stop() {
     if (!impl_->running.exchange(false)) {
         return;
     }
+    // Wake the accept loop (it is blocked in ::accept) but leave listen_fd's value alone until
+    // the thread has joined: closing it and writing -1 here would race the loop's read of it in
+    // ::accept (TSan, x2x3_server.cpp:263 vs :325). On Linux shutdown() on a listening socket is
+    // what makes the blocked accept() return; the fd is only closed once nothing can read it.
     if (impl_->listen_fd >= 0) {
         ::shutdown(impl_->listen_fd, SHUT_RDWR);
-        ::close(impl_->listen_fd);
-        impl_->listen_fd = -1;
     }
     if (impl_->accept_thread.joinable()) {
         impl_->accept_thread.join();
+    }
+    if (impl_->listen_fd >= 0) {
+        ::close(impl_->listen_fd);
+        impl_->listen_fd = -1;
     }
     std::vector<Impl::Connection> connections;
     {
