@@ -42,6 +42,22 @@ enum class AmfRegistrationResult : std::uint8_t {
     ThreeGppAndNonThreeGppAccess = 3,
 };
 
+// AMFDirection ::= ENUMERATED { networkInitiated(1), uEInitiated(2) } -- TS 33.128 6.2.2.2.3
+// says whether a deregistration was network- or UE-initiated.
+enum class AmfDirection : std::uint8_t {
+    NetworkInitiated = 1,
+    UeInitiated = 2,
+};
+
+// AccessType ::= ENUMERATED { threeGPPAccess(1), nonThreeGPPAccess(2),
+// threeGPPandNonThreeGPPAccess(3) } (see TS 24.501 clause 9.11.3.20). A distinct ASN.1 type from
+// AMFRegistrationResult even though the arcs coincide.
+enum class AccessType : std::uint8_t {
+    ThreeGppAccess = 1,
+    NonThreeGppAccess = 2,
+    ThreeGppAndNonThreeGppAccess = 3,
+};
+
 // IMSI ::= NumericString (SIZE(6..15)); NAI ::= UTF8String; SUPI ::= CHOICE { iMSI [1], nAI [2] }
 struct Imsi {
     std::string digits;
@@ -75,7 +91,18 @@ struct AmfRegistration {
     bool operator==(const AmfRegistration&) const = default;
 };
 
-using Event = std::variant<AmfRegistration>;
+// XIRIEvent.deregistration [2] AMFDeregistration -- TS 33.128 clause 6.2.2.2.3, table
+// 6.2.2.2.3-1. Only the two M members here; every identifier (sUPI/sUCI/gUTI/...) is C
+// ("if available") and correlated at the MDF2 by the X2 PDU's XID, so a minimal record is
+// conformant. The C identifier members are added when the AMF POI that produces this event is
+// wired against real AMF state.
+struct AmfDeregistration {
+    AmfDirection deregistration_direction = AmfDirection::NetworkInitiated;
+    AccessType access_type = AccessType::ThreeGppAccess;
+    bool operator==(const AmfDeregistration&) const = default;
+};
+
+using Event = std::variant<AmfRegistration, AmfDeregistration>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

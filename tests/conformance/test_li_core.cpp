@@ -327,3 +327,32 @@ TEST(Xiri, X2PduCarriesXiriPayloadEndToEnd) {
     ASSERT_TRUE(ev.has_value()) << ev.error();
     EXPECT_EQ(std::get<xiri::AmfRegistration>(ev->event), reg);
 }
+
+// TS 33.128 clause 6.2.2.2.3 -- the AMFDeregistration xIRI. Only the two M members
+// (deregistrationDirection, accessType) are modelled; identifiers are C and correlated by XID.
+TEST(Xiri, AmfDeregistrationRoundTripsBothDirectionsAndAccessTypes) {
+    xiri::AmfDeregistration dereg;
+    dereg.deregistration_direction = xiri::AmfDirection::UeInitiated;
+    dereg.access_type = xiri::AccessType::ThreeGppAndNonThreeGppAccess;
+
+    const auto bytes = xiri::encode_xiri_payload(dereg);
+    ASSERT_TRUE(bytes.has_value()) << bytes.error();
+
+    const auto decoded = xiri::decode_xiri_payload(*bytes);
+    ASSERT_TRUE(decoded.has_value()) << decoded.error();
+    // The OID is the module's own {4 19 19 7 1}, same as the registration event.
+    EXPECT_EQ(decoded->payload_oid, (std::vector<std::uint32_t>{4, 19, 19, 7, 1}));
+    ASSERT_TRUE(std::holds_alternative<xiri::AmfDeregistration>(decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfDeregistration>(decoded->event), dereg);
+
+    // The other direction/access combination encodes to different bytes and round-trips too.
+    xiri::AmfDeregistration network_initiated;
+    network_initiated.deregistration_direction = xiri::AmfDirection::NetworkInitiated;
+    network_initiated.access_type = xiri::AccessType::NonThreeGppAccess;
+    const auto bytes2 = xiri::encode_xiri_payload(network_initiated);
+    ASSERT_TRUE(bytes2.has_value()) << bytes2.error();
+    EXPECT_NE(*bytes, *bytes2);
+    const auto decoded2 = xiri::decode_xiri_payload(*bytes2);
+    ASSERT_TRUE(decoded2.has_value()) << decoded2.error();
+    EXPECT_EQ(std::get<xiri::AmfDeregistration>(decoded2->event), network_initiated);
+}

@@ -16,6 +16,7 @@
 // asn1c-generated TS33128Payloads codec (li_generated). Hidden-visibility symbols; included only
 // here, never from a public header -- see xiri.hpp and ADR-0364.
 extern "C" {
+#include <AMFDeregistration.h>
 #include <AMFRegistration.h>
 #include <NumericString.h>
 #include <OBJECT_IDENTIFIER.h>
@@ -119,6 +120,19 @@ tl::expected<AmfRegistration, std::string> extract(const AMFRegistration_t& src)
     return out;
 }
 
+void fill(AMFDeregistration_t& out, const AmfDeregistration& src) {
+    // Both members are non-OPTIONAL in the ASN.1 and M in table 6.2.2.2.3-1; no allocation.
+    out.deregistrationDirection = static_cast<long>(src.deregistration_direction);
+    out.accessType = static_cast<long>(src.access_type);
+}
+
+AmfDeregistration extract(const AMFDeregistration_t& src) {
+    AmfDeregistration out;
+    out.deregistration_direction = static_cast<AmfDirection>(src.deregistrationDirection);
+    out.access_type = static_cast<AccessType>(src.accessType);
+    return out;
+}
+
 } // namespace
 
 tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const Event& event) {
@@ -137,6 +151,10 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             if constexpr (std::is_same_v<T, AmfRegistration>) {
                 payload->event.present = XIRIEvent_PR_registration;
                 return fill(payload->event.choice.registration, variant_event);
+            } else if constexpr (std::is_same_v<T, AmfDeregistration>) {
+                payload->event.present = XIRIEvent_PR_deregistration;
+                fill(payload->event.choice.deregistration, variant_event);
+                return {};
             }
         },
         event);
@@ -194,6 +212,9 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
             out.event = *registration;
             return out;
         }
+        case XIRIEvent_PR_deregistration:
+            out.event = extract(payload->event.choice.deregistration);
+            return out;
         default:
             return tl::unexpected("XIRIEvent alternative " +
                                   std::to_string(static_cast<int>(payload->event.present)) +
