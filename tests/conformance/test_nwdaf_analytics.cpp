@@ -1,6 +1,7 @@
 // NWDAF AnLF rules (ADR-0358) against known feature rows and known NF profiles. No I/O.
 
 #include <chrono>
+#include <optional>
 
 #include "analytics.hpp"
 
@@ -204,4 +205,67 @@ TEST(NwdafNfLoadModel, RuntimeRejectsBytesThatAreNotAModelAndPredictsNothing) {
     EXPECT_FALSE(rt.load("definitely not ONNX", 7));
     EXPECT_FALSE(rt.loaded());
     EXPECT_FALSE(rt.predict(nwdaf::NfLoadFeatures{}).has_value());
+}
+
+// TS 23.288 6.4: SERVICE_EXPERIENCE aggregation of collected SMF QOS_MON reports into a per-slice
+// svcExprc. Verifies the generic S-NSSAI rule: standard and custom slices grouped/echoed verbatim.
+namespace {
+nlohmann::json qos_report(const nlohmann::json& snssai, const std::string& supi, int rt_ms) {
+    return nlohmann::json{{"event", "QOS_MON"},
+                          {"snssai", snssai},
+                          {"supi", supi},
+                          {"rtDelays", nlohmann::json::array({rt_ms})}};
+}
+} // namespace
+
+TEST(NwdafServiceExperience, AggregatesPerSliceStandardAndCustomVerbatim) {
+    const nlohmann::json embb{{"sst", 1}};
+    const nlohmann::json custom{{"sst", 200}, {"sd", "0a1b2c"}};
+    const std::vector<nlohmann::json> reports{
+        qos_report(embb, "imsi-1", 10),   qos_report(embb, "imsi-2", 20),
+        qos_report(custom, "imsi-3", 90)};
+
+    const auto out = nwdaf::service_experience(reports, std::nullopt);
+    ASSERT_EQ(out.size(), 2u);
+
+    // Find each slice by its verbatim snssai.
+    auto find = [&](const nlohmann::json& sn) {
+        for (const auto& info : out) {
+            if (info.snssai && nlohmann::json(*info.snssai) == sn) {
+                return info;
+            }
+        }
+        ADD_FAILURE() << "slice not found: " << sn.dump();
+        return out.front();
+    };
+    const auto embb_info = find(embb);
+    const auto custom_info = find(custom);
+
+    // The custom slice (SST 200 + SD) survived verbatim.
+    ASSERT_TRUE(custom_info.snssai.has_value());
+    EXPECT_EQ(nlohmann::json(*custom_info.snssai).at("sst"), 200);
+    EXPECT_EQ(nlohmann::json(*custom_info.snssai).at("sd"), "0a1b2c");
+
+    // Lower mean latency (eMBB: mean 15ms) => higher MOS than the custom slice (90ms).
+    ASSERT_TRUE(embb_info.svcExprc.mos.has_value());
+    ASSERT_TRUE(custom_info.svcExprc.mos.has_value());
+    EXPECT_GT(*embb_info.svcExprc.mos, *custom_info.svcExprc.mos);
+    EXPECT_GE(*embb_info.svcExprc.mos, 1.0);
+    EXPECT_LE(*embb_info.svcExprc.mos, 5.0);
+    // Two SUPIs on eMBB, one on the custom slice.
+    ASSERT_TRUE(embb_info.supis.has_value());
+    EXPECT_EQ(embb_info.supis->size(), 2u);
+}
+
+TEST(NwdafServiceExperience, FilterMatchesTheCustomSliceOnlyAndEmptyIsEmpty) {
+    const nlohmann::json embb{{"sst", 1}};
+    const nlohmann::json custom{{"sst", 200}, {"sd", "0a1b2c"}};
+    const std::vector<nlohmann::json> reports{qos_report(embb, "imsi-1", 10),
+                                              qos_report(custom, "imsi-2", 40)};
+
+    const auto only_custom = nwdaf::service_experience(reports, std::optional<nlohmann::json>(custom));
+    ASSERT_EQ(only_custom.size(), 1u);
+    EXPECT_EQ(nlohmann::json(*only_custom.front().snssai), custom);
+
+    EXPECT_TRUE(nwdaf::service_experience({}, std::nullopt).empty());
 }

@@ -391,6 +391,32 @@ compute(const std::string& event_id,
         return data;
     }
 
+    if (event_id == sbi_gen::NwdafEvent::SERVICE_EXPERIENCE) {
+        // TS 23.288 6.4: aggregate the collected SMF QOS_MON reports into a per-slice svcExprc.
+        const auto now = std::chrono::system_clock::now();
+        const auto window_start = now - collected.window();
+        std::vector<json> reports;
+        for (const auto& e : collected.events(kSmfQosMonSource, window_start, now)) {
+            reports.push_back(e.event);
+        }
+        auto svc = nwdaf::service_experience(reports, std::nullopt);
+        // Honour the request's slice filter verbatim (any SST/SD); an absent filter reports all.
+        if (filter && filter->snssais && !filter->snssais->empty()) {
+            std::vector<json> wanted;
+            for (const auto& s : *filter->snssais) {
+                wanted.push_back(json(s));
+            }
+            std::erase_if(svc, [&](const auto& info) {
+                return !info.snssai ||
+                       std::find(wanted.begin(), wanted.end(), json(*info.snssai)) == wanted.end();
+            });
+        }
+        if (!svc.empty()) {
+            data.svcExps = std::move(svc);
+        }
+        return data;
+    }
+
     return std::nullopt; // an analytic this NWDAF does not compute
 }
 
@@ -821,8 +847,8 @@ int main() {
                     ev->second == sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR
                         ? "ABNORMAL_BEHAVIOUR needs the CHF feature store, which is unreachable"
                         : "analytics ID '" + ev->second +
-                              "' is not computed by this NWDAF (Phase A: NF_LOAD, "
-                              "ABNORMAL_BEHAVIOUR)";
+                              "' is not computed by this NWDAF (NF_LOAD, "
+                              "ABNORMAL_BEHAVIOUR, SERVICE_EXPERIENCE)";
                 return sbi_core::http2::problem_response(404, "Not Found", why);
             }
             analytics_counter->Add(1);
@@ -1727,6 +1753,7 @@ int main() {
                     if (data) {
                         en.nfLoadLevelInfos = data->nfLoadLevelInfos;
                         en.abnorBehavrs = data->abnorBehavrs;
+                        en.svcExps = data->svcExps;
                     } else {
                         // The YAML's own way to say "could not produce this one": NwdafFailureCode.
                         sbi_gen::NwdafFailureCode fc;
@@ -1859,8 +1886,9 @@ int main() {
         }
     }
     if (is_anlf) {
-        nwdaf_info["eventIds"] =
-            json::array({sbi_gen::NwdafEvent::NF_LOAD, sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR});
+        nwdaf_info["eventIds"] = json::array({sbi_gen::NwdafEvent::NF_LOAD,
+                                              sbi_gen::NwdafEvent::ABNORMAL_BEHAVIOUR,
+                                              sbi_gen::NwdafEvent::SERVICE_EXPERIENCE});
     }
     if (is_mtlf) {
         nwdaf_info.update(mtlf.nrf_profile_info());

@@ -30,7 +30,90 @@ struct Tripped {
     std::optional<std::string> trend;
 };
 
+// ---- service experience (TS 23.288 6.4) helpers ----
+std::optional<double> first_delay(const nlohmann::json& report, const char* key) {
+    if (report.contains(key) && report.at(key).is_array() && !report.at(key).empty()) {
+        return report.at(key)[0].get<double>();
+    }
+    return std::nullopt;
+}
+
+double round_trip_ms(const nlohmann::json& report) {
+    if (const auto rt = first_delay(report, "rtDelays")) {
+        return *rt;
+    }
+    return first_delay(report, "ulDelays").value_or(0.0) +
+           first_delay(report, "dlDelays").value_or(0.0);
+}
+
+bool has_latency(const nlohmann::json& report) {
+    return report.contains("rtDelays") || report.contains("ulDelays") ||
+           report.contains("dlDelays");
+}
+
+// Disclosed lab mapping: mean round-trip latency (ms) -> MOS in [1.0, 5.0], lower latency giving a
+// higher experience (mos = 5 - meanRt/30, clamped). A transparent monotonic derivation, not a
+// calibrated model; a conformant MOS comes from the AF's application-layer measurement or a
+// trained MTLF model -- the enhancement path.
+double latency_to_mos(double mean_rt_ms) {
+    return std::clamp(5.0 - mean_rt_ms / 30.0, 1.0, 5.0);
+}
+
 } // namespace
+
+std::vector<sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription>
+service_experience(const std::vector<nlohmann::json>& qos_mon_reports,
+                   const std::optional<nlohmann::json>& snssai_filter) {
+    struct Aggregate {
+        nlohmann::json snssai;
+        std::vector<double> round_trips;
+        std::set<std::string> supis;
+    };
+    // Keyed on the serialised full S-NSSAI, so a standardised SST (1/2/3) and an operator-specific
+    // one (128-255) with any SD are distinct opaque groups -- never coerced or dropped.
+    std::map<std::string, Aggregate> by_slice;
+    for (const auto& report : qos_mon_reports) {
+        if (!report.is_object() || !report.contains("snssai") || !has_latency(report)) {
+            continue;
+        }
+        const nlohmann::json& snssai = report.at("snssai");
+        if (snssai_filter && *snssai_filter != snssai) {
+            continue; // verbatim filter, any SST/SD
+        }
+        Aggregate& aggregate = by_slice[snssai.dump()];
+        aggregate.snssai = snssai;
+        aggregate.round_trips.push_back(round_trip_ms(report));
+        if (report.contains("supi") && report.at("supi").is_string()) {
+            aggregate.supis.insert(report.at("supi").get<std::string>());
+        }
+    }
+
+    std::vector<sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription> out;
+    for (auto& [key, aggregate] : by_slice) {
+        const double n = static_cast<double>(aggregate.round_trips.size());
+        double sum = 0.0;
+        for (const double v : aggregate.round_trips) {
+            sum += v;
+        }
+        const double mean = sum / n;
+        double variance = 0.0;
+        for (const double v : aggregate.round_trips) {
+            variance += (v - mean) * (v - mean);
+        }
+        variance /= n;
+
+        sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription info;
+        info.svcExprc.mos = latency_to_mos(mean);
+        info.svcExprcVariance = variance;
+        info.snssai = aggregate.snssai.get<sbi_gen::Snssai>(); // echoed verbatim
+        info.confidence = static_cast<std::int64_t>(std::min(100.0, n / 30.0 * 100.0));
+        if (!aggregate.supis.empty()) {
+            info.supis = std::vector<sbi_gen::Supi>(aggregate.supis.begin(), aggregate.supis.end());
+        }
+        out.push_back(std::move(info));
+    }
+    return out;
+}
 
 std::vector<sbi_gen::AbnormalBehaviour>
 detect_abnormal_behaviour(const std::vector<FeatureRow>& today,

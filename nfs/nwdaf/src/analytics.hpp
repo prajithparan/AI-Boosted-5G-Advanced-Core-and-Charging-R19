@@ -44,6 +44,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "TS26510_CommonData_grp.hpp"
 
 namespace nwdaf {
@@ -104,5 +106,15 @@ nf_load(const std::vector<sbi_gen::NFProfile_Nnrf_NFManagement>& snapshot,
         const std::vector<NfStatusObservation>& observations,
         std::chrono::system_clock::time_point window_start,
         std::chrono::system_clock::time_point now);
+
+// Slice-SLA / service-experience analytics (TS 23.288 clause 6.4). Aggregates the collected SMF
+// QOS_MON reports (each a TS 29.508 EventNotification: snssai + ul/dl/rtDelays + supi) per S-NSSAI
+// into a ServiceExperienceInfo -- an svcExprc (MOS) derived from mean round-trip latency, its
+// variance, the SUPIs observed, and a confidence from the sample count. Every S-NSSAI is grouped
+// and echoed verbatim (any standardised or operator-specific SST, any SD); the optional snssai
+// filter matches verbatim. Empty input -> empty output (no slices to report).
+std::vector<sbi_gen::ServiceExperienceInfo_Nnwdaf_EventsSubscription>
+service_experience(const std::vector<nlohmann::json>& qos_mon_reports,
+                   const std::optional<nlohmann::json>& snssai_filter);
 
 } // namespace nwdaf
