@@ -328,6 +328,27 @@ services:
       - "7797:7797"   # Nnwdaf_MLModelProvision (TLS 1.3 + mTLS)
       - "9486:9486"   # Prometheus /metrics
 
+  # MDF2 -- Mediation and Delivery Function for IRI (ADR-0377). Deliberately has no NRF
+  # dependency: TS 33.127 keeps the LI architecture off the service-based plane, so this NF
+  # registers with nothing and is discoverable only to the ADMF that provisions it over X1.
+  li-mdf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/li-mdf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    environment:
+      LI_MDF_REDIS_URL: tcp://valkey:6379
+    volumes:
+      - certs_data:/build/certs
+    ports:
+      - "7805:7805"   # LI_X1 provisioning from the ADMF (TLS 1.3 + mTLS)
+      - "7806:7806"   # LI_X2 from the IRI-POIs (TLS 1.3 + mTLS)
+      - "9491:9491"   # Prometheus /metrics
+
   # ADR-0365: MFAF -- the TS 23.288 Messaging Framework Adaptor over Kafka; state in Valkey.
   # Replicate with `docker compose up --scale mfaf=N`: replicas share Valkey and join one Kafka
   # consumer group, so every configuration is visible everywhere and each notification is

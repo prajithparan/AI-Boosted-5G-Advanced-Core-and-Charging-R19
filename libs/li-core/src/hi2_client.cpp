@@ -262,7 +262,11 @@ struct Hi2Client::Impl {
                     unsent_from = 0;
                     to_resend = buffer.size();
                 }
-                if (to_resend > 0) {
+                // Only a RE-connection resynchronises. On the first connection the buffer may
+                // already hold PDUs the caller queued before the link came up; sending those is
+                // ordinary delivery, and reporting it as resynchronisation would tell an operator
+                // a link had dropped when it never had.
+                if (to_resend > 0 && reconnect_count.load() > 1) {
                     report(Hi2Event::Resynchronised,
                            std::to_string(to_resend) + " buffered PDU(s) re-sent");
                 }

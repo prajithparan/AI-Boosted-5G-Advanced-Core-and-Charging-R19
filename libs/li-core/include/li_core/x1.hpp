@@ -92,6 +92,23 @@ tl::expected<TargetIdentifier, std::string> parse_target_identifier_fragment(std
 
 enum class DeliveryType : std::uint8_t { X2Only, X3Only, X2AndX3 };
 
+// TS 103 221-1 Annex C.2.2 MediationDetails: the part of a TaskDetails that is meaningful only to
+// an MDF. This is where the LIID reaches the MDF -- the ADMF "shall provide the XID to LIID(s)
+// mapping to the MDF" (clause 5.1.2), and a task may carry several, each delivered separately.
+// `productID` is NOT the LIID: the schema types it as a UUIDv4 and the table calls it optional.
+enum class MediationDeliveryType : std::uint8_t { Hi2Only, Hi3Only, Hi2AndHi3 };
+
+struct MediationDetails {
+    std::string liid; // TS 103 280 LIID
+    MediationDeliveryType delivery = MediationDeliveryType::Hi2AndHi3;
+    std::optional<std::string> start_time; // QualifiedMicrosecondDateTime, verbatim
+    std::optional<std::string> end_time;
+    // C.2.2: "Shall be included if deviation from the taskDetails ListofDIDs is necessary. If
+    // included, the details shall be used instead of any delivery destinations specified in the
+    // ListOfDIDs field in the TaskDetails structure."
+    std::vector<std::string> dids;
+};
+
 // TS 103 221-1 6.2.1.2 TaskDetails, the members the NE side reads (the optional
 // mediation/policy/service lists are preserved verbatim as raw XML fragments in `extra` so a
 // ModifyTask round-trips what it was given without this codec having to model every branch).
@@ -99,9 +116,11 @@ struct TaskDetails {
     std::string xid;
     std::vector<TargetIdentifier> targets;
     DeliveryType delivery = DeliveryType::X2AndX3;
-    std::vector<std::string> dids;  // Destination IDs
-    std::vector<std::string> dsids; // Destination Set IDs
-    std::optional<std::string> product_id;
+    std::vector<std::string> dids;         // Destination IDs
+    std::vector<std::string> dsids;        // Destination Set IDs
+    std::optional<std::string> product_id; // UUIDv4 when present; NOT the LIID
+    // Annex C.2.2, populated when the ADMF provisions an MDF. Empty for a plain NE task.
+    std::vector<MediationDetails> mediation_details;
     std::optional<std::uint64_t> correlation_id;
     std::optional<bool> implicit_deactivation_allowed;
 };

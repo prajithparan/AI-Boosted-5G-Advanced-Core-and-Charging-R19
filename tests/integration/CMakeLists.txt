@@ -180,3 +180,14 @@ target_link_libraries(li_hi2_client_integration_tests PRIVATE
 target_compile_definitions(li_hi2_client_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_hi2_client_integration_tests)
+
+# ADR-0377: the MDF2 process end to end -- a real li-mdf provisioned over real X1, fed over real
+# X2, delivering over real HI2 to a loopback LEMF. Needs Valkey; skips without it.
+add_executable(li_mdf_integration_tests test_li_mdf.cpp)
+target_link_libraries(li_mdf_integration_tests PRIVATE
+    li_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_mdf_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+    LI_MDF_PATH="$<TARGET_FILE:li-mdf>")
+add_dependencies(li_mdf_integration_tests li-mdf)
+gtest_discover_tests(li_mdf_integration_tests)

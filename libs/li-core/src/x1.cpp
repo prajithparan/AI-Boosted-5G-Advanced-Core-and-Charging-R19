@@ -176,6 +176,30 @@ TaskDetails read_task_details(xmlNodePtr td) {
         }
     }
     task.product_id = child_text(td, "productID");
+    // Annex C.2.2: listOfMediationDetails is where an MDF learns the LIID(s) of the task.
+    if (xmlNodePtr list = child(td, "listOfMediationDetails")) {
+        for (xmlNodePtr n = list->children; n != nullptr; n = n->next) {
+            if (!is(n, "mediationDetails")) {
+                continue;
+            }
+            MediationDetails details;
+            details.liid = child_text(n, "LIID").value_or("");
+            const std::string delivery = child_text(n, "deliveryType").value_or("");
+            details.delivery = delivery == "HI2Only"   ? MediationDeliveryType::Hi2Only
+                               : delivery == "HI3Only" ? MediationDeliveryType::Hi3Only
+                                                       : MediationDeliveryType::Hi2AndHi3;
+            details.start_time = child_text(n, "StartTime");
+            details.end_time = child_text(n, "EndTime");
+            if (xmlNodePtr dids = child(n, "listOfDIDs")) {
+                for (xmlNodePtr d = dids->children; d != nullptr; d = d->next) {
+                    if (is(d, "dId")) {
+                        details.dids.push_back(node_text(d));
+                    }
+                }
+            }
+            task.mediation_details.push_back(std::move(details));
+        }
+    }
     if (auto c = child_text(td, "correlationID")) {
         task.correlation_id = std::strtoull(c->c_str(), nullptr, 10);
     }
@@ -193,16 +217,30 @@ DestinationDetails read_destination(xmlNodePtr dd) {
     if (xmlNodePtr addr = child(dd, "deliveryAddress")) {
         if (xmlNodePtr ip = child(addr, "ipAddressAndPort")) {
             dest.address.kind = DeliveryAddress::Kind::IpAddressAndPort;
-            // TS 103 280 IPAddressAndPort: address + port children.
+            // TS 103 280 IPAddressPort ::= address + port. Both children, and their own children,
+            // are element names declared by the TS 103 280 schema -- which is
+            // elementFormDefault="qualified", so an instance document carries them in that
+            // namespace. `child()` matches on local name, which is what makes this work whatever
+            // prefix the ADMF chose. The names are the schema's exactly: IPv4Address and
+            // IPv6Address capitalise the "IP", and port wraps a TCPPort or a UDPPort rather than
+            // holding the number itself.
             std::string a;
             if (xmlNodePtr addrn = child(ip, "address")) {
-                if (xmlNodePtr v4 = child(addrn, "iPv4Address")) {
+                if (xmlNodePtr v4 = child(addrn, "IPv4Address")) {
                     a = node_text(v4);
-                } else if (xmlNodePtr v6 = child(addrn, "iPv6Address")) {
+                } else if (xmlNodePtr v6 = child(addrn, "IPv6Address")) {
                     a = node_text(v6);
                 }
             }
-            dest.address.value = a + ":" + child_text(ip, "port").value_or("");
+            std::string port;
+            if (xmlNodePtr portn = child(ip, "port")) {
+                if (xmlNodePtr tcp = child(portn, "TCPPort")) {
+                    port = node_text(tcp);
+                } else if (xmlNodePtr udp = child(portn, "UDPPort")) {
+                    port = node_text(udp);
+                }
+            }
+            dest.address.value = a + ":" + port;
         } else if (auto e164 = child_text(addr, "e164Number")) {
             dest.address.kind = DeliveryAddress::Kind::E164Number;
             dest.address.value = *e164;

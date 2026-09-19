@@ -1,0 +1,31 @@
+{
+  "x1_port": 7805,
+  "x2x3_port": 7806,
+  "metrics_bind_address": "0.0.0.0:9491",
+  "redis_url": "tcp://127.0.0.1:6379",
+  "ne_identifier": "mdf2-01",
+  "network_identifier": {
+    "operator_identifier": "5GC-R19-OP",
+    "network_element_identifier": "mdf2-01"
+  },
+  "delivery_country_code": "GB",
+  "authorization_country_code": "GB",
+  "interception_point_id": "MDF2-01",
+  "x2x3": {
+    "bind_address": "0.0.0.0",
+    "max_pdu_bytes": 8388608
+  },
+  "hi2": {
+    "reconnect_interval_seconds": 30,
+    "keepalive_time1_seconds": 180,
+    "keepalive_time3_seconds": 60,
+    "buffer_capacity_bytes": 8388608,
+    "sni": "localhost"
+  },
+  "x1_keepalive": {
+    "time_p2_seconds": 3600,
+    "time_p1_seconds": 60,
+    "time_p3_seconds": 7200,
+    "allow_deactivate_all": false
+  }
+}
