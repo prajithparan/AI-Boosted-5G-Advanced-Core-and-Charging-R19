@@ -191,3 +191,16 @@ target_compile_definitions(li_mdf_integration_tests PRIVATE
     LI_MDF_PATH="$<TARGET_FILE:li-mdf>")
 add_dependencies(li_mdf_integration_tests li-mdf)
 gtest_discover_tests(li_mdf_integration_tests)
+
+# ADR-0377: the AMF IRI-POI's own logic (X1 provisioning -> target store -> xIRI -> X2 emit),
+# compiling nfs/amf/src/li_poi.cpp directly against a loopback MDF2 (li_core::X2X3Server) and a
+# fake ADMF (sbi_core HTTP/2 client). No NF processes; the POI has no standalone binary. Uses a
+# fixed LI_X1 port (the sbi server binds a fixed port) clear of the other tests'.
+add_executable(li_amf_poi_integration_tests
+    test_li_amf_poi.cpp ${CMAKE_SOURCE_DIR}/nfs/amf/src/li_poi.cpp)
+target_include_directories(li_amf_poi_integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/amf/src)
+target_link_libraries(li_amf_poi_integration_tests PRIVATE
+    li_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_amf_poi_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_amf_poi_integration_tests)
