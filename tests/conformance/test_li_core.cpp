@@ -356,3 +356,33 @@ TEST(Xiri, AmfDeregistrationRoundTripsBothDirectionsAndAccessTypes) {
     ASSERT_TRUE(decoded2.has_value()) << decoded2.error();
     EXPECT_EQ(std::get<xiri::AmfDeregistration>(decoded2->event), network_initiated);
 }
+
+// TS 33.128 clause 6.2.2.2.5 -- the AMFStartOfInterceptionWithRegisteredUE xIRI. Only the M
+// members (registrationResult, sUPI, gUTI) are modelled; registrationType and the rest are C/O.
+TEST(Xiri, AmfStartOfInterceptionWithRegisteredUeRoundTrips) {
+    xiri::AmfStartOfInterceptionWithRegisteredUE soi;
+    soi.registration_result = xiri::AmfRegistrationResult::ThreeGppAndNonThreeGppAccess;
+    soi.supi = xiri::Imsi{"310170123456789"};
+    soi.guti = {"310", "170", 5, 300, 12, 0xDEADBEEF};
+
+    const auto bytes = xiri::encode_xiri_payload(soi);
+    ASSERT_TRUE(bytes.has_value()) << bytes.error();
+
+    const auto decoded = xiri::decode_xiri_payload(*bytes);
+    ASSERT_TRUE(decoded.has_value()) << decoded.error();
+    EXPECT_EQ(decoded->payload_oid, (std::vector<std::uint32_t>{4, 19, 19, 7, 1}));
+    ASSERT_TRUE(std::holds_alternative<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event), soi);
+
+    // An NAI SUPI works through the shared helper too.
+    soi.supi = xiri::Nai{"user@operator.example"};
+    const auto nai_bytes = xiri::encode_xiri_payload(soi);
+    ASSERT_TRUE(nai_bytes.has_value()) << nai_bytes.error();
+    const auto nai_decoded = xiri::decode_xiri_payload(*nai_bytes);
+    ASSERT_TRUE(nai_decoded.has_value()) << nai_decoded.error();
+    EXPECT_EQ(std::get<xiri::AmfStartOfInterceptionWithRegisteredUE>(nai_decoded->event), soi);
+
+    // The shared GUTI validation still rejects a malformed MCC.
+    soi.guti.mcc = "31";
+    EXPECT_FALSE(xiri::encode_xiri_payload(soi).has_value());
+}

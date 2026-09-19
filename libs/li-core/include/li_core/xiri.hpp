@@ -102,7 +102,19 @@ struct AmfDeregistration {
     bool operator==(const AmfDeregistration&) const = default;
 };
 
-using Event = std::variant<AmfRegistration, AmfDeregistration>;
+// XIRIEvent.startOfInterceptionWithRegisteredUE [4] AMFStartOfInterceptionWithRegisteredUE --
+// TS 33.128 clause 6.2.2.2.5, table 6.2.2.2.5-1. Generated when LI is activated on a UE that is
+// already 5GMM-REGISTERED. Only the M members (registrationResult, sUPI, gUTI) here;
+// registrationType/slice and the rest are C/O, added when the AMF POI is wired to real state.
+struct AmfStartOfInterceptionWithRegisteredUE {
+    AmfRegistrationResult registration_result = AmfRegistrationResult::ThreeGppAccess;
+    Supi supi;
+    FiveGGuti guti;
+    bool operator==(const AmfStartOfInterceptionWithRegisteredUE&) const = default;
+};
+
+using Event =
+    std::variant<AmfRegistration, AmfDeregistration, AmfStartOfInterceptionWithRegisteredUE>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the
