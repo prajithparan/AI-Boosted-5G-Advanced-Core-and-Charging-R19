@@ -100,6 +100,7 @@
 #include "accuracy_monitor.hpp"
 #include "analytics.hpp"
 #include "collection_store.hpp"
+#include "qos_mon_collect.hpp"
 #include "feature_store.hpp"
 #include "ml_consumer.hpp"
 #include "ml_store.hpp"
@@ -135,6 +136,9 @@ constexpr const char* kEventsCallback = "Nnwdaf_EventsSubscription_myNotificatio
 constexpr const char* kDataManagementCallback = "Nnwdaf_DataManagement_myNotification";
 // The one data source Phase C collects: the NRF's NFStatusNotify stream.
 constexpr const char* kNrfSource = "nrf";
+// ADR-0379 slice 2: the collection timeline for the SMF Nsmf_EventExposure QOS_MON feed, which the
+// SERVICE_EXPERIENCE analytic aggregates per S-NSSAI.
+constexpr const char* kSmfQosMonSource = "smf_qos_mon";
 
 std::optional<sbi_core::jwt::VerifyResult> check_bearer(const sbi_core::http2::Request& req,
                                                         sbi_core::jwt::Verifier& verifier) {
@@ -510,6 +514,11 @@ int main() {
     // is, what to collect, and how much collected data to keep.
     const auto self_base =
         nf_config::require<std::string>(config, "self_base_url", "NWDAF_SELF_BASE_URL");
+    // ADR-0379 slice 2: the SMF whose Nsmf_EventExposure QOS_MON feed this NWDAF collects. A
+    // configured base URL rather than NRF discovery of the nsmf-event-exposure endpoint (disclosed
+    // lab simplification -- a fuller impl discovers the producer via the NRF, as NF_LOAD does).
+    const auto smf_base =
+        nf_config::optional<std::string>(config, "smf_base_url", "NWDAF_SMF_BASE_URL");
     const auto dccf_base =
         nf_config::require<std::string>(config, "dccf_base_url", "NWDAF_DCCF_BASE_URL");
     const auto collection_cfg = config.at("data_collection");
@@ -687,6 +696,8 @@ int main() {
         client, nrf_base + "/oauth2/token", instance_id, "nnrf-disc", "NRF");
     sbi_core::OAuth2Client oauth_dccf(
         client, nrf_base + "/oauth2/token", instance_id, "ndccf-datamanagement", "DCCF");
+    sbi_core::OAuth2Client oauth_smf(
+        client, nrf_base + "/oauth2/token", instance_id, "nsmf-event-exposure", "SMF");
     sbi_core::OAuth2Client oauth_adrf_dm(
         client, nrf_base + "/oauth2/token", instance_id, "nadrf-datamanagement", "ADRF");
     sbi_core::OAuth2Client oauth_adrf_ml(
@@ -1079,6 +1090,32 @@ int main() {
                 if (sub.source == kNrfSource) {
                     dm_notify(id, sub, fresh);
                 }
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    // ---- inbound: the SMF's Nsmf_EventExposure QOS_MON reports (ADR-0379 slice 2) -----------
+    // The SMF POSTs NsmfEventExposureNotifications here (the notifUri of the subscription this
+    // NWDAF creates at startup). Each QOS_MON EventNotification (snssai + ul/dl/rtDelays) is
+    // appended to the collection timeline verbatim -- any S-NSSAI, standard or custom -- for the
+    // SERVICE_EXPERIENCE analytic (slice 3) to aggregate per slice.
+    server.add_route(
+        "POST", std::string(kInboundPrefix) + "/qos-mon", [&](const sbi_core::http2::Request& req) {
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const json::parse_error& e) {
+                return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+            }
+            const auto reports = nwdaf::qos_mon_event_notifs(body);
+            for (const auto& report : reports) {
+                collected.append(kSmfQosMonSource, report);
+            }
+            collected_counter->Add(reports.size());
+            if (!reports.empty()) {
+                spdlog::info("nwdaf: collected {} QOS_MON report(s) from the SMF", reports.size());
             }
             sbi_core::http2::Response resp;
             resp.status = 204;
@@ -1849,6 +1886,54 @@ int main() {
         }
     });
 
+    // ADR-0379 slice 2: subscribe to the SMF's Nsmf_EventExposure QOS_MON, delivered to this
+    // NWDAF's /qos-mon inbound route. One replica creates the subscription (open_collection lock);
+    // it outlives the replica by design -- no takeover/unsubscribe in this slice, disclosed, the
+    // same shape as the DCCF collection. Retries until the SMF answers 201.
+    std::thread qos_mon_sub_thread([&] {
+        if (!smf_base ||
+            !collected.open_collection(
+                kSmfQosMonSource, json{{"replica", instance_id}, {"selfBase", self_base}})) {
+            return; // not configured, or another replica holds the QOS_MON subscription
+        }
+        const json subscription{
+            {"notifId", "nwdaf-qosmon-" + instance_id},
+            {"notifUri", self_base + std::string(kInboundPrefix) + "/qos-mon"},
+            {"eventSubs", json::array({json{{"event", "QOS_MON"}}})}};
+        while (running.load()) {
+            long status = -1;
+            std::string error;
+            {
+                const std::lock_guard<std::mutex> lock(client_mutex);
+                auto token = oauth_smf.get_bearer_token();
+                sbi_core::http2::ClientRequest req;
+                req.method = "POST";
+                req.url = *smf_base + "/nsmf-event-exposure/v1/subscriptions";
+                req.headers.emplace("content-type", "application/json");
+                if (token) {
+                    req.headers.emplace("authorization", "Bearer " + *token);
+                }
+                req.body = subscription.dump();
+                if (auto resp = client.send(req); resp) {
+                    status = resp->status;
+                } else {
+                    error = resp.error();
+                }
+            }
+            if (status == 201) {
+                spdlog::info("nwdaf: subscribed to the SMF's Nsmf_EventExposure QOS_MON at {}",
+                             *smf_base);
+                return;
+            }
+            spdlog::warn("nwdaf: SMF QOS_MON subscription not accepted yet (status {} {}), retrying",
+                         status,
+                         error);
+            if (!pause(10)) {
+                return;
+            }
+        }
+    });
+
     server.start();
     spdlog::info("nwdaf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     spdlog::info("nwdaf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
@@ -1860,6 +1945,9 @@ int main() {
     mtlf_thread.join(); // a training in flight finishes or times out before the stores go
     if (collector.joinable()) {
         collector.join(); // releases the collection at the DCCF before the stores go away
+    }
+    if (qos_mon_sub_thread.joinable()) {
+        qos_mon_sub_thread.join();
     }
     return 0;
 }

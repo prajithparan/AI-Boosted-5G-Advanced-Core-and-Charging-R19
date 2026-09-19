@@ -90,5 +90,6 @@
     "min_inferences": 5,
     "default_threshold": 80,
     "min_report_interval_seconds": 60
-  }
+  },
+  "smf_base_url": "https://127.0.0.1:7779"
 }
