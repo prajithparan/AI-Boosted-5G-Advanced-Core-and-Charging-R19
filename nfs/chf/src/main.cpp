@@ -134,6 +134,7 @@
 // disclosed, deliberately narrower scope than AMF/UDR's own full retrofit -- CHF's own config
 // surface is large enough to be its own increment).
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 
 // TS29594_Nchf_SpendingLimitControl's own types now live in TS26510_CommonData_grp.hpp -- see
 // stores.hpp's own comment (ADR-0072).
@@ -460,14 +461,9 @@ int main() {
     // internally and is genuinely thread-safe, confirmed by reading its own header, not the
     // per-store single-connection-behind-a-mutex pattern bss/product-catalog uses for libpqxx
     // (ADR-0054), since libpqxx::connection has no such built-in pooling.
-    auto redis = std::make_shared<sw::redis::Redis>(chf_redis_conninfo(config));
-    // sw::redis::Redis's connection pool connects lazily on first command (confirmed: pool size
-    // defaults to 1, no eager-connect option used here) -- a real PING here, not assumed
-    // connectivity, gives the same fail-fast-at-startup behavior every other NF's real dependency
-    // check already has (e.g. bss/product-catalog's libpqxx::connection, which throws immediately
-    // in its own constructor if unreachable).
-    redis->ping();
-    spdlog::info("chf: connected to Redis/Valkey");
+    // sw::redis::Redis connects lazily on first command, so connect_redis_or_die PINGs now and
+    // terminates the process if the store is unreachable (architecture-bonded fail-fast rule).
+    auto redis = nf_config::connect_redis_or_die(chf_redis_conninfo(config), "chf");
     chf::ChargingDataStore charging_data_store(redis);
     chf::IdempotencyStore idempotency_store(
         redis,
@@ -512,21 +508,38 @@ int main() {
             }
         }).detach();
     }
-    if (cdr_writer.is_connected()) {
+    // Architecture-bonded rule: a persistence failure must terminate the process, never run
+    // degraded (this is the exact bug -- a disconnected CDR store silently dropping writes -- the
+    // rule exists to make impossible). In direct-insert mode Doris IS the CDR sink and must be
+    // connected; in event-bus mode a broker must be configured as the sink.
+    const bool cdr_direct_insert =
+        nf_config::optional<bool>(config, "cdr_direct_insert", "CHF_CDR_DIRECT_INSERT")
+            .value_or(true);
+    const std::string cdr_event_bus_brokers =
+        nf_config::optional<std::string>(
+            config, "cdr_event_bus_brokers", "CHF_CDR_EVENT_BUS_BROKERS")
+            .value_or("");
+    if (cdr_direct_insert) {
+        if (!cdr_writer.is_connected()) {
+            nf_config::fatal("chf: direct-insert CDR mode is configured but Doris (the CDR sink) "
+                             "is unreachable");
+        }
         spdlog::info("chf: connected to Doris (CDF)");
+    } else if (cdr_event_bus_brokers.empty()) {
+        nf_config::fatal("chf: no CDR sink -- direct-insert is off and no event-bus brokers are "
+                         "configured; CDRs would have nowhere to persist");
     } else {
-        spdlog::warn("chf: Doris unavailable, CDF/CDR generation disabled for this process");
+        spdlog::info("chf: CDR sink is the event bus ({})", cdr_event_bus_brokers);
     }
 
     // P4.5/ADR-0060 (E5): real RatingDecision audit table -- see rating_decision_store.hpp's own
     // header for the same graceful-degradation design principle CdrWriter already established
     // (ADR-0058): a PostgreSQL outage must never crash or block real-time charging.
     chf::RatingDecisionStore rating_decision_store(rating_database_url);
-    if (rating_decision_store.is_connected()) {
-        spdlog::info("chf: connected to PostgreSQL (RatingDecision audit, E5)");
-    } else {
-        spdlog::warn("chf: PostgreSQL unavailable, RatingDecision audit disabled for this process");
+    if (!rating_decision_store.is_connected()) {
+        nf_config::fatal("chf: PostgreSQL (RatingDecision audit store) is unreachable at startup");
     }
+    spdlog::info("chf: connected to PostgreSQL (RatingDecision audit, E5)");
 
     // P4.8 (CHARGING_PROMPT.md Angle 1a, ADR-0074): real ONNX Runtime in-process inference for
     // predictive quota sizing. Real kill switch (CHF_AI_QUOTA_SIZING_ENABLED, default OFF until

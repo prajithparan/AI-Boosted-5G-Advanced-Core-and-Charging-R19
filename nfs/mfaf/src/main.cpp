@@ -87,6 +87,7 @@
 #include "event_bus/consumer.hpp"
 #include "event_bus/producer.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 
 using json = nlohmann::json;
 
@@ -352,7 +353,7 @@ int main() {
     sbi_core::http2::Client client(std::move(client_tls)); // 3CA Notify delivery
     std::mutex client_mutex;
 
-    mfaf::ConfigStore store(std::make_shared<sw::redis::Redis>(redis_url));
+    mfaf::ConfigStore store(nf_config::connect_redis_or_die(redis_url, "mfaf"));
     event_bus::Producer producer({.brokers = brokers,
                                   .client_id = "mfaf-" + instance_id,
                                   .flush_timeout_ms = flush_timeout_ms});

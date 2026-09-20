@@ -81,6 +81,7 @@
 #include "TS29574_Ndccf_ContextManagement.hpp"
 #include "TS29576_Nmfaf_3daDataManagement.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 #include "subscription_store.hpp"
 
 using json = nlohmann::json;
@@ -373,7 +374,7 @@ int main() {
     sbi_core::OAuth2Client oauth_nwdaf(
         client, nrf_base + "/oauth2/token", instance_id, "nnwdaf-eventssubscription", "NWDAF");
 
-    dccf::SubscriptionStore store(std::make_shared<sw::redis::Redis>(redis_url));
+    dccf::SubscriptionStore store(nf_config::connect_redis_or_die(redis_url, "dccf"));
 
     auto meter = sbi_core::get_meter("dccf");
     auto subscriptions_counter = meter->CreateUInt64Counter(

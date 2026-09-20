@@ -16,6 +16,7 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 #include <cctype>
 #include <cstdlib>
@@ -23,9 +24,25 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace nf_config {
+
+// Architecture-bonded rule (user-directed, mandatory, cannot be bypassed): a persistence failure
+// (SQL DB, in-memory/KV store) or a protocol-initialisation failure MUST terminate the process
+// with an error. An NF is never allowed to run in a degraded state that silently drops or fails to
+// persist data -- that is the class of bug (CHF silently skipping CDR writes to a disconnected
+// store) this rule exists to make impossible. Call fatal() at any such startup failure instead of
+// logging a warning and continuing.
+[[noreturn]] inline void fatal(std::string_view what) {
+    spdlog::critical(
+        "FATAL: {} -- exiting. Architecture rule: a persistence or protocol-initialisation "
+        "failure must never be bypassed; the process must not continue in a degraded state.",
+        what);
+    spdlog::shutdown();
+    std::_Exit(EXIT_FAILURE);
+}
 
 // Resolves and loads a service's JSON config file. Path resolution order: the
 // <SERVICE_NAME>_CONFIG_FILE env var if set, else "<config_dir>/<service_name>.json". Throws

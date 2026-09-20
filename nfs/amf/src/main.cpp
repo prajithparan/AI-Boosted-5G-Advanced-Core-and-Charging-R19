@@ -107,6 +107,7 @@
 #include "TS29518_Namf_MT.hpp"
 #include "li_poi.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 #include "ngap_task.hpp"
 #include "subscriptions.hpp"
 #include "ue_context_store.hpp"
@@ -383,9 +384,7 @@ int main() {
     // security context -- see ue_security_context_store.hpp's own header for why this was a
     // real, load-bearing prerequisite for ServiceRequest support. Same real, fail-fast PING
     // discipline every other NF's own Redis connection already uses (e.g. CHF's own).
-    auto redis = std::make_shared<sw::redis::Redis>(redis_url);
-    redis->ping();
-    spdlog::info("amf: connected to Redis/Valkey");
+    auto redis = nf_config::connect_redis_or_die(redis_url, "amf");
     amf::UeSecurityContextStore ue_security_contexts(redis);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0090): real cross-association
     // amf_ue_ngap_id -> tmsi index -- see amf_ue_id_index_store.hpp's own header for why

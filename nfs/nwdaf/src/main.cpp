@@ -108,6 +108,7 @@
 #include "model_runtime.hpp"
 #include "mtlf.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 #include "qos_mon_collect.hpp"
 #include "subscription_store.hpp"
 #include "training_executor.hpp"
@@ -862,10 +863,15 @@ int main() {
     std::mutex client_mutex; // the client is used from the request path and the notifier thread
 
     nwdaf::FeatureStore features(fs);
+    // Architecture-bonded fail-fast: the feature store (Doris) is a persistence dependency; if it
+    // is unreachable at startup the process must exit, not run serving analytics degraded.
+    if (!features.connected()) {
+        nf_config::fatal("nwdaf: feature store (Doris) is unreachable at startup");
+    }
     std::mutex features_mutex;
     // ADR-0360: subscription state in Valkey, shared by every NWDAF replica; ADR-0368: the
     // collected data and the data-management subscriptions too.
-    auto redis = std::make_shared<sw::redis::Redis>(redis_url);
+    auto redis = nf_config::connect_redis_or_die(redis_url, "nwdaf");
     nwdaf::SubscriptionStore store(redis);
     nwdaf::CollectionStore collected(
         redis, std::chrono::seconds(observation_window_seconds), max_collected_events);

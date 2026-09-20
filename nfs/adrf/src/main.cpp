@@ -100,6 +100,7 @@
 #include "TS29575_Nadrf_MLModelManagement.hpp"
 #include "model_store.hpp"
 #include "nf_config/nf_config.hpp"
+#include "nf_config/redis.hpp"
 #include "record_store.hpp"
 #include "state_store.hpp"
 
@@ -480,9 +481,18 @@ int main() {
     sbi_core::OAuth2Client oauth_nrf(
         client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
 
-    adrf::StateStore state(std::make_shared<sw::redis::Redis>(redis_url));
+    adrf::StateStore state(nf_config::connect_redis_or_die(redis_url, "adrf"));
     adrf::RecordStore records(ds);
     adrf::ModelStore models(model_store_url);
+    // Architecture-bonded fail-fast: ADRF's whole purpose is persisting analytics records and ML
+    // models, so an unreachable data store or model store must terminate the process, never serve
+    // in a degraded "UNREACHABLE" state.
+    if (!records.connected()) {
+        nf_config::fatal("adrf: data record store (Doris) is unreachable at startup");
+    }
+    if (!models.connected()) {
+        nf_config::fatal("adrf: ML model store (PostgreSQL) is unreachable at startup");
+    }
 
     auto meter = sbi_core::get_meter("adrf");
     auto stored_counter =
