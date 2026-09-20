@@ -89,8 +89,7 @@ std::optional<std::array<std::uint8_t, 16>> uuid_to_bytes(const std::string& uui
 
 struct LiPoi::Impl {
     explicit Impl(Config cfg)
-        : config(std::move(cfg)),
-          x2_client(make_x2_config(config)),
+        : config(std::move(cfg)), x2_client(make_x2_config(config)),
           keepalive(make_keepalive_config(config)) {}
 
     static li_core::X2X3ClientConfig make_x2_config(const Config& c) {
@@ -230,8 +229,9 @@ void LiPoi::start() {
     impl_->x1_server = std::make_unique<sbi_core::http2::Server>(
         impl_->x1_ioc, impl_->config.x1_bind_address, impl_->config.x1_port, tls);
     impl_->x1_server->add_route(
-        "POST", kX1Path, [this, callbacks = impl_->make_callbacks()](
-                             const sbi_core::http2::Request& request) {
+        "POST",
+        kX1Path,
+        [this, callbacks = impl_->make_callbacks()](const sbi_core::http2::Request& request) {
             {
                 const std::lock_guard<std::mutex> lock(impl_->keepalive_mutex);
                 impl_->keepalive.on_x1_request(std::chrono::steady_clock::now());
@@ -365,8 +365,9 @@ void LiPoi::report_registration(const std::string& supi, const GutiParts& guti) 
     if (const auto sent = impl_->x2_client.send(pdu); !sent) {
         // Best-effort: an intercept delivery failure is logged and counted, never allowed to
         // break the UE's registration on the network side.
-        spdlog::error("amf-li-poi: LI_X2 delivery of an AMFRegistration xIRI to the MDF2 failed: {}",
-                      sent.error());
+        spdlog::error(
+            "amf-li-poi: LI_X2 delivery of an AMFRegistration xIRI to the MDF2 failed: {}",
+            sent.error());
         return;
     }
     spdlog::info("amf-li-poi: delivered AMFRegistration xIRI for target XID {}", matched->xid);

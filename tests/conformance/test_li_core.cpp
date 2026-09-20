@@ -371,7 +371,8 @@ TEST(Xiri, AmfStartOfInterceptionWithRegisteredUeRoundTrips) {
     const auto decoded = xiri::decode_xiri_payload(*bytes);
     ASSERT_TRUE(decoded.has_value()) << decoded.error();
     EXPECT_EQ(decoded->payload_oid, (std::vector<std::uint32_t>{4, 19, 19, 7, 1}));
-    ASSERT_TRUE(std::holds_alternative<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event));
+    ASSERT_TRUE(
+        std::holds_alternative<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event));
     EXPECT_EQ(std::get<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event), soi);
 
     // An NAI SUPI works through the shared helper too.
@@ -457,7 +458,8 @@ TEST(Xiri, AmfIdentifierDeassociationRoundTripsWithAndWithoutLocation) {
     ASSERT_TRUE(no_loc_decoded.has_value()) << no_loc_decoded.error();
     ASSERT_TRUE(std::holds_alternative<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event));
     EXPECT_EQ(std::get<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event), deassoc);
-    EXPECT_FALSE(std::get<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event).location.has_value());
+    EXPECT_FALSE(
+        std::get<xiri::AmfIdentifierDeassociation>(no_loc_decoded->event).location.has_value());
 
     // Present location encodes to different bytes and still round-trips.
     xiri::EutraLocation eutra;

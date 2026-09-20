@@ -30,9 +30,9 @@ extern "C" {
 #include <NCGI.h>
 #include <NRLocation.h>
 #include <NumericString.h>
-#include <PLMNID.h>
 #include <OBJECT_IDENTIFIER.h>
 #include <OCTET_STRING.h>
+#include <PLMNID.h>
 #include <RELATIVE-OID.h>
 #include <TAI.h>
 #include <UserLocation.h>
@@ -408,8 +408,7 @@ tl::expected<void, std::string> fill(AMFIdentifierAssociation_t& out,
     return fill_location(out.location, src.location);
 }
 
-tl::expected<AmfIdentifierAssociation, std::string>
-extract(const AMFIdentifierAssociation_t& src) {
+tl::expected<AmfIdentifierAssociation, std::string> extract(const AMFIdentifierAssociation_t& src) {
     AmfIdentifierAssociation out;
     auto supi = extract_supi(src.sUPI);
     if (!supi) {

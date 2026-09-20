@@ -1,10 +1,11 @@
 // The AMF IRI-POI (nfs/amf/src/li_poi.cpp, ADR-0377) exercised end to end without the rest of the
-// AMF: a fake ADMF provisions a warrant over real LI_X1 (mTLS HTTP/2), the POI's report_registration
-// builds an AMFRegistration xIRI and streams it over real LI_X2, and a fake MDF2 (li_core::X2X3Server)
-// receives and decodes it. This is the POI's own logic -- X1 provisioning -> target store ->
-// is_target -> xIRI build -> X2 emit -- with the network functions it talks to stood in for by the
-// already-tested li_core server/client. Compiling li_poi.cpp directly (it has no standalone process
-// and pulls in no other AMF source) keeps this a unit-scope integration test.
+// AMF: a fake ADMF provisions a warrant over real LI_X1 (mTLS HTTP/2), the POI's
+// report_registration builds an AMFRegistration xIRI and streams it over real LI_X2, and a fake
+// MDF2 (li_core::X2X3Server) receives and decodes it. This is the POI's own logic -- X1
+// provisioning -> target store -> is_target -> xIRI build -> X2 emit -- with the network functions
+// it talks to stood in for by the already-tested li_core server/client. Compiling li_poi.cpp
+// directly (it has no standalone process and pulls in no other AMF source) keeps this a unit-scope
+// integration test.
 
 #include "sbi_core/http2_client.hpp"
 

@@ -162,7 +162,8 @@ std::atomic<unsigned long> g_next_amf_ue_ngap_id{1};
 
 // The AMF's LI IRI-POI, set once at run_ngap_lifecycle entry (nullptr when LI is disabled). A
 // file-scope pointer rather than a parameter threaded through the five-deep handler call chain
-// (run_ngap_lifecycle -> run_association_thread -> handle_association -> handle_uplink_nas_transport
+// (run_ngap_lifecycle -> run_association_thread -> handle_association ->
+// handle_uplink_nas_transport
 // -> handle_uplink_nas_transport_smc_complete), matching this file's existing g_next_amf_ue_ngap_id
 // pattern: the POI is process-lifetime singleton state, exactly like that allocator. Read only on
 // the NGAP task thread(s); set before any association is accepted.

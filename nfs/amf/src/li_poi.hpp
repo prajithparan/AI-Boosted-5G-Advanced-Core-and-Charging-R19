@@ -41,18 +41,18 @@ struct GutiParts {
 class LiPoi {
 public:
     struct Config {
-        std::string x1_bind_address;      // LI_X1 listener bind address
-        std::uint16_t x1_port = 0;        // LI_X1 listener port (distinct from the Namf port)
-        std::string ne_identifier;        // this NE's identifier, echoed on X1 responses
-        std::string network_function_id;  // X2 NFID attribute (TS 33.128 5.3.1) -- the AMF's id
+        std::string x1_bind_address;       // LI_X1 listener bind address
+        std::uint16_t x1_port = 0;         // LI_X1 listener port (distinct from the Namf port)
+        std::string ne_identifier;         // this NE's identifier, echoed on X1 responses
+        std::string network_function_id;   // X2 NFID attribute (TS 33.128 5.3.1) -- the AMF's id
         std::string interception_point_id; // X2 IPID attribute
-        std::string mdf2_host;            // LI_X2 destination (the MDF2)
+        std::string mdf2_host;             // LI_X2 destination (the MDF2)
         std::uint16_t mdf2_port = 0;
-        std::string mdf2_sni;             // server name to require in the MDF2's cert
-        std::string cert_path;            // PEM: mTLS client/server material (shared lab PKI)
+        std::string mdf2_sni;  // server name to require in the MDF2's cert
+        std::string cert_path; // PEM: mTLS client/server material (shared lab PKI)
         std::string key_path;
         std::string ca_path;
-        int x1_keepalive_p1_seconds = 60;  // TS 103 221-1 6.6.2 timers
+        int x1_keepalive_p1_seconds = 60; // TS 103 221-1 6.6.2 timers
         int x1_keepalive_p2_seconds = 180;
         int x1_keepalive_p3_seconds = 300;
         bool x1_allow_deactivate_all = true;
