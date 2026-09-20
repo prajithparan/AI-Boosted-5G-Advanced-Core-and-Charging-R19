@@ -114,12 +114,15 @@ int main() {
     };
 
     const auto conninfo = database_url;
+    // DB connection-pool size: per-instance request concurrency (project_autoscaling_mandate).
+    const auto db_pool_size = static_cast<std::size_t>(
+        nf_config::require<int>(config, "db_pool_size", "PRODUCT_CATALOG_DB_POOL_SIZE"));
     product_catalog::ProductOfferingStore offering_store(
-        std::string(self_base) + kApiRoot + "/productOffering", conninfo);
+        std::string(self_base) + kApiRoot + "/productOffering", conninfo, db_pool_size);
     product_catalog::ProductOfferingPriceStore price_store(
-        std::string(self_base) + kApiRoot + "/productOfferingPrice", conninfo);
+        std::string(self_base) + kApiRoot + "/productOfferingPrice", conninfo, db_pool_size);
     product_catalog::ProductSpecificationStore spec_store(
-        std::string(self_base) + kApiRoot + "/productSpecification", conninfo);
+        std::string(self_base) + kApiRoot + "/productSpecification", conninfo, db_pool_size);
     spdlog::info("product-catalog: connected to PostgreSQL");
 
     auto meter = sbi_core::get_meter("product-catalog");

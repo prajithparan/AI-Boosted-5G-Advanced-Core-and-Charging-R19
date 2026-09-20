@@ -103,7 +103,9 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
 
-    balance_management::BalanceStore store(self_base + kApiRoot, conninfo);
+    const auto db_pool_size = static_cast<std::size_t>(
+        nf_config::require<int>(config, "db_pool_size", "BALANCE_MANAGEMENT_DB_POOL_SIZE"));
+    balance_management::BalanceStore store(self_base + kApiRoot, conninfo, db_pool_size);
     spdlog::info("balance-management: connected to PostgreSQL");
 
     auto meter = sbi_core::get_meter("balance-management");

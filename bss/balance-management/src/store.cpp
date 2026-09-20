@@ -134,12 +134,12 @@ template <typename Row> bss_sid::Bucket row_to_bucket(const Row& row) {
 
 } // namespace
 
-BalanceStore::BalanceStore(std::string resource_base_url, const std::string& conninfo)
-    : resource_base_url_(std::move(resource_base_url)), conn_(conninfo) {}
+BalanceStore::BalanceStore(std::string resource_base_url, const std::string& conninfo, std::size_t pool_size)
+    : resource_base_url_(std::move(resource_base_url)), pool_(conninfo, pool_size) {}
 
 std::optional<bss_sid::Bucket> BalanceStore::get_bucket(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM bucket WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
@@ -148,8 +148,8 @@ std::optional<bss_sid::Bucket> BalanceStore::get_bucket(const std::string& id) {
 }
 
 std::vector<bss_sid::Bucket> BalanceStore::list_buckets() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM bucket ORDER BY id");
     std::vector<bss_sid::Bucket> out;
     out.reserve(static_cast<std::size_t>(result.size()));
@@ -160,8 +160,8 @@ std::vector<bss_sid::Bucket> BalanceStore::list_buckets() {
 }
 
 std::optional<bss_sid::Bucket> BalanceStore::find_shared_bucket_for(const std::string& party_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     // Matched in SQL on the real JSONB `related_party` array rather than by scanning every bucket
     // in C++: a subscriber's charging path runs this on every reservation, and a full table scan
     // per request would be a real cost on a real subscriber base.
@@ -183,8 +183,8 @@ std::optional<bss_sid::Bucket> BalanceStore::find_shared_bucket_for(const std::s
 
 bss_sid::AccumulatedBalance
 BalanceStore::get_accumulated_balance(const std::string& party_account_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT id, remaining_value_unit, remaining_value FROM bucket "
                                  "WHERE party_account_id = $1 ORDER BY id",
                                  pqxx::params{party_account_id});
@@ -227,8 +227,8 @@ BalanceStore::get_accumulated_balance(const std::string& party_account_id) {
 }
 
 MutationResult<bss_sid::TopupBalance> BalanceStore::topup(bss_sid::TopupBalance request) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
@@ -301,8 +301,8 @@ MutationResult<bss_sid::TopupBalance> BalanceStore::topup(bss_sid::TopupBalance 
 }
 
 std::optional<bss_sid::TopupBalance> BalanceStore::get_topup(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM topup_balance WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
@@ -345,8 +345,8 @@ std::optional<bss_sid::TopupBalance> BalanceStore::get_topup(const std::string& 
 }
 
 MutationResult<bss_sid::AdjustBalance> BalanceStore::adjust(bss_sid::AdjustBalance request) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
@@ -404,8 +404,8 @@ MutationResult<bss_sid::AdjustBalance> BalanceStore::adjust(bss_sid::AdjustBalan
 }
 
 std::optional<bss_sid::AdjustBalance> BalanceStore::get_adjust(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM adjust_balance WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
@@ -440,8 +440,8 @@ std::optional<bss_sid::AdjustBalance> BalanceStore::get_adjust(const std::string
 }
 
 MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBalance request) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
@@ -508,8 +508,8 @@ MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBa
 }
 
 std::optional<bss_sid::ReserveBalance> BalanceStore::get_reserve(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM reserve_balance WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;

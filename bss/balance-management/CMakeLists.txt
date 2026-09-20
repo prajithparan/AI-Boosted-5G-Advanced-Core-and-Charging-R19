@@ -2,7 +2,7 @@
 find_package(libpqxx CONFIG REQUIRED)
 
 add_library(balance_management_store STATIC src/store.cpp src/bill_run.cpp)
-target_link_libraries(balance_management_store PUBLIC bss_sid libpqxx::pqxx)
+target_link_libraries(balance_management_store PUBLIC bss_sid libpqxx::pqxx nf_config)
 target_include_directories(balance_management_store PUBLIC src)
 
 add_executable(balance-management src/main.cpp)

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <mutex>
 #include <optional>
 #include <pqxx/pqxx>
 #include <string>
 #include <vector>
 
 #include "bss_sid/product.hpp"
+#include "nf_config/pg_pool.hpp"
 
 // Private to bss/product-catalog. Real PostgreSQL persistence (libpqxx) -- replaces this file's
 // earlier in-memory-only std::unordered_map stores, per the user's explicit direction ("make sure
@@ -30,7 +30,9 @@ public:
     // conninfo is a libpq connection string (e.g. "postgresql://user:pass@host:port/dbname"); the
     // caller owns sourcing it (see main.cpp -- PRODUCT_CATALOG_DATABASE_URL env var, never
     // hardcoded credentials).
-    ProductOfferingStore(std::string resource_url, const std::string& conninfo);
+    ProductOfferingStore(std::string resource_url,
+                         const std::string& conninfo,
+                         std::size_t pool_size);
 
     // Server always assigns a fresh id/href on create, overwriting any client-supplied value --
     // matching real REST resource-creation semantics (the server owns identity assignment for a
@@ -42,13 +44,14 @@ public:
 
 private:
     std::string resource_url_;
-    std::mutex mutex_;
-    pqxx::connection conn_;
+    nf_config::PgPool pool_;
 };
 
 class ProductOfferingPriceStore {
 public:
-    ProductOfferingPriceStore(std::string resource_url, const std::string& conninfo);
+    ProductOfferingPriceStore(std::string resource_url,
+                              const std::string& conninfo,
+                              std::size_t pool_size);
 
     std::string create(bss_sid::ProductOfferingPrice price);
     std::optional<bss_sid::ProductOfferingPrice> get(const std::string& id);
@@ -57,8 +60,7 @@ public:
 
 private:
     std::string resource_url_;
-    std::mutex mutex_;
-    pqxx::connection conn_;
+    nf_config::PgPool pool_;
 };
 
 // New resource, added alongside the two above per docs/DATA_MODEL.md's E2 / the already-approved
@@ -67,7 +69,9 @@ private:
 // (productSpecCharacteristic / prodSpecCharValueUse -- see product.hpp's own header comment).
 class ProductSpecificationStore {
 public:
-    ProductSpecificationStore(std::string resource_url, const std::string& conninfo);
+    ProductSpecificationStore(std::string resource_url,
+                              const std::string& conninfo,
+                              std::size_t pool_size);
 
     std::string create(bss_sid::ProductSpecification spec);
     std::optional<bss_sid::ProductSpecification> get(const std::string& id);
@@ -76,8 +80,7 @@ public:
 
 private:
     std::string resource_url_;
-    std::mutex mutex_;
-    pqxx::connection conn_;
+    nf_config::PgPool pool_;
 };
 
 } // namespace product_catalog

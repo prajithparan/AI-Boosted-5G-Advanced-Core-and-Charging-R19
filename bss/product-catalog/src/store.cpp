@@ -201,12 +201,12 @@ template <typename Row> bss_sid::ProductSpecification row_to_spec(const Row& row
 
 // --- ProductOfferingStore ---
 
-ProductOfferingStore::ProductOfferingStore(std::string resource_url, const std::string& conninfo)
-    : resource_url_(std::move(resource_url)), conn_(conninfo) {}
+ProductOfferingStore::ProductOfferingStore(std::string resource_url, const std::string& conninfo, std::size_t pool_size)
+    : resource_url_(std::move(resource_url)), pool_(conninfo, pool_size) {}
 
 std::string ProductOfferingStore::create(bss_sid::ProductOffering offering) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto id = txn.exec("SELECT nextval('product_offering_id_seq')::text AS id")
                         .one_row()["id"]
                         .as<std::string>();
@@ -256,8 +256,8 @@ std::string ProductOfferingStore::create(bss_sid::ProductOffering offering) {
 }
 
 std::optional<bss_sid::ProductOffering> ProductOfferingStore::get(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM product_offering WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
@@ -266,8 +266,8 @@ std::optional<bss_sid::ProductOffering> ProductOfferingStore::get(const std::str
 }
 
 std::vector<bss_sid::ProductOffering> ProductOfferingStore::list() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM product_offering ORDER BY id");
     std::vector<bss_sid::ProductOffering> out;
     out.reserve(static_cast<std::size_t>(result.size()));
@@ -278,8 +278,8 @@ std::vector<bss_sid::ProductOffering> ProductOfferingStore::list() {
 }
 
 bool ProductOfferingStore::remove(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("DELETE FROM product_offering WHERE id = $1", pqxx::params{id});
     const bool removed = result.affected_rows() > 0;
     if (removed) {
@@ -292,12 +292,12 @@ bool ProductOfferingStore::remove(const std::string& id) {
 // --- ProductOfferingPriceStore ---
 
 ProductOfferingPriceStore::ProductOfferingPriceStore(std::string resource_url,
-                                                     const std::string& conninfo)
-    : resource_url_(std::move(resource_url)), conn_(conninfo) {}
+                                                     const std::string& conninfo, std::size_t pool_size)
+    : resource_url_(std::move(resource_url)), pool_(conninfo, pool_size) {}
 
 std::string ProductOfferingPriceStore::create(bss_sid::ProductOfferingPrice price) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto id = txn.exec("SELECT nextval('product_offering_price_id_seq')::text AS id")
                         .one_row()["id"]
                         .as<std::string>();
@@ -342,8 +342,8 @@ std::string ProductOfferingPriceStore::create(bss_sid::ProductOfferingPrice pric
 }
 
 std::optional<bss_sid::ProductOfferingPrice> ProductOfferingPriceStore::get(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result =
         txn.exec("SELECT * FROM product_offering_price WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
@@ -353,8 +353,8 @@ std::optional<bss_sid::ProductOfferingPrice> ProductOfferingPriceStore::get(cons
 }
 
 std::vector<bss_sid::ProductOfferingPrice> ProductOfferingPriceStore::list() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM product_offering_price ORDER BY id");
     std::vector<bss_sid::ProductOfferingPrice> out;
     out.reserve(static_cast<std::size_t>(result.size()));
@@ -365,8 +365,8 @@ std::vector<bss_sid::ProductOfferingPrice> ProductOfferingPriceStore::list() {
 }
 
 bool ProductOfferingPriceStore::remove(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result =
         txn.exec("DELETE FROM product_offering_price WHERE id = $1", pqxx::params{id});
     const bool removed = result.affected_rows() > 0;
@@ -381,12 +381,12 @@ bool ProductOfferingPriceStore::remove(const std::string& id) {
 // --- ProductSpecificationStore ---
 
 ProductSpecificationStore::ProductSpecificationStore(std::string resource_url,
-                                                     const std::string& conninfo)
-    : resource_url_(std::move(resource_url)), conn_(conninfo) {}
+                                                     const std::string& conninfo, std::size_t pool_size)
+    : resource_url_(std::move(resource_url)), pool_(conninfo, pool_size) {}
 
 std::string ProductSpecificationStore::create(bss_sid::ProductSpecification spec) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto id = txn.exec("SELECT nextval('product_specification_id_seq')::text AS id")
                         .one_row()["id"]
                         .as<std::string>();
@@ -427,8 +427,8 @@ std::string ProductSpecificationStore::create(bss_sid::ProductSpecification spec
 }
 
 std::optional<bss_sid::ProductSpecification> ProductSpecificationStore::get(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result =
         txn.exec("SELECT * FROM product_specification WHERE id = $1", pqxx::params{id});
     if (result.empty()) {
@@ -438,8 +438,8 @@ std::optional<bss_sid::ProductSpecification> ProductSpecificationStore::get(cons
 }
 
 std::vector<bss_sid::ProductSpecification> ProductSpecificationStore::list() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result = txn.exec("SELECT * FROM product_specification ORDER BY id");
     std::vector<bss_sid::ProductSpecification> out;
     out.reserve(static_cast<std::size_t>(result.size()));
@@ -450,8 +450,8 @@ std::vector<bss_sid::ProductSpecification> ProductSpecificationStore::list() {
 }
 
 bool ProductSpecificationStore::remove(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pqxx::work txn(conn_);
+    auto lease = pool_.acquire();
+    pqxx::work txn(lease.conn());
     const auto result =
         txn.exec("DELETE FROM product_specification WHERE id = $1", pqxx::params{id});
     const bool removed = result.affected_rows() > 0;

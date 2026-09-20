@@ -1,12 +1,12 @@
 #pragma once
 
-#include <mutex>
 #include <optional>
 #include <pqxx/pqxx>
 #include <string>
 #include <vector>
 
 #include "bss_sid/balance.hpp"
+#include "nf_config/pg_pool.hpp"
 
 // Private to bss/balance-management. Real PostgreSQL persistence (libpqxx) -- see schema.sql's
 // own header comment for why this uses PostgreSQL alone (no Redis hot-path layer) for Bucket's
@@ -33,7 +33,9 @@ template <typename T> struct MutationResult {
 
 class BalanceStore {
 public:
-    explicit BalanceStore(std::string resource_base_url, const std::string& conninfo);
+    explicit BalanceStore(std::string resource_base_url,
+                          const std::string& conninfo,
+                          std::size_t pool_size);
 
     std::optional<bss_sid::Bucket> get_bucket(const std::string& id);
     std::vector<bss_sid::Bucket> list_buckets();
@@ -84,8 +86,7 @@ public:
 
 private:
     std::string resource_base_url_;
-    std::mutex mutex_;
-    pqxx::connection conn_;
+    nf_config::PgPool pool_;
 };
 
 } // namespace balance_management
