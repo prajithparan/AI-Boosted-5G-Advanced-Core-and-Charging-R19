@@ -5,10 +5,12 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <nf_config/nf_config.hpp>
+#include <vector>
 
 #include "charging_information.hpp"
 #include "unit_pooling.hpp"
@@ -41,16 +43,47 @@ std::string load_peer_base(const char* key, const char* env_name) {
 
 } // namespace
 
+// Autoscaling support (project_autoscaling_mandate): a peer base URL may be a comma-separated LIST
+// of instance URLs. CHF round-robins across them per call, so scaling the callee tier out (N
+// product-catalog / balance-management instances) gives N-way rating concurrency without CHF
+// having to change -- the caller-side load balancing horizontal scaling needs. A single URL (no
+// comma) behaves exactly as before.
+std::vector<std::string> parse_peer_bases(const std::string& value) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto comma = value.find(',', start);
+        const auto end = (comma == std::string::npos) ? value.size() : comma;
+        auto url = value.substr(start, end - start);
+        // trim surrounding whitespace
+        const auto b = url.find_first_not_of(" \t");
+        const auto e = url.find_last_not_of(" \t");
+        if (b != std::string::npos) {
+            out.push_back(url.substr(b, e - b + 1));
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return out;
+}
+
+const std::string& round_robin(const std::vector<std::string>& bases) {
+    static std::atomic<std::size_t> counter{0};
+    return bases[counter.fetch_add(1, std::memory_order_relaxed) % bases.size()];
+}
+
 std::string product_catalog_base() {
-    static const std::string base =
-        load_peer_base("product_catalog_base_url", "CHF_PRODUCT_CATALOG_BASE");
-    return base;
+    static const std::vector<std::string> bases =
+        parse_peer_bases(load_peer_base("product_catalog_base_url", "CHF_PRODUCT_CATALOG_BASE"));
+    return round_robin(bases);
 }
 
 std::string balance_management_base() {
-    static const std::string base =
-        load_peer_base("balance_management_base_url", "CHF_BALANCE_MANAGEMENT_BASE");
-    return base;
+    static const std::vector<std::string> bases = parse_peer_bases(
+        load_peer_base("balance_management_base_url", "CHF_BALANCE_MANAGEMENT_BASE"));
+    return round_robin(bases);
 }
 
 // ADR-0072 (gap-closure: real N40 product-configurability). Real TMF620 extension-point lookup:
