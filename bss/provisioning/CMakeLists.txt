@@ -1,0 +1,7 @@
+find_package(libpqxx CONFIG REQUIRED)
+add_library(provisioning_store STATIC src/provisioning_store.cpp)
+target_link_libraries(provisioning_store PUBLIC libpqxx::pqxx nf_config)
+target_include_directories(provisioning_store PUBLIC src)
+add_executable(provisioning src/main.cpp)
+target_link_libraries(provisioning PRIVATE sbi_core provisioning_store nf_config)
+target_compile_definitions(provisioning PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
