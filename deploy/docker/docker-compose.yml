@@ -818,6 +818,30 @@ services:
       - "7788:7788"   # TMF651 Agreement Management, E7 InterconnectAgreement (TLS 1.3 + mTLS)
       - "9476:9476"   # Prometheus /metrics
 
+  # --- Database management GUIs (dev/ops consoles; web UIs on the lab network) ---
+  # Kafka console: browse topics (chf.cdr), messages, consumer groups. http://localhost:8080
+  kafka-ui:
+    image: kafbat/kafka-ui:latest
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: lab
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # Valkey/Redis console. http://localhost:5540 -- add a DB with host=valkey port=6379 (no password).
+  redisinsight:
+    image: redis/redisinsight:latest
+    depends_on:
+      valkey:
+        condition: service_healthy
+    ports:
+      - "5540:5540"
+    restart: unless-stopped
+
 volumes:
   certs_data:
   postgres_data:
