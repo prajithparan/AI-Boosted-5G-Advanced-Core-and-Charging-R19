@@ -84,6 +84,7 @@ int main() {
         });
 
     spdlog::info("provisioning: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    server.start();
     sbi_core::run_multi_threaded(ioc);
     return 0;
 }

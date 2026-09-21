@@ -94,8 +94,7 @@ d="\$start_date"
 while :; do
   echo "[\$(date -Is)] extract_features \$d"
   python3 tools/chf-features/extract_features.py --date "\$d" \
-    | docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T doris-schema-init \
-        mariadb -h doris -P 9030 -u root --skip-ssl chf_features
+    | docker compose -f "$COMPOSE_FILE" exec -T doris mysql -h127.0.0.1 -P9030 -uroot chf_features
   [[ "\$d" == "\$end_date" ]] && break
   d=\$(date -I -d "\$d + 1 day")
 done

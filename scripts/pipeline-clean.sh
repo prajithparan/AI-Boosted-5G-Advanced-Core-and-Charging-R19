@@ -37,9 +37,9 @@ DC=(docker compose -f "$COMPOSE_FILE")
 APPLY=0
 [[ "${1:-}" == "--yes" ]] && APPLY=1
 
-# mariadb client lives in the doris-schema-init image; reach Doris (host `doris`) from there.
-doris() { "${DC[@]}" run --rm --no-deps doris-schema-init \
-    mariadb -h doris -P 9030 -u root --skip-ssl -N -B -e "$1"; }
+# The Doris allinone container has a mysql client; exec into the running service (a `compose run`
+# on doris-schema-init swallows an ad-hoc command via its entrypoint, so exec the live doris).
+doris() { "${DC[@]}" exec -T doris mysql -h127.0.0.1 -P9030 -uroot -N -B -e "$1"; }
 redis() { "${DC[@]}" exec -T valkey redis-cli "$@"; }
 pg()    { "${DC[@]}" exec -T postgres-chf psql -U postgres -d chf_rating -At -c "$1"; }
 
