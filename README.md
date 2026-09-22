@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
-    <img src="docs/assets/AIBOOSTED5GTelcoAI.jpeg"
+    <img src="docs/assets/SovereignAIBased.jpeg"
          alt="AI-boosted open 5G stack for affordable rural connectivity + AI-driven charging for emerging markets" width="920">
   </picture>
 </p>
