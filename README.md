@@ -28,6 +28,17 @@ re-authorization, Sy spending limits, and CAMEL/CAP for the legacy voice estate.
 deliberately not used as the title — TS 32.296 defines that as its own network function, this does
 not implement it, and a title should not need a footnote to be true.
 
+Why this matters:
+- 70% of world still lacks affordable 5G. Vendor cores cost $500k+. This is Apache 2.0.
+- Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
+- Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with real eBPF/XDP fast path, CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
+
+AI-Boosted:
+- NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
+- CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
+- Powered locally by any LLM like  liMeta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
+- 100% open infrastructure: Apache Doris, Kafka (KRaft), PostgreSQL 16, Valkey 8 (replaces Redis per OSI compliance), MLflow, scikit-learn.
+
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
 original lab-grade scope — see `docs/DECISIONS.md` ADR-0009 for why and what that changed).
 
