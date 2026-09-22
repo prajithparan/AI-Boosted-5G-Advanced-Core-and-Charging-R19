@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
-    <img src="docs/assets/title.svg"
-         alt="AI-Boosted 5G-Advanced Core and Charging — R19" width="920">
+    <img src="docs/assets/AIBOOSTED5GTelcoAI.jpeg"
+         alt="AI-boosted open 5G stack for affordable rural connectivity + AI-driven charging for emerging markets" width="920">
   </picture>
 </p>
 
