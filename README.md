@@ -51,16 +51,6 @@ architectural choice made (and rejected) along the way.
 
 <h2 align="center">Architecture</h2>
 
-**Open the image for full size** — it is drawn at poster density, like the R19 poster it
-follows. Solid tiles exist in this repository and are tested. **Dashed tiles are in scope and
-not built** — the diagram is kept honest, so it doubles as the roadmap. Every reference point drawn
-is a call wired in code, named per TS 23.501 §4.2.7; the chip on a tile counts the services it
-serves from generated R19 YAML. The image is rendered from
-[`docs/diagrams/architecture.json`](docs/diagrams/architecture.json) by
-[`tools/diagrams/render_architecture.py`](tools/diagrams/render_architecture.py); CI re-renders
-it and checks that every solid tile resolves to a directory or compose service that exists.
-Updated as part of every NF's definition of done (`CLAUDE.md`); conventions in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 <p align="center">
   <a href="docs/diagrams/architecture.svg">
