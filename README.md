@@ -33,7 +33,7 @@ Why this matters:
 - Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
 - Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with real eBPF/XDP fast path, CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
 
-AI-Boosted:
+**Sovereign AI-Boosted**:
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
 - CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
 - Can be Powered locally by any LLMs(Sovereign AI) like  Meta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
