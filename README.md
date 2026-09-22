@@ -36,7 +36,7 @@ Why this matters:
 AI-Boosted:
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
 - CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
-- Can be Powered locally by any LLM like  Meta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
+- Can be Powered locally by any LLMs(Sovereign AI) like  Meta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
 - 100% open infrastructure: Apache Doris, Kafka (KRaft), PostgreSQL 16, Valkey 8 (replaces Redis per OSI compliance), MLflow, scikit-learn.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
