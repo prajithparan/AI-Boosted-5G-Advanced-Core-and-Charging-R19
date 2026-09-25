@@ -29,6 +29,9 @@ NON_3GPP_ROOTS = {
     "/tmf-api/agreementManagement/v4",
     "/tmf-api/party/v4",
     "/bss-api/subscriberManagement/v1",
+    # ADR-0382: the UDR's OAM subscriber-provisioning API -- deliberately NOT 3GPP (Nudr defines no
+    # create operation for subscriber data) and deliberately outside every nudr-* root.
+    "/oam-provisioning/v1",
 }
 
 ROOT_CONST = re.compile(r'constexpr const char\* (k\w*(?:ApiRoot|Root)) = "([^"]+)"')

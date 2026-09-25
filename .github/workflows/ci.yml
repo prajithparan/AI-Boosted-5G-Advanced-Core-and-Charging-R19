@@ -388,6 +388,10 @@ jobs:
         run: |
           docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
           docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
+          # The CDR -> NWDAF feature store (ADR-0350). The NWDAF fails closed without it (1053c7d),
+          # and nothing applied it before -- every NWDAF test died at startup.
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_features"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_features < nfs/chf/schema.features.doris.sql
 
       - name: Apply ADRF schemas (ADR-0367 -- Doris data store, PostgreSQL ML model store)
         run: |
@@ -833,6 +837,10 @@ jobs:
         run: |
           docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
           docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_cdr < nfs/chf/schema.doris.sql
+          # The CDR -> NWDAF feature store (ADR-0350). The NWDAF fails closed without it (1053c7d),
+          # and nothing applied it before -- every NWDAF test died at startup.
+          docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_features"
+          docker exec -i ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root chf_features < nfs/chf/schema.features.doris.sql
 
       - name: Apply ADRF schemas (ADR-0367 -- Doris data store, PostgreSQL ML model store)
         run: |

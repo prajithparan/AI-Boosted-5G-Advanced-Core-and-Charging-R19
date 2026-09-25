@@ -675,12 +675,13 @@ services:
     volumes:
       - ../../nfs/chf/schema.doris.sql:/schema.doris.sql:ro
       - ../../nfs/adrf/schema.doris.sql:/adrf-schema.doris.sql:ro
+      - ../../nfs/chf/schema.features.doris.sql:/features-schema.doris.sql:ro
     entrypoint:
       - /bin/bash
       - -c
       # `mariadb`, not `mysql`: the mariadb:11 image dropped the mysql-named symlinks, so the
       # one-shot had been exiting 127 (found while bringing the ADRF's database up, ADR-0367).
-      - "mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mariadb -h doris -P 9030 -u root --skip-ssl chf_cdr < /schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS adrf_data' && mariadb -h doris -P 9030 -u root --skip-ssl adrf_data < /adrf-schema.doris.sql"
+      - "mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_cdr' && mariadb -h doris -P 9030 -u root --skip-ssl chf_cdr < /schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS adrf_data' && mariadb -h doris -P 9030 -u root --skip-ssl adrf_data < /adrf-schema.doris.sql && mariadb -h doris -P 9030 -u root --skip-ssl -e 'CREATE DATABASE IF NOT EXISTS chf_features' && mariadb -h doris -P 9030 -u root --skip-ssl chf_features < /features-schema.doris.sql"
 
   chf:
     build:
