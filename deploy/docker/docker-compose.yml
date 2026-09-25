@@ -566,10 +566,11 @@ services:
     depends_on:
       pki-init:
         condition: service_completed_successfully
-      postgres-balance:
+      postgres-chf:
         condition: service_healthy
     environment:
-      BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@postgres-balance:5432/balance_management
+      # ADR-0385: the consolidated charging DB, schema balance_mgmt.
+      BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
       # ADR-0077 retrofit: self_base_url is embedded in this service's own response payloads
       # (resource href/id) -- 127.0.0.1 inside this container is not reachable from any other
       # container, same class of bug as the *_NRF_BASE_URL fixes elsewhere in this file.

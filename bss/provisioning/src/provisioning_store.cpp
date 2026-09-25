@@ -69,13 +69,16 @@ void ProvisioningStore::provision_bss(const json& request, const ProvisionResult
                       "VALUES($1,$2,$3,$4,'active') ON CONFLICT (id) DO NOTHING",
                       "ps-" + k, r.subscriber_id, r.customer_account_id, offering);
     }
+    // ADR-0385: the subscriber's own bucket is keyed by SUPI -- the CHF resolves a subscriber's
+    // bucket as (shared bucket by relatedParty) else bucket.id == SUPI, on every reserve. The SID
+    // logicalResource link below is kept as well.
     const json bal = request.value("initialBalance", json::object());
     c.exec_params("INSERT INTO balance_mgmt.bucket(id,party_account_id,usage_type,remaining_value_unit,remaining_value_amount,status) "
                   "VALUES($1,$2,$3,$4,$5,'active') ON CONFLICT (id) DO NOTHING",
-                  "bkt-" + k, r.customer_account_id, bal.value("usageType", "monetary"),
+                  supi, r.customer_account_id, bal.value("usageType", "monetary"),
                   bal.value("unit", "USD"), bal.value("amount", 0.0));
     c.exec_params("INSERT INTO balance_mgmt.bucket_logical_resource(bucket_id,resource_id) "
-                  "VALUES($1,$2) ON CONFLICT DO NOTHING", "bkt-" + k, supi);
+                  "VALUES($1,$2) ON CONFLICT DO NOTHING", supi, supi);
     c.commit();
 }
 

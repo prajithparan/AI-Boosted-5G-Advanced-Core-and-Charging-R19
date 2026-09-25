@@ -1,6 +1,31 @@
 #include "store.hpp"
 
+#include "sbi_core/datetime.hpp"
+
 #include <nlohmann/json.hpp>
+
+#include <map>
+
+// ADR-0385: TMF654 balance management persisted in schema balance_mgmt of the consolidated charging
+// DB (deploy/db/charging/40-balance.sql made lossless and NULL-safe by 41-balance-lossless.sql),
+// replacing the per-service JSONB rows.
+//
+// Access paths:
+//   * Bucket (read and mutated on every charge) is normalized: scalar columns + ordered child
+//   tables
+//     for logicalResource / product / relatedParty.
+//   * Balance events (topup/adjust/reserve) are append-only rows in RANGE(occurred_at) partitions;
+//     their TMF654 reference lists stay JSONB on the event row -- one INSERT per event on the
+//     hottest write path, never a child-table fan-out.
+//
+// Mutation semantics are unchanged from the per-service store: every balance movement is ONE
+// conditional UPDATE (`WHERE remaining >= amount`), so PostgreSQL row locking alone keeps
+// concurrent reserves from overdrawing; an insufficient balance is a business outcome (status
+// "failed"), not an error. Top-up's implicit bucket creation is now a single atomic upsert (no
+// create race).
+//
+// Date-times are stored as TIMESTAMPTZ and returned as UTC RFC 3339 with milliseconds (the
+// sbi_core::format_rfc3339 form). Every statement is schema-qualified.
 
 namespace balance_management {
 
@@ -8,186 +33,258 @@ namespace {
 
 using nlohmann::json;
 
-// P4.5/ADR-0060 (E8, Security): real audit trail, same transaction as the mutation it records --
-// see bss/product-catalog's own schema.sql header for the full "local per-service table" real
-// architectural disclosure this project's service-per-database topology forces.
-void write_audit_record(pqxx::work& txn,
-                        const std::string& entity_type,
-                        const std::string& entity_id,
-                        const std::string& action,
-                        const std::optional<std::string>& after_snapshot) {
-    const auto id = txn.exec("SELECT nextval('audit_record_id_seq')::text AS id")
-                        .one_row()["id"]
-                        .as<std::string>();
-    txn.exec("INSERT INTO audit_record (id, entity_type, entity_id, action, actor, "
-             "after_snapshot) VALUES ($1,$2,$3,$4,'bss/balance-management',$5::jsonb)",
-             pqxx::params{id, entity_type, entity_id, action, after_snapshot});
+constexpr const char* kActor = "bss/balance-management";
+
+std::string ts(const std::string& col) {
+    return "to_char(" + col + " AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
 }
 
-// std::optional, not a bare std::string defaulting to "" -- so libpqxx binds a real SQL NULL for
-// an absent ref/name rather than an empty string, which would otherwise round-trip back out as a
-// visible (but meaningless) `"name":""` in every response.
-std::optional<std::string> party_account_id_of(const std::optional<bss_sid::PartyAccountRef>& ref) {
-    return ref.has_value() ? std::optional<std::string>(ref->id) : std::nullopt;
+std::optional<std::string> ts_in(const std::optional<std::string>& v, const char* field) {
+    if (!v.has_value()) {
+        return std::nullopt;
+    }
+    const auto tp = sbi_core::parse_rfc3339(*v);
+    if (!tp.has_value()) {
+        throw InvalidRequest(std::string(field) + " is not an RFC 3339 date-time");
+    }
+    return sbi_core::format_rfc3339(*tp);
 }
 
-std::optional<std::string>
-party_account_name_of(const std::optional<bss_sid::PartyAccountRef>& ref) {
-    return (ref.has_value() && ref->name.has_value()) ? ref->name : std::nullopt;
+std::optional<std::string> vf_start(const std::optional<bss_sid::TimePeriod>& vf) {
+    return vf.has_value() ? ts_in(vf->startDateTime, "validFor.startDateTime") : std::nullopt;
+}
+std::optional<std::string> vf_end(const std::optional<bss_sid::TimePeriod>& vf) {
+    return vf.has_value() ? ts_in(vf->endDateTime, "validFor.endDateTime") : std::nullopt;
+}
+
+template <typename Row> std::optional<std::string> s(const Row& row, const char* col) {
+    return row[col].template as<std::optional<std::string>>();
+}
+
+template <typename Row> std::optional<bss_sid::TimePeriod> vf_out(const Row& row) {
+    auto a = s(row, "vf_start");
+    auto b = s(row, "vf_end");
+    if (!a && !b) {
+        return std::nullopt;
+    }
+    return bss_sid::TimePeriod{std::move(a), std::move(b)};
+}
+
+template <typename T> std::optional<std::string> j_opt(const std::optional<T>& v) {
+    return v.has_value() ? std::optional<std::string>(json(*v).dump()) : std::nullopt;
+}
+template <typename T> std::optional<std::string> j_arr(const std::vector<T>& v) {
+    return v.empty() ? std::nullopt : std::optional<std::string>(json(v).dump());
+}
+template <typename T, typename Row> std::optional<T> j_opt_out(const Row& row, const char* col) {
+    const auto raw = s(row, col);
+    return raw.has_value() ? std::optional<T>(json::parse(*raw).template get<T>()) : std::nullopt;
+}
+template <typename T, typename Row> std::vector<T> j_arr_out(const Row& row, const char* col) {
+    const auto raw = s(row, col);
+    return raw.has_value() ? json::parse(*raw).template get<std::vector<T>>() : std::vector<T>{};
 }
 
 double amount_value_of(const std::optional<bss_sid::Quantity>& q) {
     return (q.has_value() && q->amount.has_value()) ? *q->amount : 0.0;
 }
-
 std::optional<std::string> amount_units_of(const std::optional<bss_sid::Quantity>& q) {
-    return (q.has_value() && q->units.has_value()) ? q->units : std::nullopt;
+    return q.has_value() ? q->units : std::nullopt;
+}
+std::optional<std::string> account_id(const std::optional<bss_sid::PartyAccountRef>& a) {
+    return a.has_value() ? std::optional<std::string>(a->id) : std::nullopt;
 }
 
-std::optional<std::string> valid_from_of(const std::optional<bss_sid::TimePeriod>& vf) {
-    return vf.has_value() ? vf->startDateTime : std::nullopt;
-}
-
-std::optional<std::string> valid_to_of(const std::optional<bss_sid::TimePeriod>& vf) {
-    return vf.has_value() ? vf->endDateTime : std::nullopt;
-}
-
-std::optional<bss_sid::TimePeriod> time_period_from(const std::optional<std::string>& from,
-                                                    const std::optional<std::string>& to) {
-    if (!from.has_value() && !to.has_value()) {
+template <typename Row> std::optional<bss_sid::Quantity> amount_out(const Row& row) {
+    auto v = row["amount_value"].template as<std::optional<double>>();
+    auto u = s(row, "amount_units");
+    if (!v && !u) {
         return std::nullopt;
     }
-    bss_sid::TimePeriod tp;
-    tp.startDateTime = from;
-    tp.endDateTime = to;
-    return tp;
+    return bss_sid::Quantity{v, std::move(u)};
 }
 
-template <typename T> std::string dump_array(const std::vector<T>& v) {
-    return json(v).dump();
-}
-
-template <typename T> std::vector<T> parse_array(const std::string& s) {
-    if (s.empty()) {
-        return {};
-    }
-    return json::parse(s).get<std::vector<T>>();
-}
-
-template <typename T> std::optional<std::string> dump_optional(const std::optional<T>& v) {
-    if (!v.has_value()) {
+template <typename Row> std::optional<bss_sid::BucketRef> bucket_ref_out(const Row& row) {
+    auto id = s(row, "bucket_id");
+    if (!id.has_value()) {
         return std::nullopt;
     }
-    return json(*v).dump();
+    bss_sid::BucketRef ref{};
+    ref.id = *id;
+    return ref;
 }
 
-template <typename T> std::optional<T> parse_optional(const std::optional<std::string>& s) {
-    if (!s.has_value()) {
-        return std::nullopt;
-    }
-    return json::parse(*s).get<T>();
+void write_audit(pqxx::work& txn,
+                 const std::string& entity_type,
+                 const std::string& entity_id,
+                 const std::string& action,
+                 const std::optional<std::string>& after) {
+    const auto id = txn.exec("SELECT nextval('balance_mgmt.audit_record_id_seq')::text AS id")
+                        .one_row()["id"]
+                        .as<std::string>();
+    txn.exec("INSERT INTO balance_mgmt.audit_record (id, entity_type, entity_id, action, actor, "
+             "after_snapshot) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
+             pqxx::params{id, entity_type, entity_id, action, kActor, after});
 }
 
-// Templated (not `const pqxx::row&`) because libpqxx 8.x's `pqxx::result::operator[]`/`front()`
-// return the lightweight `pqxx::row_ref` view type, while `result::one_row()` returns an owning
-// `pqxx::row` -- both support the same named-field `operator[]` access used below, so one
-// template serves both call sites (same real, verified fix bss/product-catalog's own store.cpp
-// already needed, ADR-0054).
-template <typename Row> bss_sid::Bucket row_to_bucket(const Row& row) {
-    bss_sid::Bucket v;
-    v.id = row["id"].template as<std::optional<std::string>>();
-    v.href = row["href"].template as<std::optional<std::string>>();
-    v.confirmationDate = row["confirmation_date"].template as<std::optional<std::string>>();
-    v.description = row["description"].template as<std::optional<std::string>>();
-    v.isShared = row["is_shared"].template as<std::optional<bool>>();
-    v.name = row["name"].template as<std::optional<std::string>>();
-    v.remainingValueName = row["remaining_value_name"].template as<std::optional<std::string>>();
-    v.requestedDate = row["requested_date"].template as<std::optional<std::string>>();
+std::string next_id(pqxx::work& txn, const char* seq) {
+    return txn.exec(std::string("SELECT nextval('balance_mgmt.") + seq + "')::text AS id")
+        .one_row()["id"]
+        .as<std::string>();
+}
 
-    if (const auto id = row["party_account_id"].template as<std::optional<std::string>>();
-        id.has_value()) {
-        bss_sid::PartyAccountRef ref{};
-        ref.id = *id;
-        ref.name = row["party_account_name"].template as<std::optional<std::string>>();
-        v.partyAccount = ref;
+// ---- Bucket reads (set-based: one query per table, whether one bucket or all) -------------------
+
+const std::string kBucketCols =
+    "b.id, b.href, b.name, b.description, b.is_shared, b.remaining_value_name, " +
+    ts("b.confirmation_date") + " AS confirmation_date, " + ts("b.requested_date") +
+    " AS requested_date, b.party_account_id, b.party_account_name, b.party_account_href, "
+    "b.party_account_description, b.party_account_status, b.remaining_value_unit, "
+    "b.remaining_value_amount::float8 AS remaining_value_amount, b.reserved_value_unit, "
+    "b.reserved_value_amount::float8 AS reserved_value_amount, b.status, b.usage_type, " +
+    ts("b.valid_for_start") + " AS vf_start, " + ts("b.valid_for_end") + " AS vf_end";
+
+std::vector<bss_sid::Bucket>
+load_buckets(pqxx::work& txn, const std::string& where_sql, const pqxx::params& params) {
+    std::vector<bss_sid::Bucket> out;
+    std::map<std::string, std::size_t> idx;
+    for (auto r :
+         txn.exec("SELECT " + kBucketCols + " FROM balance_mgmt.bucket b " + where_sql, params)) {
+        bss_sid::Bucket b;
+        b.id = s(r, "id");
+        b.href = s(r, "href");
+        b.name = s(r, "name");
+        b.description = s(r, "description");
+        b.isShared = r["is_shared"].as<std::optional<bool>>();
+        b.remainingValueName = s(r, "remaining_value_name");
+        b.confirmationDate = s(r, "confirmation_date");
+        b.requestedDate = s(r, "requested_date");
+        if (auto acc = s(r, "party_account_id"); acc.has_value()) {
+            b.partyAccount = bss_sid::PartyAccountRef{*acc,
+                                                      s(r, "party_account_href"),
+                                                      s(r, "party_account_description"),
+                                                      s(r, "party_account_name"),
+                                                      s(r, "party_account_status")};
+        }
+        b.remainingValue =
+            bss_sid::Money{s(r, "remaining_value_unit"), r["remaining_value_amount"].as<double>()};
+        b.reservedValue =
+            bss_sid::Money{s(r, "reserved_value_unit"), r["reserved_value_amount"].as<double>()};
+        b.status = s(r, "status");
+        b.usageType = s(r, "usage_type");
+        b.validFor = vf_out(r);
+        idx[*b.id] = out.size();
+        out.push_back(std::move(b));
     }
-    v.product = parse_array<bss_sid::ProductRef>(row["product"].template as<std::string>());
-    v.logicalResource = parse_array<bss_sid::LogicalResourceRef>(
-        row["logical_resource"].template as<std::string>());
-    v.relatedParty =
-        parse_array<bss_sid::RelatedParty>(row["related_party"].template as<std::string>());
+    if (out.empty()) {
+        return out;
+    }
+    // Children of exactly the buckets loaded above: the parent's own filter, as a subquery.
+    const std::string in_parents =
+        " WHERE bucket_id IN (SELECT b.id FROM balance_mgmt.bucket b " + where_sql + ")";
+    for (auto r : txn.exec(
+             "SELECT bucket_id, resource_id, href, name FROM balance_mgmt.bucket_logical_resource" +
+                 in_parents + " ORDER BY bucket_id, ordinal",
+             params)) {
+        out[idx.at(r["bucket_id"].as<std::string>())].logicalResource.push_back(
+            {r["resource_id"].as<std::string>(), s(r, "href"), s(r, "name")});
+    }
+    for (auto r :
+         txn.exec("SELECT bucket_id, product_id, href, name FROM balance_mgmt.bucket_product" +
+                      in_parents + " ORDER BY bucket_id, ordinal",
+                  params)) {
+        out[idx.at(r["bucket_id"].as<std::string>())].product.push_back(
+            {r["product_id"].as<std::string>(), s(r, "href"), s(r, "name")});
+    }
+    for (auto r : txn.exec(
+             "SELECT bucket_id, party_id, href, name, role FROM balance_mgmt.bucket_related_party" +
+                 in_parents + " ORDER BY bucket_id, ordinal, id",
+             params)) {
+        out[idx.at(r["bucket_id"].as<std::string>())].relatedParty.push_back(
+            {r["party_id"].as<std::string>(), s(r, "href"), s(r, "name"), s(r, "role")});
+    }
+    return out;
+}
 
-    bss_sid::Money remaining{};
-    remaining.unit = row["remaining_value_unit"].template as<std::optional<std::string>>();
-    remaining.value = row["remaining_value"].template as<double>();
-    v.remainingValue = remaining;
+// Columns every balance event row shares, for the three get_* reads.
+const std::string kEventCols = "id, href, description, bucket_id, party_account::text AS "
+                               "party_account, amount_value::float8 AS amount_value, "
+                               "amount_units, channel::text AS channel, logical_resource::text AS "
+                               "logical_resource, product::text AS product, related_party::text AS "
+                               "related_party, requestor::text AS requestor, status, usage_type, " +
+                               ts("confirmation_date") + " AS confirmation_date, " +
+                               ts("requested_date") + " AS requested_date, " +
+                               ts("valid_for_start") + " AS vf_start, " + ts("valid_for_end") +
+                               " AS vf_end";
 
-    bss_sid::Money reserved{};
-    reserved.unit = row["reserved_value_unit"].template as<std::optional<std::string>>();
-    reserved.value = row["reserved_value"].template as<double>();
-    v.reservedValue = reserved;
-
-    v.status = row["status"].template as<std::optional<std::string>>();
-    v.usageType = row["usage_type"].template as<std::optional<std::string>>();
-    return v;
+template <typename Event, typename Row> void fill_event_common(Event& v, const Row& r) {
+    v.id = s(r, "id");
+    v.href = s(r, "href");
+    v.description = s(r, "description");
+    v.confirmationDate = s(r, "confirmation_date");
+    v.requestedDate = s(r, "requested_date");
+    v.amount = amount_out(r);
+    v.bucket = bucket_ref_out(r);
+    v.channel = j_opt_out<bss_sid::ChannelRef>(r, "channel");
+    v.logicalResource = j_arr_out<bss_sid::LogicalResourceRef>(r, "logical_resource");
+    v.partyAccount = j_opt_out<bss_sid::PartyAccountRef>(r, "party_account");
+    v.product = j_arr_out<bss_sid::ProductRef>(r, "product");
+    v.relatedParty = j_arr_out<bss_sid::RelatedParty>(r, "related_party");
+    v.requestor = j_opt_out<bss_sid::RelatedParty>(r, "requestor");
+    v.status = s(r, "status");
+    v.usageType = s(r, "usage_type");
+    v.validFor = vf_out(r);
 }
 
 } // namespace
 
-BalanceStore::BalanceStore(std::string resource_base_url, const std::string& conninfo, std::size_t pool_size)
+BalanceStore::BalanceStore(std::string resource_base_url,
+                           const std::string& conninfo,
+                           std::size_t pool_size)
     : resource_base_url_(std::move(resource_base_url)), pool_(conninfo, pool_size) {}
 
 std::optional<bss_sid::Bucket> BalanceStore::get_bucket(const std::string& id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT * FROM bucket WHERE id = $1", pqxx::params{id});
-    if (result.empty()) {
+    auto all = load_buckets(txn, "WHERE b.id = $1", pqxx::params{id});
+    if (all.empty()) {
         return std::nullopt;
     }
-    return row_to_bucket(result.front());
+    return std::move(all.front());
 }
 
 std::vector<bss_sid::Bucket> BalanceStore::list_buckets() {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT * FROM bucket ORDER BY id");
-    std::vector<bss_sid::Bucket> out;
-    out.reserve(static_cast<std::size_t>(result.size()));
-    for (const auto& row : result) {
-        out.push_back(row_to_bucket(row));
-    }
-    return out;
+    return load_buckets(txn, "ORDER BY b.id", pqxx::params{});
 }
 
+// ADR-0307: the shared (family) bucket a party draws from, if any. Indexed on
+// bucket_related_party.party_id (41-balance-lossless.sql): the CHF asks this before every reserve.
 std::optional<bss_sid::Bucket> BalanceStore::find_shared_bucket_for(const std::string& party_id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    // Matched in SQL on the real JSONB `related_party` array rather than by scanning every bucket
-    // in C++: a subscriber's charging path runs this on every reservation, and a full table scan
-    // per request would be a real cost on a real subscriber base.
-    //
-    // `status` is checked here, not by the caller: an expired or suspended shared bucket must not
-    // silently absorb a family's usage, and pushing that check to every call site is how one of
-    // them eventually forgets.
-    const auto result =
-        txn.exec("SELECT * FROM bucket WHERE is_shared = TRUE "
-                 "AND related_party @> $1::jsonb "
-                 "AND (status IS NULL OR status = 'active') "
-                 "ORDER BY id LIMIT 1",
-                 pqxx::params{nlohmann::json::array({nlohmann::json{{"id", party_id}}}).dump()});
-    if (result.empty()) {
+    auto all = load_buckets(
+        txn,
+        "WHERE b.is_shared AND (b.status IS NULL OR b.status = 'active') AND EXISTS (SELECT 1 FROM "
+        "balance_mgmt.bucket_related_party rp WHERE rp.bucket_id = b.id AND rp.party_id = $1) "
+        "ORDER BY b.id LIMIT 1",
+        pqxx::params{party_id});
+    if (all.empty()) {
         return std::nullopt;
     }
-    return row_to_bucket(result[0]);
+    return std::move(all.front());
 }
 
 bss_sid::AccumulatedBalance
 BalanceStore::get_accumulated_balance(const std::string& party_account_id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT id, remaining_value_unit, remaining_value FROM bucket "
-                                 "WHERE party_account_id = $1 ORDER BY id",
-                                 pqxx::params{party_account_id});
+    const auto result =
+        txn.exec("SELECT id, remaining_value_unit, remaining_value_amount::float8 "
+                 "AS remaining FROM balance_mgmt.bucket WHERE party_account_id = $1 "
+                 "ORDER BY id",
+                 pqxx::params{party_account_id});
 
     bss_sid::AccumulatedBalance accumulated{};
     bss_sid::PartyAccountRef account_ref{};
@@ -201,24 +298,16 @@ BalanceStore::get_accumulated_balance(const std::string& party_account_id) {
         bss_sid::BucketRef ref{};
         ref.id = row["id"].as<std::string>();
         accumulated.bucket.push_back(ref);
-
         const auto row_unit = row["remaining_value_unit"].as<std::optional<std::string>>();
         if (!unit.has_value()) {
             unit = row_unit;
         } else if (row_unit != unit) {
             mixed_units = true;
         }
-        total += row["remaining_value"].as<double>();
+        total += row["remaining"].as<double>();
     }
-
-    bss_sid::Money total_balance{};
-    total_balance.unit = unit;
-    total_balance.value = total;
-    accumulated.totalBalance = total_balance;
+    accumulated.totalBalance = bss_sid::Money{unit, total};
     if (mixed_units) {
-        // Disclosed simplification (see store.hpp's own comment): a real multi-currency/
-        // multi-unit aggregation isn't implemented -- flagged in the response itself rather than
-        // silently returning a number that mixes incompatible units.
         accumulated.description =
             "WARNING: this party account's buckets use mixed units/currencies; totalBalance is a "
             "naive sum and not meaningful -- real multi-currency conversion is not implemented.";
@@ -232,70 +321,82 @@ MutationResult<bss_sid::TopupBalance> BalanceStore::topup(bss_sid::TopupBalance 
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
-    const std::optional<std::string> amount_units = amount_units_of(request.amount);
+    const auto units = amount_units_of(request.amount);
+    const auto& acc = request.partyAccount;
 
-    auto upd = txn.exec("UPDATE bucket SET remaining_value = remaining_value + $1, updated_at = "
-                        "now() WHERE id = $2",
-                        pqxx::params{amount, bucket_id});
-
-    if (upd.affected_rows() == 0) {
-        // Real, disclosed interpretation (see store.hpp): a topup referencing a not-yet-existing
-        // bucket creates it, since the real TMF654 API has no POST /bucket at all.
-        txn.exec("INSERT INTO bucket (id, href, party_account_id, party_account_name, product, "
-                 "remaining_value_unit, remaining_value, usage_type, status) "
-                 "VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,'active')",
+    // One atomic statement: credit an existing bucket, or create it (TMF654 has no POST /bucket;
+    // a top-up of an unknown bucket is the creation path -- store.hpp). xmax = 0 marks the insert.
+    const bool created =
+        txn.exec("INSERT INTO balance_mgmt.bucket (id, href, party_account_id, party_account_name, "
+                 "party_account_href, party_account_description, party_account_status, "
+                 "remaining_value_unit, remaining_value_amount, usage_type, status) VALUES "
+                 "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active') ON CONFLICT (id) DO UPDATE SET "
+                 "remaining_value_amount = balance_mgmt.bucket.remaining_value_amount + "
+                 "EXCLUDED.remaining_value_amount, updated_at = now() RETURNING (xmax = 0) AS ins",
                  pqxx::params{bucket_id,
                               resource_base_url_ + "/bucket/" + bucket_id,
-                              party_account_id_of(request.partyAccount),
-                              party_account_name_of(request.partyAccount),
-                              dump_array(request.product),
-                              amount_units,
+                              account_id(acc),
+                              acc ? acc->name : std::nullopt,
+                              acc ? acc->href : std::nullopt,
+                              acc ? acc->description : std::nullopt,
+                              acc ? acc->status : std::nullopt,
+                              units,
                               amount,
-                              request.usageType.value_or("monetary")});
+                              request.usageType.value_or("monetary")})
+            .one_row()["ins"]
+            .as<bool>();
+    if (created) {
+        for (std::size_t i = 0; i < request.product.size(); ++i) {
+            const auto& p = request.product[i];
+            txn.exec("INSERT INTO balance_mgmt.bucket_product (bucket_id, product_id, href, name, "
+                     "ordinal) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+                     pqxx::params{bucket_id, p.id, p.href, p.name, static_cast<int>(i)});
+        }
     }
 
-    const auto topup_id = txn.exec("SELECT nextval('topup_balance_id_seq')::text AS id")
-                              .one_row()["id"]
-                              .as<std::string>();
+    const auto topup_id = next_id(txn, "topup_balance_id_seq");
     request.id = topup_id;
     request.href = resource_base_url_ + "/topupBalance/" + topup_id;
     request.status = "completed";
-
-    txn.exec(
-        "INSERT INTO topup_balance (id, href, confirmation_date, description, is_auto_topup, "
-        "number_of_periods, reason, requested_date, voucher, bucket_id, amount, amount_units, "
-        "balance_topup, channel, logical_resource, party_account_id, payment_method, product, "
-        "recurring_period, related_party, requestor, status, usage_type, valid_from, valid_to) "
-        "VALUES "
-        "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17::jsonb,"
-        "$18::jsonb,$19,$20::jsonb,$21::jsonb,$22,$23,$24,$25)",
-        pqxx::params{topup_id,
-                     *request.href,
-                     request.confirmationDate,
-                     request.description,
-                     request.isAutoTopup,
-                     request.numberOfPeriods,
-                     request.reason,
-                     request.requestedDate,
-                     request.voucher,
-                     bucket_id,
-                     amount,
-                     amount_units,
-                     dump_optional(request.balanceTopup),
-                     dump_optional(request.channel),
-                     dump_array(request.logicalResource),
-                     party_account_id_of(request.partyAccount),
-                     dump_optional(request.paymentMethod),
-                     dump_array(request.product),
-                     request.recurringPeriod,
-                     dump_array(request.relatedParty),
-                     dump_optional(request.requestor),
-                     *request.status,
-                     request.usageType,
-                     valid_from_of(request.validFor),
-                     valid_to_of(request.validFor)});
-
-    write_audit_record(txn, "TOPUP_BALANCE", topup_id, "balance.topup", json(request).dump());
+    txn.exec("INSERT INTO balance_mgmt.topup_balance (id, href, description, bucket_id, "
+             "party_account_id, party_account, is_auto_topup, number_of_periods, reason, voucher, "
+             "amount_value, amount_units, channel_id, channel, payment_method_id, payment_method, "
+             "balance_topup, logical_resource, product, related_party, requestor, "
+             "recurring_period, status, usage_type, confirmation_date, requested_date, "
+             "valid_for_start, valid_for_end) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,"
+             "$12,$13,$14::jsonb,$15,$16::jsonb,$17::jsonb,$18::jsonb,$19::jsonb,$20::jsonb,"
+             "$21::jsonb,$22,$23,$24,$25::timestamptz,$26::timestamptz,$27::timestamptz,"
+             "$28::timestamptz)",
+             pqxx::params{topup_id,
+                          request.href,
+                          request.description,
+                          bucket_id,
+                          account_id(acc),
+                          j_opt(acc),
+                          request.isAutoTopup,
+                          request.numberOfPeriods,
+                          request.reason,
+                          request.voucher,
+                          amount,
+                          units,
+                          request.channel ? std::optional(request.channel->id) : std::nullopt,
+                          j_opt(request.channel),
+                          request.paymentMethod ? std::optional(request.paymentMethod->id)
+                                                : std::nullopt,
+                          j_opt(request.paymentMethod),
+                          j_opt(request.balanceTopup),
+                          j_arr(request.logicalResource),
+                          j_arr(request.product),
+                          j_arr(request.relatedParty),
+                          j_opt(request.requestor),
+                          request.recurringPeriod,
+                          request.status,
+                          request.usageType,
+                          ts_in(request.confirmationDate, "confirmationDate"),
+                          ts_in(request.requestedDate, "requestedDate"),
+                          vf_start(request.validFor),
+                          vf_end(request.validFor)});
+    write_audit(txn, "TOPUP_BALANCE", topup_id, "balance.topup", json(request).dump());
     txn.commit();
     return {request, true};
 }
@@ -303,44 +404,25 @@ MutationResult<bss_sid::TopupBalance> BalanceStore::topup(bss_sid::TopupBalance 
 std::optional<bss_sid::TopupBalance> BalanceStore::get_topup(const std::string& id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT * FROM topup_balance WHERE id = $1", pqxx::params{id});
+    const auto result = txn.exec("SELECT " + kEventCols +
+                                     ", is_auto_topup, number_of_periods, reason, voucher, "
+                                     "payment_method::text AS payment_method, balance_topup::text "
+                                     "AS balance_topup, recurring_period FROM "
+                                     "balance_mgmt.topup_balance WHERE id = $1",
+                                 pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
     }
-    const auto& row = result.front();
+    const auto r = result.front();
     bss_sid::TopupBalance v{};
-    v.id = row["id"].as<std::optional<std::string>>();
-    v.href = row["href"].as<std::optional<std::string>>();
-    v.description = row["description"].as<std::optional<std::string>>();
-    v.isAutoTopup = row["is_auto_topup"].as<std::optional<bool>>();
-    v.numberOfPeriods = row["number_of_periods"].as<std::optional<int>>();
-    v.reason = row["reason"].as<std::optional<std::string>>();
-    v.requestedDate = row["requested_date"].as<std::optional<std::string>>();
-    v.voucher = row["voucher"].as<std::optional<std::string>>();
-    bss_sid::BucketRef bucket_ref{};
-    bucket_ref.id = row["bucket_id"].as<std::string>();
-    v.bucket = bucket_ref;
-    bss_sid::Quantity amount{};
-    amount.amount = row["amount"].as<double>();
-    amount.units = row["amount_units"].as<std::optional<std::string>>();
-    v.amount = amount;
-    v.balanceTopup = parse_optional<bss_sid::RelatedTopupBalance>(
-        row["balance_topup"].as<std::optional<std::string>>());
-    v.channel =
-        parse_optional<bss_sid::ChannelRef>(row["channel"].as<std::optional<std::string>>());
-    v.logicalResource =
-        parse_array<bss_sid::LogicalResourceRef>(row["logical_resource"].as<std::string>());
-    v.paymentMethod = parse_optional<bss_sid::PaymentMethodRef>(
-        row["payment_method"].as<std::optional<std::string>>());
-    v.product = parse_array<bss_sid::ProductRef>(row["product"].as<std::string>());
-    v.recurringPeriod = row["recurring_period"].as<std::optional<std::string>>();
-    v.relatedParty = parse_array<bss_sid::RelatedParty>(row["related_party"].as<std::string>());
-    v.requestor =
-        parse_optional<bss_sid::RelatedParty>(row["requestor"].as<std::optional<std::string>>());
-    v.status = row["status"].as<std::optional<std::string>>();
-    v.usageType = row["usage_type"].as<std::optional<std::string>>();
-    v.validFor = time_period_from(row["valid_from"].as<std::optional<std::string>>(),
-                                  row["valid_to"].as<std::optional<std::string>>());
+    fill_event_common(v, r);
+    v.isAutoTopup = r["is_auto_topup"].as<std::optional<bool>>();
+    v.numberOfPeriods = r["number_of_periods"].as<std::optional<int>>();
+    v.reason = s(r, "reason");
+    v.voucher = s(r, "voucher");
+    v.paymentMethod = j_opt_out<bss_sid::PaymentMethodRef>(r, "payment_method");
+    v.balanceTopup = j_opt_out<bss_sid::RelatedTopupBalance>(r, "balance_topup");
+    v.recurringPeriod = s(r, "recurring_period");
     return v;
 }
 
@@ -350,55 +432,48 @@ MutationResult<bss_sid::AdjustBalance> BalanceStore::adjust(bss_sid::AdjustBalan
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
-    const std::optional<std::string> amount_units = amount_units_of(request.amount);
+    const auto units = amount_units_of(request.amount);
 
-    // Real atomic compare-and-set: the WHERE clause enforces the balance floor in the SAME
-    // statement as the mutation, under PostgreSQL's own row-level lock -- no separate read-then-
-    // write race is possible between concurrent callers. This is the real strong-consistency
-    // mechanism CHARGING_PROMPT.md's P4.3 asks to be proven under concurrent debit tests.
-    auto upd =
-        txn.exec("UPDATE bucket SET remaining_value = remaining_value + $1, updated_at = now() "
-                 "WHERE id = $2 AND remaining_value + $1 >= 0",
-                 pqxx::params{amount, bucket_id});
+    // Signed adjustment, never below zero -- one conditional UPDATE (row lock = concurrency
+    // safety).
+    const bool succeeded =
+        txn.exec("UPDATE balance_mgmt.bucket SET remaining_value_amount = remaining_value_amount + "
+                 "$1, updated_at = now() WHERE id = $2 AND remaining_value_amount + $1 >= 0",
+                 pqxx::params{amount, bucket_id})
+            .affected_rows() > 0;
 
-    const bool succeeded = upd.affected_rows() > 0;
-
-    const auto adjust_id = txn.exec("SELECT nextval('adjust_balance_id_seq')::text AS id")
-                               .one_row()["id"]
-                               .as<std::string>();
+    const auto adjust_id = next_id(txn, "adjust_balance_id_seq");
     request.id = adjust_id;
     request.href = resource_base_url_ + "/adjustBalance/" + adjust_id;
     request.status = succeeded ? "completed" : "failed";
-
-    txn.exec("INSERT INTO adjust_balance (id, href, confirmation_date, description, reason, "
-             "requested_date, adjust_type, bucket_id, amount, amount_units, channel, "
-             "logical_resource, party_account_id, product, related_party, requestor, status, "
-             "usage_type, valid_from, valid_to) "
-             "VALUES "
-             "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14::jsonb,$15::jsonb,"
-             "$16::jsonb,$17,$18,$19,$20)",
+    txn.exec("INSERT INTO balance_mgmt.adjust_balance (id, href, description, bucket_id, "
+             "party_account_id, party_account, reason, adjust_type, amount_value, amount_units, "
+             "channel, logical_resource, product, related_party, requestor, status, usage_type, "
+             "confirmation_date, requested_date, valid_for_start, valid_for_end) VALUES ($1,$2,$3,"
+             "$4,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,"
+             "$16,$17,$18::timestamptz,$19::timestamptz,$20::timestamptz,$21::timestamptz)",
              pqxx::params{adjust_id,
-                          *request.href,
-                          request.confirmationDate,
+                          request.href,
                           request.description,
-                          request.reason,
-                          request.requestedDate,
-                          request.adjustType,
                           bucket_id,
+                          account_id(request.partyAccount),
+                          j_opt(request.partyAccount),
+                          request.reason,
+                          request.adjustType,
                           amount,
-                          amount_units,
-                          dump_optional(request.channel),
-                          dump_array(request.logicalResource),
-                          party_account_id_of(request.partyAccount),
-                          dump_array(request.product),
-                          dump_array(request.relatedParty),
-                          dump_optional(request.requestor),
-                          *request.status,
+                          units,
+                          j_opt(request.channel),
+                          j_arr(request.logicalResource),
+                          j_arr(request.product),
+                          j_arr(request.relatedParty),
+                          j_opt(request.requestor),
+                          request.status,
                           request.usageType,
-                          valid_from_of(request.validFor),
-                          valid_to_of(request.validFor)});
-
-    write_audit_record(txn, "ADJUST_BALANCE", adjust_id, "balance.adjust", json(request).dump());
+                          ts_in(request.confirmationDate, "confirmationDate"),
+                          ts_in(request.requestedDate, "requestedDate"),
+                          vf_start(request.validFor),
+                          vf_end(request.validFor)});
+    write_audit(txn, "ADJUST_BALANCE", adjust_id, "balance.adjust", json(request).dump());
     txn.commit();
     return {request, succeeded};
 }
@@ -406,36 +481,18 @@ MutationResult<bss_sid::AdjustBalance> BalanceStore::adjust(bss_sid::AdjustBalan
 std::optional<bss_sid::AdjustBalance> BalanceStore::get_adjust(const std::string& id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT * FROM adjust_balance WHERE id = $1", pqxx::params{id});
+    const auto result = txn.exec("SELECT " + kEventCols +
+                                     ", reason, adjust_type FROM balance_mgmt.adjust_balance "
+                                     "WHERE id = $1",
+                                 pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
     }
-    const auto& row = result.front();
+    const auto r = result.front();
     bss_sid::AdjustBalance v{};
-    v.id = row["id"].as<std::optional<std::string>>();
-    v.href = row["href"].as<std::optional<std::string>>();
-    v.description = row["description"].as<std::optional<std::string>>();
-    v.reason = row["reason"].as<std::optional<std::string>>();
-    v.adjustType = row["adjust_type"].as<std::optional<std::string>>();
-    bss_sid::BucketRef bucket_ref{};
-    bucket_ref.id = row["bucket_id"].as<std::string>();
-    v.bucket = bucket_ref;
-    bss_sid::Quantity amount{};
-    amount.amount = row["amount"].as<double>();
-    amount.units = row["amount_units"].as<std::optional<std::string>>();
-    v.amount = amount;
-    v.channel =
-        parse_optional<bss_sid::ChannelRef>(row["channel"].as<std::optional<std::string>>());
-    v.logicalResource =
-        parse_array<bss_sid::LogicalResourceRef>(row["logical_resource"].as<std::string>());
-    v.product = parse_array<bss_sid::ProductRef>(row["product"].as<std::string>());
-    v.relatedParty = parse_array<bss_sid::RelatedParty>(row["related_party"].as<std::string>());
-    v.requestor =
-        parse_optional<bss_sid::RelatedParty>(row["requestor"].as<std::optional<std::string>>());
-    v.status = row["status"].as<std::optional<std::string>>();
-    v.usageType = row["usage_type"].as<std::optional<std::string>>();
-    v.validFor = time_period_from(row["valid_from"].as<std::optional<std::string>>(),
-                                  row["valid_to"].as<std::optional<std::string>>());
+    fill_event_common(v, r);
+    v.reason = s(r, "reason");
+    v.adjustType = s(r, "adjust_type");
     return v;
 }
 
@@ -445,64 +502,57 @@ MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBa
 
     const std::string bucket_id = request.bucket->id;
     const double amount = amount_value_of(request.amount);
-    const std::optional<std::string> amount_units = amount_units_of(request.amount);
+    const auto units = amount_units_of(request.amount);
 
     pqxx::result upd;
     if (amount >= 0) {
-        // Reserve: move remainingValue -> reservedValue, atomically, only if enough remains.
-        upd = txn.exec("UPDATE bucket SET remaining_value = remaining_value - $1, "
-                       "reserved_value = reserved_value + $1, updated_at = now() "
-                       "WHERE id = $2 AND remaining_value >= $1",
+        // Reserve: remaining -> reserved, atomically, only if enough remains.
+        upd = txn.exec("UPDATE balance_mgmt.bucket SET remaining_value_amount = "
+                       "remaining_value_amount - $1, reserved_value_amount = reserved_value_amount "
+                       "+ $1, updated_at = now() WHERE id = $2 AND remaining_value_amount >= $1",
                        pqxx::params{amount, bucket_id});
     } else {
-        // Unreserve/refund (negative amount, this project's disclosed sign convention -- see
-        // store.hpp): move |amount| back from reservedValue -> remainingValue, atomically, only
-        // if that much is actually reserved.
+        // Unreserve/refund (negative amount, the disclosed sign convention in store.hpp): reserved
+        // -> remaining, atomically, only if that much is actually reserved.
         const double refund = -amount;
-        upd = txn.exec("UPDATE bucket SET remaining_value = remaining_value + $1, "
-                       "reserved_value = reserved_value - $1, updated_at = now() "
-                       "WHERE id = $2 AND reserved_value >= $1",
+        upd = txn.exec("UPDATE balance_mgmt.bucket SET remaining_value_amount = "
+                       "remaining_value_amount + $1, reserved_value_amount = reserved_value_amount "
+                       "- $1, updated_at = now() WHERE id = $2 AND reserved_value_amount >= $1",
                        pqxx::params{refund, bucket_id});
     }
-
     const bool succeeded = upd.affected_rows() > 0;
 
-    const auto reserve_id = txn.exec("SELECT nextval('reserve_balance_id_seq')::text AS id")
-                                .one_row()["id"]
-                                .as<std::string>();
+    const auto reserve_id = next_id(txn, "reserve_balance_id_seq");
     request.id = reserve_id;
     request.href = resource_base_url_ + "/reserveBalance/" + reserve_id;
     request.status = succeeded ? "completed" : "failed";
-
-    txn.exec(
-        "INSERT INTO reserve_balance (id, href, confirmation_date, description, reason, "
-        "requested_date, bucket_id, amount, amount_units, channel, logical_resource, "
-        "party_account_id, product, related_party, requestor, status, usage_type, valid_from, "
-        "valid_to) "
-        "VALUES "
-        "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13::jsonb,$14::jsonb,$15::jsonb,"
-        "$16,$17,$18,$19)",
-        pqxx::params{reserve_id,
-                     *request.href,
-                     request.confirmationDate,
-                     request.description,
-                     request.reason,
-                     request.requestedDate,
-                     bucket_id,
-                     amount,
-                     amount_units,
-                     dump_optional(request.channel),
-                     dump_array(request.logicalResource),
-                     party_account_id_of(request.partyAccount),
-                     dump_array(request.product),
-                     dump_array(request.relatedParty),
-                     dump_optional(request.requestor),
-                     *request.status,
-                     request.usageType,
-                     valid_from_of(request.validFor),
-                     valid_to_of(request.validFor)});
-
-    write_audit_record(txn, "RESERVE_BALANCE", reserve_id, "balance.reserve", json(request).dump());
+    txn.exec("INSERT INTO balance_mgmt.reserve_balance (id, href, description, bucket_id, "
+             "party_account_id, party_account, reason, amount_value, amount_units, channel, "
+             "logical_resource, product, related_party, requestor, status, usage_type, "
+             "confirmation_date, requested_date, valid_for_start, valid_for_end) VALUES ($1,$2,$3,"
+             "$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15,"
+             "$16,$17::timestamptz,$18::timestamptz,$19::timestamptz,$20::timestamptz)",
+             pqxx::params{reserve_id,
+                          request.href,
+                          request.description,
+                          bucket_id,
+                          account_id(request.partyAccount),
+                          j_opt(request.partyAccount),
+                          request.reason,
+                          amount,
+                          units,
+                          j_opt(request.channel),
+                          j_arr(request.logicalResource),
+                          j_arr(request.product),
+                          j_arr(request.relatedParty),
+                          j_opt(request.requestor),
+                          request.status,
+                          request.usageType,
+                          ts_in(request.confirmationDate, "confirmationDate"),
+                          ts_in(request.requestedDate, "requestedDate"),
+                          vf_start(request.validFor),
+                          vf_end(request.validFor)});
+    write_audit(txn, "RESERVE_BALANCE", reserve_id, "balance.reserve", json(request).dump());
     txn.commit();
     return {request, succeeded};
 }
@@ -510,35 +560,16 @@ MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBa
 std::optional<bss_sid::ReserveBalance> BalanceStore::get_reserve(const std::string& id) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec("SELECT * FROM reserve_balance WHERE id = $1", pqxx::params{id});
+    const auto result = txn.exec("SELECT " + kEventCols +
+                                     ", reason FROM balance_mgmt.reserve_balance WHERE id = $1",
+                                 pqxx::params{id});
     if (result.empty()) {
         return std::nullopt;
     }
-    const auto& row = result.front();
+    const auto r = result.front();
     bss_sid::ReserveBalance v{};
-    v.id = row["id"].as<std::optional<std::string>>();
-    v.href = row["href"].as<std::optional<std::string>>();
-    v.description = row["description"].as<std::optional<std::string>>();
-    v.reason = row["reason"].as<std::optional<std::string>>();
-    bss_sid::BucketRef bucket_ref{};
-    bucket_ref.id = row["bucket_id"].as<std::string>();
-    v.bucket = bucket_ref;
-    bss_sid::Quantity amount{};
-    amount.amount = row["amount"].as<double>();
-    amount.units = row["amount_units"].as<std::optional<std::string>>();
-    v.amount = amount;
-    v.channel =
-        parse_optional<bss_sid::ChannelRef>(row["channel"].as<std::optional<std::string>>());
-    v.logicalResource =
-        parse_array<bss_sid::LogicalResourceRef>(row["logical_resource"].as<std::string>());
-    v.product = parse_array<bss_sid::ProductRef>(row["product"].as<std::string>());
-    v.relatedParty = parse_array<bss_sid::RelatedParty>(row["related_party"].as<std::string>());
-    v.requestor =
-        parse_optional<bss_sid::RelatedParty>(row["requestor"].as<std::optional<std::string>>());
-    v.status = row["status"].as<std::optional<std::string>>();
-    v.usageType = row["usage_type"].as<std::optional<std::string>>();
-    v.validFor = time_period_from(row["valid_from"].as<std::optional<std::string>>(),
-                                  row["valid_to"].as<std::optional<std::string>>());
+    fill_event_common(v, r);
+    v.reason = s(r, "reason");
     return v;
 }
 

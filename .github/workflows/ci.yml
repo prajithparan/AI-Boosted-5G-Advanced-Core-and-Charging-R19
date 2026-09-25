@@ -437,7 +437,9 @@ jobs:
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
+          TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
@@ -892,7 +894,9 @@ jobs:
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
+          TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
