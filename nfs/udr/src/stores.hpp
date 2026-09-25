@@ -179,6 +179,9 @@ class AuthenticationSubscriptionDataStore {
 public:
     explicit AuthenticationSubscriptionDataStore(const std::string& conninfo);
 
+    // Startup seed (upsert) for the fixed test subscribers (ADR-0383).
+    void seed(const std::string& ue_id, const nlohmann::json& data);
+
     std::optional<nlohmann::json> get(const std::string& ue_id);
     nlohmann::json apply_patch(const std::string& ue_id, const nlohmann::json& patch_ops);
 

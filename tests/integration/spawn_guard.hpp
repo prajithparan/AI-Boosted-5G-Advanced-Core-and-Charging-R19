@@ -32,10 +32,15 @@
 // that is task #166's RAII-cleanup territory and is deliberately left open here. NFs started
 // manually outside ctest are likewise unaffected.
 
+#include <arpa/inet.h>
+#include <chrono>
 #include <csignal>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 
 namespace nf_test {
@@ -139,5 +144,28 @@ private:
 
     pid_t pid_ = -1;
 };
+
+// True once something accepts TCP connections on 127.0.0.1:port. For NFs that only bind after
+// startup work completes -- e.g. the UDR binds after seeding the AKA test subscribers the UDM
+// reads (ADR-0383) -- this is a readiness check without needing an SBI client.
+inline bool wait_tcp_listening(unsigned short port, int max_attempts = 100) {
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(port);
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            const bool ok =
+                ::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0;
+            ::close(fd);
+            if (ok) {
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
 
 } // namespace nf_test

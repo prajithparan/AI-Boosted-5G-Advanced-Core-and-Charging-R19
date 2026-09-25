@@ -307,62 +307,6 @@ SharedDataSubscriptionStore::merge_patch(const std::string& subscription_id,
     return std::make_optional(it->second);
 }
 
-void AuthenticationSubscriptionStore::seed(const std::string& supi,
-                                           AuthenticationSubscription sub) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    subs_[supi] = std::move(sub);
-}
-
-std::optional<AuthenticationSubscription>
-AuthenticationSubscriptionStore::get_and_advance_sqn(const std::string& supi) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = subs_.find(supi);
-    if (it == subs_.end()) {
-        return std::nullopt;
-    }
-    const AuthenticationSubscription current = it->second;
-    for (size_t i = it->second.sqn.size(); i-- > 0;) {
-        if (++it->second.sqn[i] != 0) {
-            break;
-        }
-    }
-    return current;
-}
-
-std::optional<bool> AuthenticationSubscriptionStore::resync_sqn(const std::string& supi,
-                                                                const aka_crypto::Key128& rand,
-                                                                const aka_crypto::Auts& auts) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = subs_.find(supi);
-    if (it == subs_.end()) {
-        return std::nullopt;
-    }
-    const auto sqn_ms =
-        aka_crypto::verify_and_decode_auts(it->second.opc, it->second.k, rand, auts);
-    if (!sqn_ms.has_value()) {
-        return false;
-    }
-    // The UE's real SQN_MS decoded from AUTS, + 2^16 (NOT a plain +1): real USIMs commonly track
-    // SQN freshness with an array-based scheme (TS 33.102 Annex C.3) where SQN's own low bits are
-    // an IND array index and only the upper bits (SEQ) are freshness-checked per lane -- a naive
-    // +1 can land entirely inside the IND field and leave SEQ unchanged, so the very next vector
-    // fails freshness again even though the raw 48-bit value did increase. +2^16 guarantees SEQ
-    // advances regardless of how many low bits a real USIM treats as IND (empirically confirmed
-    // against UERANSIM's own SqnManager, `indBitLen=5`,
-    // simulators/ransim/vendor/UERANSIM/src/ue/nas/usim/usim.cpp:18, after a first-cut +1 fix
-    // measurably failed real nr-ue interop a second time -- see docs/DECISIONS.md ADR-0037).
-    std::uint64_t sqn_value = 0;
-    for (auto b : *sqn_ms) {
-        sqn_value = (sqn_value << 8) | b;
-    }
-    sqn_value = (sqn_value + 0x10000) & 0xFFFFFFFFFFFFULL; // mod 2^48
-    for (size_t i = it->second.sqn.size(); i-- > 0;) {
-        it->second.sqn[i] = static_cast<std::uint8_t>(sqn_value & 0xFF);
-        sqn_value >>= 8;
-    }
-    return true;
-}
-
 std::string AuthEventStore::create(const std::string& supi, nlohmann::json event) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string id = "authevent-" + std::to_string(next_id_++);

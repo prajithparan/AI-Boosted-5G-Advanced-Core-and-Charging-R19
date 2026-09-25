@@ -680,6 +680,8 @@
 // V19.2.0). Only the schema file is in the codegen list; generating a schemaless paths-only file
 // would produce an empty header.
 #include "TS29369_Nadm_DM.hpp"
+#include "aka_crypto/hex.hpp"
+#include "aka_crypto/milenage.hpp"
 #include "oam_provisioning.hpp"
 #include "stores.hpp"
 
@@ -1254,6 +1256,29 @@ int main() {
                               std::make_optional(sms_mng_data),
                               std::make_optional(sms_data),
                               std::make_optional(trace_data));
+    }
+
+    // ADR-0383: the two fixed AKA test subscribers, moved here from the UDM's former in-memory
+    // store unchanged -- the UDM now reads authentication data from this table over Nudr. K/OP and
+    // SQN/AMF are the real 3GPP TS 35.207 Test Set 1 values (the ones
+    // tests/conformance/test_milenage.cpp cross-checks libs/aka-crypto against), so a UE-role test
+    // client can independently recompute CK/IK/RES. OPc is stored DERIVED from OP, as the UDM held
+    // it. Re-seeded on every UDR start, so each start resets both SQNs (previously each UDM start).
+    {
+        const auto k = *aka_crypto::from_hex<16>("465b5ce8b199b49faa5f0a2ee238a6bc");
+        const auto op = *aka_crypto::from_hex<16>("cdc202d5123e20f62b6d676ac72cb318");
+        const std::string opc = aka_crypto::to_hex(aka_crypto::derive_opc(k, op));
+        const auto seed_auth = [&](const std::string& supi, const char* method, const char* sqn) {
+            auth_subscription_data.seed(supi,
+                                        json{{"authenticationMethod", method},
+                                             {"encPermanentKey", aka_crypto::to_hex(k)},
+                                             {"encOpcKey", opc},
+                                             {"authenticationManagementField", "b9b9"},
+                                             {"sequenceNumber", {{"sqn", sqn}}},
+                                             {"supi", supi}});
+        };
+        seed_auth("imsi-999700000000001", "5G_AKA", "ff9bb4d0b607");
+        seed_auth("imsi-999700000000002", "EAP_AKA_PRIME", "000000000000");
     }
 
     // Real seed data (ADR-0102, gap-closure task #106) -- the real Enhanced Coverage Restriction

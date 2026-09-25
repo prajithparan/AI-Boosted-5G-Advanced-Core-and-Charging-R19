@@ -116,6 +116,7 @@
 #include "map_server.hpp"
 #include "stores.hpp"
 #include "tbcd_core/tbcd.hpp"
+#include "udr_auth_source.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -441,6 +442,25 @@ void push_subscriber_data_to_vlr(const std::string& vlr_address,
     }).detach();
 }
 
+// ADR-0383: maps a UDR auth-data failure onto the Nudm_UEAU responses the YAML documents for the
+// vector-generation operations (404, 500, 503 are all listed; no cause value is invented).
+sbi_core::http2::Response auth_data_problem(udm::AuthDataError err, const std::string& supi) {
+    switch (err) {
+        case udm::AuthDataError::NotFound:
+            return sbi_core::http2::problem_response(
+                404, "Not Found", "No authentication subscription for " + supi);
+        case udm::AuthDataError::Invalid:
+            return sbi_core::http2::problem_response(500,
+                                                     "Internal Server Error",
+                                                     "Authentication subscription for " + supi +
+                                                         " is not usable for AKA");
+        case udm::AuthDataError::Unavailable:
+            break;
+    }
+    return sbi_core::http2::problem_response(
+        503, "Service Unavailable", "Authentication data repository (UDR) unavailable");
+}
+
 } // namespace
 
 int main() {
@@ -512,41 +532,9 @@ int main() {
     udm::SmfRegistrationStore smf_registrations;
     udm::SdmSubscriptionStore sdm_subscriptions;
     udm::SharedDataSubscriptionStore shared_data_subscriptions;
-    udm::AuthenticationSubscriptionStore auth_subscriptions;
     udm::AuthEventStore auth_events;
     udm::EeSubscriptionStore ee_subscriptions;
     udm::PpDataStore pp_data;
-
-    // Fixed test subscribers, seeded at startup -- not provisionable through any API (see file
-    // header). K/OP/OPc/SQN/AMF are the real, cross-checked 3GPP TS 35.207 Test Set 1 values (the
-    // same ones tests/conformance/test_milenage.cpp verifies libs/aka-crypto's Milenage
-    // implementation against) -- reused here as seed data rather than invented, so a real UE-role
-    // test client can independently compute the same CK/IK/RES from the well-known K/OP and check
-    // AUSF/UDM's output against them, not just trust round-tripping.
-    {
-        const auto k = *aka_crypto::from_hex<16>("465b5ce8b199b49faa5f0a2ee238a6bc");
-        const auto op = *aka_crypto::from_hex<16>("cdc202d5123e20f62b6d676ac72cb318");
-        const auto opc = aka_crypto::derive_opc(k, op);
-        const auto sqn = *aka_crypto::from_hex<6>("ff9bb4d0b607");
-        const auto amf_field = *aka_crypto::from_hex<2>("b9b9");
-
-        auth_subscriptions.seed("imsi-999700000000001",
-                                udm::AuthenticationSubscription{
-                                    .k = k,
-                                    .opc = opc,
-                                    .sqn = sqn,
-                                    .amf = amf_field,
-                                    .authentication_method = "5G_AKA",
-                                });
-        auth_subscriptions.seed("imsi-999700000000002",
-                                udm::AuthenticationSubscription{
-                                    .k = k,
-                                    .opc = opc,
-                                    .sqn = *aka_crypto::from_hex<6>("000000000000"),
-                                    .amf = amf_field,
-                                    .authentication_method = "EAP_AKA_PRIME",
-                                });
-    }
 
     // UDM's own client identity + token source for calling UDR (ADR-0069, gap-closure Tier 1b) --
     // same separate-http2::Client-per-target-NF pattern nfs/ausf/src/main.cpp's own udm_client
@@ -559,6 +547,10 @@ int main() {
     sbi_core::http2::Client udr_client(std::move(udr_client_tls));
     sbi_core::OAuth2Client udr_oauth(
         udr_client, nrf_base_url + "/oauth2/token", udm_instance_id, "nudr-dr", "UDR");
+    // ADR-0383: authentication data (K/OPc/SQN/AMF/method) is read from and the SQN written back
+    // to the UDR over Nudr -- no in-process copy. The TS 35.207 test subscribers that used to be
+    // seeded here are seeded in the UDR now (nfs/udr/src/main.cpp).
+    udm::UdrAuthSubscriptionSource auth_subscriptions(udr_client, udr_oauth, udr_base_url);
 
     auto meter = sbi_core::get_meter("udm");
     auto amf_reg_counter =
@@ -2894,8 +2886,7 @@ int main() {
                 const auto resync_result =
                     auth_subscriptions.resync_sqn(supi_or_suci, *resync_rand, *resync_auts);
                 if (!resync_result.has_value()) {
-                    return sbi_core::http2::problem_response(
-                        404, "Not Found", "No authentication subscription for " + supi_or_suci);
+                    return auth_data_problem(resync_result.error(), supi_or_suci);
                 }
                 if (!*resync_result) {
                     return sbi_core::http2::problem_response(
@@ -2909,8 +2900,7 @@ int main() {
 
             auto sub = auth_subscriptions.get_and_advance_sqn(supi_or_suci);
             if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication subscription for " + supi_or_suci);
+                return auth_data_problem(sub.error(), supi_or_suci);
             }
 
             const auto rand = aka_crypto::generate_rand();
@@ -2994,8 +2984,7 @@ int main() {
 
             auto sub = auth_subscriptions.get_and_advance_sqn(supi_or_suci);
             if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication subscription for " + supi_or_suci);
+                return auth_data_problem(sub.error(), supi_or_suci);
             }
 
             const auto rand = aka_crypto::generate_rand();
@@ -3120,16 +3109,24 @@ int main() {
 
             const std::int64_t num_vectors = body->numOfRequestedVectors;
             json vectors = json::array();
-            for (std::int64_t i = 0; i < num_vectors; ++i) {
-                auto sub = auth_subscriptions.get_and_advance_sqn(supi);
-                if (!sub.has_value()) {
-                    return sbi_core::http2::problem_response(
-                        404, "Not Found", "No authentication subscription for " + supi);
+            // ADR-0383: one UDR read + one SQN compare-and-swap reserves all N consecutive SQNs,
+            // instead of N round trips; vector i uses base SQN + i, exactly the sequence the
+            // per-vector advance produced before.
+            std::optional<udm::AuthenticationSubscription> sub;
+            if (num_vectors > 0) {
+                auto fetched = auth_subscriptions.get_and_advance_sqn(
+                    supi, static_cast<std::uint64_t>(num_vectors));
+                if (!fetched.has_value()) {
+                    return auth_data_problem(fetched.error(), supi);
                 }
+                sub = *fetched;
+            }
+            for (std::int64_t i = 0; i < num_vectors; ++i) {
+                const auto sqn = udm::sqn_add(sub->sqn, static_cast<std::uint64_t>(i));
                 const auto rand = aka_crypto::generate_rand();
-                const auto mac_a = aka_crypto::f1(sub->opc, sub->k, rand, sub->sqn, sub->amf);
+                const auto mac_a = aka_crypto::f1(sub->opc, sub->k, rand, sqn, sub->amf);
                 const auto out = aka_crypto::f2345(sub->opc, sub->k, rand);
-                const auto sqn_xor_ak_value = aka_crypto::sqn_xor_ak(sub->sqn, out.ak);
+                const auto sqn_xor_ak_value = aka_crypto::sqn_xor_ak(sqn, out.ak);
                 std::array<uint8_t, 16> autn{};
                 std::copy(sqn_xor_ak_value.begin(), sqn_xor_ak_value.end(), autn.begin());
                 std::copy(sub->amf.begin(), sub->amf.end(), autn.begin() + 6);
@@ -3187,8 +3184,7 @@ int main() {
             const auto supi = req.path_params.at("supi");
             auto sub = auth_subscriptions.get_and_advance_sqn(supi);
             if (!sub.has_value()) {
-                return sbi_core::http2::problem_response(
-                    404, "Not Found", "No authentication subscription for " + supi);
+                return auth_data_problem(sub.error(), supi);
             }
             const auto rand = aka_crypto::generate_rand();
             const auto mac_a = aka_crypto::f1(sub->opc, sub->k, rand, sub->sqn, sub->amf);

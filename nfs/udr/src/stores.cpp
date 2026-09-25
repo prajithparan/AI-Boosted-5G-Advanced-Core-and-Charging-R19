@@ -300,12 +300,26 @@ std::optional<nlohmann::json> AuthenticationSubscriptionDataStore::get(const std
     return std::make_optional(nlohmann::json::parse(result.front()["data"].as<std::string>()));
 }
 
+void AuthenticationSubscriptionDataStore::seed(const std::string& ue_id,
+                                               const nlohmann::json& data) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pqxx::work txn(conn_);
+    txn.exec("INSERT INTO udr_authentication_subscription (ue_id, data) VALUES ($1, $2::jsonb) "
+             "ON CONFLICT (ue_id) DO UPDATE SET data = EXCLUDED.data",
+             pqxx::params{ue_id, data.dump()});
+    txn.commit();
+}
+
 nlohmann::json AuthenticationSubscriptionDataStore::apply_patch(const std::string& ue_id,
                                                                 const nlohmann::json& patch_ops) {
     std::lock_guard<std::mutex> lock(mutex_);
     pqxx::work txn(conn_);
-    const auto result = txn.exec(
-        "SELECT data FROM udr_authentication_subscription WHERE ue_id = $1", pqxx::params{ue_id});
+    // FOR UPDATE (ADR-0383): the UDM advances the SQN with an RFC 6902 test+replace
+    // compare-and-swap; the row lock makes that atomic across UDR replicas, not only within this
+    // process's mutex.
+    const auto result =
+        txn.exec("SELECT data FROM udr_authentication_subscription WHERE ue_id = $1 FOR UPDATE",
+                 pqxx::params{ue_id});
     auto doc = result.empty() ? nlohmann::json::object()
                               : nlohmann::json::parse(result.front()["data"].as<std::string>());
     doc = doc.patch(patch_ops); // may throw nlohmann::json::exception -- caller catches

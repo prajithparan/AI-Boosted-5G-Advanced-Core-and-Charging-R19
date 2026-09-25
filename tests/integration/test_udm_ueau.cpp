@@ -68,6 +68,9 @@ TEST(UdmIntegration, GenerateAuthDataFor5GAkaSubscriberProducesDistinctVectors) 
 
     nf_test::SpawnedProcess udm(UDM_PATH);
     ASSERT_GT(udm.pid(), 0) << "failed to fork udm";
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -107,7 +110,7 @@ TEST(UdmIntegration, GenerateAuthDataFor5GAkaSubscriberProducesDistinctVectors) 
     EXPECT_EQ(av1.kausf.size(), 64U);    // 32 bytes, hex-encoded
 
     // Every GenerateAuthData call draws a fresh RAND and advances the store's SQN (see
-    // AuthenticationSubscriptionStore::get_and_advance_sqn), so a second call must produce a
+    // UdrAuthSubscriptionSource::get_and_advance_sqn), so a second call must produce a
     // genuinely different vector, not a cached/replayed one.
     auto resp2 = client.send(req);
     ASSERT_TRUE(resp2.has_value());
@@ -126,6 +129,9 @@ TEST(UdmIntegration, GenerateAuthDataForEapAkaPrimeSubscriberReturnsEapAkaPrimeV
 
     nf_test::SpawnedProcess udm(UDM_PATH);
     ASSERT_GT(udm.pid(), 0) << "failed to fork udm";
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -171,6 +177,9 @@ TEST(UdmIntegration, ConfirmAuthThenDeleteAuthLifecycle) {
 
     nf_test::SpawnedProcess udm(UDM_PATH);
     ASSERT_GT(udm.pid(), 0) << "failed to fork udm";
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(
@@ -237,6 +246,9 @@ TEST(UdmIntegration, GenerateAuthDataUnknownSupiIs404AndTamperedTokenIs401) {
 
     nf_test::SpawnedProcess udm(UDM_PATH);
     ASSERT_GT(udm.pid(), 0) << "failed to fork udm";
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7781)) << "udr never started listening";
 
     auto client = make_client();
     ASSERT_TRUE(wait_reachable(

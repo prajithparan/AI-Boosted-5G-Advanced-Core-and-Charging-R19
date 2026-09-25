@@ -84,6 +84,7 @@ struct Trio {
     nf_test::SpawnedProcess nrf;
     nf_test::SpawnedProcess udm;
     nf_test::SpawnedProcess ausf;
+    nf_test::SpawnedProcess udr;
 };
 
 Trio spawn_all() {
@@ -91,7 +92,10 @@ Trio spawn_all() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     nf_test::SpawnedProcess udm(UDM_PATH);
     nf_test::SpawnedProcess ausf(AUSF_PATH);
-    return Trio{std::move(nrf), std::move(udm), std::move(ausf)};
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    nf_test::wait_tcp_listening(7781);
+    return Trio{std::move(nrf), std::move(udm), std::move(ausf), std::move(udr)};
 }
 
 // The UE/USIM side of MILENAGE: given RAND (from ausf) and AUTN (from ausf, which embeds SQN xor

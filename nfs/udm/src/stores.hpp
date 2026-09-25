@@ -17,45 +17,16 @@
 
 namespace udm {
 
-// Backs Nudm_UEAU's GenerateAuthData. Keyed by SUPI. In-memory-only subscriber authentication
-// data (K, OPc, SQN, AMF, and which method -- 5G_AKA or EAP_AKA_PRIME -- this subscriber uses) --
-// in a real deployment this is UDR-provisioned data (Nudr_DataRepository's authentication-data
-// group), which nfs/udr deliberately does not implement yet (see docs/DECISIONS.md ADR-0025's
-// deferred list). Seeded at startup with a small, fixed set of test subscribers -- see
-// nfs/udm/src/main.cpp -- not provisionable via any API. See ADR-0026 for the original bare-
-// monotonic-counter SQN model, and ADR-0037 for AUTS/SQN-resynchronisation support added on top of
-// it (still no full TS 33.102 Annex C.2/C.3 windowing/array scheme -- SQN_MS+1 on a verified
-// resync, nothing more sophisticated).
+// One subscriber's AKA material as the UDM uses it for vector generation. Since ADR-0383 it is read
+// from the UDR's authentication-subscription document on every request (udr_auth_source.hpp) --
+// never held in the UDM. SQN rules: +1 per vector (ADR-0026), SQN_MS + 2^16 on a verified AUTS
+// resync (ADR-0037); no full TS 33.102 Annex C windowing.
 struct AuthenticationSubscription {
     aka_crypto::Key128 k;
     aka_crypto::Key128 opc;
     aka_crypto::Sqn sqn;
     aka_crypto::Amf amf;
     std::string authentication_method; // "5G_AKA" or "EAP_AKA_PRIME"
-};
-
-class AuthenticationSubscriptionStore {
-public:
-    void seed(const std::string& supi, AuthenticationSubscription sub);
-    // Returns the subscriber's current data and, in the same locked step, advances its stored SQN
-    // by 1 (mod 2^48) so the next GenerateAuthData call for this SUPI gets a fresh vector.
-    // nullopt if supi is unknown.
-    std::optional<AuthenticationSubscription> get_and_advance_sqn(const std::string& supi);
-
-    // Verifies AUTS (TS 24.501 §9.11.3.1) against this subscriber's own K/OPc and the RAND from
-    // the AuthenticationRequest the UE is resynchronising against, and, iff genuine, resets the
-    // stored SQN to the UE's real SQN_MS + 1 (mod 2^48) -- the simplest re-sync scheme (TS 33.102
-    // Annex C.2), matching this store's existing bare-monotonic-counter model rather than
-    // introducing full Annex C windowing. Returns std::nullopt if supi is unknown; true if AUTS
-    // verified and SQN was reset; false if AUTS failed to verify (SQN is left untouched in that
-    // case -- a failed verification must not silently move the subscriber's SQN state).
-    std::optional<bool> resync_sqn(const std::string& supi,
-                                   const aka_crypto::Key128& rand,
-                                   const aka_crypto::Auts& auts);
-
-private:
-    std::mutex mutex_;
-    std::unordered_map<std::string, AuthenticationSubscription> subs_;
 };
 
 // Backs Nudm_UEAU's ConfirmAuth (create) and DeleteAuth (remove). Keyed by a UDM-generated

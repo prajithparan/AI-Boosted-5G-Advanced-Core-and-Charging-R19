@@ -64,13 +64,17 @@ std::string fetch_token(sbi_core::http2::Client& client, const std::string& scop
 struct Duo {
     nf_test::SpawnedProcess nrf;
     nf_test::SpawnedProcess udm;
+    nf_test::SpawnedProcess udr;
 };
 
 Duo spawn_nrf_udm() {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     nf_test::SpawnedProcess udm(UDM_PATH);
-    return Duo{std::move(nrf), std::move(udm)};
+    // ADR-0383: UDM reads authentication data from the UDR over Nudr.
+    nf_test::SpawnedProcess udr(UDR_PATH);
+    nf_test::wait_tcp_listening(7781);
+    return Duo{std::move(nrf), std::move(udm), std::move(udr)};
 }
 
 } // namespace

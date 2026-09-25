@@ -44,6 +44,7 @@ add_executable(integration_tests
     test_udr_exposure_data.cpp
     test_udr_aiot_data.cpp
     test_udr_oam_provisioning.cpp
+    test_udm_ueau_from_udr.cpp
     # ADR-0382: the OAM provisioning validator + its store, compiled in (udr is an executable).
     ${CMAKE_SOURCE_DIR}/nfs/udr/src/oam_provisioning.cpp
     ${CMAKE_SOURCE_DIR}/nfs/udr/src/stores.cpp
