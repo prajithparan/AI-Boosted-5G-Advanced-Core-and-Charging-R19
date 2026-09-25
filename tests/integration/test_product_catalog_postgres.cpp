@@ -54,7 +54,9 @@ protected:
 
 TEST_F(ProductCatalogPostgresTest, ProductOfferingSurvivesRoundTripThroughRealPostgres) {
     product_catalog::ProductOfferingStore store(
-        "https://test/tmf-api/productCatalogManagement/v4/productOffering", test_conninfo());
+        "https://test/tmf-api/productCatalogManagement/v4/productOffering",
+        test_conninfo(),
+        /*pool_size=*/1);
 
     bss_sid::ProductOffering offering{};
     offering.name = "Integration Test Offering";
@@ -77,7 +79,9 @@ TEST_F(ProductCatalogPostgresTest, ProductOfferingSurvivesRoundTripThroughRealPo
     // Real cross-process re-derivation: a second, independent store instance (its own
     // pqxx::connection) must see the same row -- not just an in-process cache.
     product_catalog::ProductOfferingStore second_store(
-        "https://test/tmf-api/productCatalogManagement/v4/productOffering", test_conninfo());
+        "https://test/tmf-api/productCatalogManagement/v4/productOffering",
+        test_conninfo(),
+        /*pool_size=*/1);
     const auto refetched = second_store.get(id);
     ASSERT_TRUE(refetched.has_value());
     EXPECT_EQ(refetched->name, "Integration Test Offering");
@@ -88,7 +92,9 @@ TEST_F(ProductCatalogPostgresTest, ProductOfferingSurvivesRoundTripThroughRealPo
 
 TEST_F(ProductCatalogPostgresTest, ProductSpecificationCharacteristicsSurviveRealPostgres) {
     product_catalog::ProductSpecificationStore store(
-        "https://test/tmf-api/productCatalogManagement/v4/productSpecification", test_conninfo());
+        "https://test/tmf-api/productCatalogManagement/v4/productSpecification",
+        test_conninfo(),
+        /*pool_size=*/1);
 
     bss_sid::ProductSpecification spec{};
     spec.name = "Integration Test Slice Spec";
@@ -110,7 +116,9 @@ TEST_F(ProductCatalogPostgresTest, ProductSpecificationCharacteristicsSurviveRea
 
 TEST_F(ProductCatalogPostgresTest, ListReflectsRealPostgresState) {
     product_catalog::ProductOfferingPriceStore store(
-        "https://test/tmf-api/productCatalogManagement/v4/productOfferingPrice", test_conninfo());
+        "https://test/tmf-api/productCatalogManagement/v4/productOfferingPrice",
+        test_conninfo(),
+        /*pool_size=*/1);
 
     const auto before = store.list().size();
 

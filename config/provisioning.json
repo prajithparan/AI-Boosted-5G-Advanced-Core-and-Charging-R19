@@ -4,5 +4,27 @@
   "advertised_ipv4": "127.0.0.1",
   "orchestration_database_url": "postgresql://postgres@127.0.0.1:5434/orchestration",
   "charging_database_url": "postgresql://postgres@127.0.0.1:5434/charging",
-  "db_pool_size": 8
+  "db_pool_size": 8,
+  "udr_base_url": "https://127.0.0.1:7781",
+  "serving_plmn_id": "99970",
+  "authentication": {
+    "method": "5G_AKA",
+    "management_field": "8000",
+    "initial_sqn": "000000000000"
+  },
+  "network_profiles": {
+    "default": {
+      "snssais": [
+        {
+          "sst": 1,
+          "sd": "000001"
+        }
+      ],
+      "dnn": "internet",
+      "ue_ambr": {
+        "uplink": "1 Gbps",
+        "downlink": "1 Gbps"
+      }
+    }
+  }
 }

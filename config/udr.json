@@ -2,5 +2,8 @@
   "port": 7781,
   "metrics_bind_address": "0.0.0.0:9468",
   "nrf_base_url": "https://127.0.0.1:7777",
-  "database_url": "postgresql://udr:udr@localhost:5437/udr"
+  "database_url": "postgresql://udr:udr@localhost:5437/udr",
+  "oam_provisioning_allowed_clients": [
+    "provisioning"
+  ]
 }

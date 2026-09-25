@@ -1741,4 +1741,34 @@ private:
     pqxx::connection conn_;
 };
 
+// ADR-0382: backs the UDR's project-owned OAM subscriber-provisioning API (NOT a 3GPP API -- the
+// R19 Nudr YAML defines no create operation for provisioned-data, and only GET/PATCH for
+// authentication-subscription and policy-data am-data/sm-data; 3GPP leaves subscriber creation to
+// OSS/BSS). Writes one subscriber's documents across the four tables the standard Nudr GETs read,
+// in ONE transaction, with replace semantics so a retried saga task is safe. Documents are stored
+// exactly as supplied (same opaque-JSON convention as every other store here); what is readable
+// afterwards is verified through the standard Nudr GETs, not by querying these tables.
+struct SubscriberDocuments {
+    std::string serving_plmn_id;
+    nlohmann::json am_data;
+    nlohmann::json smf_selection_data;
+    nlohmann::json sm_data;
+    nlohmann::json authentication_subscription;
+    nlohmann::json am_policy_data;
+    nlohmann::json sm_policy_data;
+};
+
+class SubscriberProvisioningStore {
+public:
+    explicit SubscriberProvisioningStore(const std::string& conninfo);
+
+    // Replaces the subscriber's documents atomically. Returns true if the UE did not exist before
+    // (no authentication-subscription row), false if it replaced an existing one.
+    bool replace(const std::string& ue_id, const SubscriberDocuments& docs);
+
+private:
+    std::mutex mutex_;
+    pqxx::connection conn_;
+};
+
 } // namespace udr

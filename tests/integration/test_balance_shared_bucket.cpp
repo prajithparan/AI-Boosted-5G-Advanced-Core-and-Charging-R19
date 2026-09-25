@@ -75,7 +75,7 @@ TEST_F(SharedBucketTest, AMemberOfAFamilyBucketResolvesToIt) {
                   R"([{"id":"imsi-999700000000901"},{"id":"imsi-999700000000902"}])",
                   "active");
 
-    balance_management::BalanceStore store("https://example.com", test_conninfo());
+    balance_management::BalanceStore store("https://example.com", test_conninfo(), /*pool_size=*/1);
 
     // Both members must resolve to the SAME bucket -- that single fact is what "shared bundle"
     // means commercially, and it is what was impossible before.
@@ -92,7 +92,7 @@ TEST_F(SharedBucketTest, AMemberOfAFamilyBucketResolvesToIt) {
 TEST_F(SharedBucketTest, ANonMemberDoesNotDrawFromSomeoneElsesFamilyBucket) {
     insert_bucket("test-shared-family-2", true, R"([{"id":"imsi-999700000000901"}])", "active");
 
-    balance_management::BalanceStore store("https://example.com", test_conninfo());
+    balance_management::BalanceStore store("https://example.com", test_conninfo(), /*pool_size=*/1);
     EXPECT_FALSE(store.find_shared_bucket_for("imsi-999700000000999").has_value())
         << "a subscriber resolved to a family bucket they do not belong to -- this is the "
            "unrecoverable direction of this feature getting it wrong";
@@ -104,7 +104,7 @@ TEST_F(SharedBucketTest, ANonSharedBucketIsNeverReturnedAsAGroupBucket) {
     // path would stop being exercised.
     insert_bucket("test-shared-personal", false, R"([{"id":"imsi-999700000000903"}])", "active");
 
-    balance_management::BalanceStore store("https://example.com", test_conninfo());
+    balance_management::BalanceStore store("https://example.com", test_conninfo(), /*pool_size=*/1);
     EXPECT_FALSE(store.find_shared_bucket_for("imsi-999700000000903").has_value());
 }
 
@@ -114,6 +114,6 @@ TEST_F(SharedBucketTest, AnExpiredSharedBucketIsNotUsed) {
     // eventually forgets it.
     insert_bucket("test-shared-expired", true, R"([{"id":"imsi-999700000000904"}])", "expired");
 
-    balance_management::BalanceStore store("https://example.com", test_conninfo());
+    balance_management::BalanceStore store("https://example.com", test_conninfo(), /*pool_size=*/1);
     EXPECT_FALSE(store.find_shared_bucket_for("imsi-999700000000904").has_value());
 }

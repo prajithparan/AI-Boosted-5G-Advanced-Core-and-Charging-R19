@@ -10,6 +10,7 @@
 #include <boost/asio/write.hpp>
 #include <nghttp2/nghttp2.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -206,7 +207,38 @@ public:
     }
 
 private:
+    // Reads the verified peer certificate once per connection (every stream on it shares the same
+    // TLS identity). verify_fail_if_no_peer_cert means a completed handshake always has one.
+    void capture_peer_identity() {
+        X509* cert = SSL_get1_peer_certificate(socket_.native_handle());
+        if (cert == nullptr) {
+            return;
+        }
+        std::array<char, 256> cn{};
+        const int cn_len = X509_NAME_get_text_by_NID(
+            X509_get_subject_name(cert), NID_commonName, cn.data(), static_cast<int>(cn.size()));
+        if (cn_len > 0) {
+            peer_cert_cn_.assign(cn.data(), static_cast<std::size_t>(cn_len));
+        }
+        auto* sans = static_cast<GENERAL_NAMES*>(
+            X509_get_ext_d2i(cert, NID_subject_alt_name, nullptr, nullptr));
+        if (sans != nullptr) {
+            for (int i = 0; i < sk_GENERAL_NAME_num(sans); ++i) {
+                const GENERAL_NAME* name = sk_GENERAL_NAME_value(sans, i);
+                if (name->type == GEN_DNS) {
+                    const ASN1_IA5STRING* dns = name->d.dNSName;
+                    peer_cert_dns_names_.emplace_back(
+                        reinterpret_cast<const char*>(ASN1_STRING_get0_data(dns)),
+                        static_cast<std::size_t>(ASN1_STRING_length(dns)));
+                }
+            }
+            GENERAL_NAMES_free(sans);
+        }
+        X509_free(cert);
+    }
+
     void on_handshake_complete() {
+        capture_peer_identity();
         nghttp2_session_callbacks* callbacks = nullptr;
         nghttp2_session_callbacks_new(&callbacks);
         nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks,
@@ -355,6 +387,8 @@ private:
         req->headers = ctx.headers;
         req->body = ctx.body;
         req->query_params = parse_query_string(ctx.path);
+        req->peer_cert_cn = peer_cert_cn_;
+        req->peer_cert_dns_names = peer_cert_dns_names_;
 
         const auto path_only = ctx.path.substr(0, ctx.path.find('?'));
         const auto segments = split_path(path_only);
@@ -596,6 +630,9 @@ private:
     std::vector<std::uint8_t> write_buf_;
     bool socket_op_in_flight_ = false;
     bool write_pending_ = false;
+    // Set once in capture_peer_identity() on the strand before any stream exists; read-only after.
+    std::string peer_cert_cn_;
+    std::vector<std::string> peer_cert_dns_names_;
     std::unordered_map<std::int32_t, StreamContext> streams_;
 };
 

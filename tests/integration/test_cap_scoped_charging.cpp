@@ -249,10 +249,13 @@ TEST(CapScopedCharging, AnInitialDpRatesAgainstTheOfferingScopedToItsServiceKey)
     const std::string started_at = now_iso();
 
     product_catalog::ProductOfferingStore offerings(
-        "https://test/tmf-api/productCatalogManagement/v4/productOffering", catalog_conninfo());
+        "https://test/tmf-api/productCatalogManagement/v4/productOffering",
+        catalog_conninfo(),
+        /*pool_size=*/1);
     product_catalog::ProductOfferingPriceStore prices(
         "https://test/tmf-api/productCatalogManagement/v4/productOfferingPrice",
-        catalog_conninfo());
+        catalog_conninfo(),
+        /*pool_size=*/1);
 
     // The decoy is seeded FIRST so it is encountered first in the catalog listing: if CAP
     // attributes were ignored, whichever offering came first would win, and the decoy winning is

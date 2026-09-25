@@ -680,6 +680,7 @@
 // V19.2.0). Only the schema file is in the codegen list; generating a schemaless paths-only file
 // would produce an empty header.
 #include "TS29369_Nadm_DM.hpp"
+#include "oam_provisioning.hpp"
 #include "stores.hpp"
 
 namespace {
@@ -1010,6 +1011,9 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "UDR_NRF_BASE_URL");
     const auto conninfo =
         nf_config::require<std::string>(config, "database_url", "UDR_DATABASE_URL");
+    // ADR-0382: mTLS identities (cert CN or dNSName SAN) admitted to the OAM provisioning API.
+    const auto oam_provisioning_allowed_clients = nf_config::require<std::vector<std::string>>(
+        config, "oam_provisioning_allowed_clients", "UDR_OAM_PROVISIONING_ALLOWED_CLIENTS");
 
     sbi_core::init_logging("udr");
     sbi_core::init_tracing("udr");
@@ -1031,6 +1035,7 @@ int main() {
     udr::AmfNon3GppContextStore amf_non3gpp_contexts(conninfo);
     udr::SmfRegistrationStore smf_registrations(conninfo);
     udr::ProvisionedDataStore provisioned_data(conninfo);
+    udr::SubscriberProvisioningStore subscriber_provisioning(conninfo);
     udr::SmPolicyDataStore sm_policy_data(conninfo);
     udr::AuthenticationSubscriptionDataStore auth_subscription_data(conninfo);
     udr::AuthenticationStatusStore auth_status(conninfo);
@@ -10300,6 +10305,8 @@ int main() {
             resp.status = 204;
             return resp;
         });
+
+    udr::oam::register_routes(server, subscriber_provisioning, oam_provisioning_allowed_clients);
 
     server.start();
     spdlog::info("udr: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

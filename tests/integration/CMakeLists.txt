@@ -43,6 +43,10 @@ add_executable(integration_tests
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp
     test_udr_aiot_data.cpp
+    test_udr_oam_provisioning.cpp
+    # ADR-0382: the OAM provisioning validator + its store, compiled in (udr is an executable).
+    ${CMAKE_SOURCE_DIR}/nfs/udr/src/oam_provisioning.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/udr/src/stores.cpp
     test_smf_handover_n2sminfo.cpp
     test_smf_n2sminfo_dispatch.cpp
     test_amf_ngap_handover.cpp
@@ -107,8 +111,9 @@ add_executable(integration_tests
 # enough for those -- the branches only run on a transfer that actually decodes, so the test
 # has to be able to encode one.
 target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf/src
+                                                    ${CMAKE_SOURCE_DIR}/nfs/udr/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
-target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
+target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store provisioning_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
 add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"

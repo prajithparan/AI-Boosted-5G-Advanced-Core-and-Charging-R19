@@ -43,6 +43,13 @@ struct Request {
     // this is a multimap, matching headers' own convention above.
     std::multimap<std::string, std::string> query_params;
     std::string body;
+    // Identity of the mTLS peer, read from the client certificate the handshake already verified
+    // against the CA (ADR-0011). Every NF cert chains to the same lab CA, so "verified" alone only
+    // proves "some NF of this deployment"; a route that must admit exactly one client (the UDR's
+    // project-owned OAM provisioning API, ADR-0382) checks these against its configured allow-list.
+    // Empty when the certificate carries no CN / no dNSName SAN.
+    std::string peer_cert_cn;
+    std::vector<std::string> peer_cert_dns_names;
 };
 
 struct Response {
