@@ -379,6 +379,13 @@ jobs:
       - name: Apply CHF PostgreSQL schema (ADR-0060)
         run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
+      - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
+        # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
+        # deploy/db/charging/ applied in file order) + orchestration. product-catalog persists here.
+        run: |
+          docker cp deploy/db ${{ job.services['postgres-chf'].id }}:/domain-ddl
+          docker exec -e POSTGRES_USER=postgres ${{ job.services['postgres-chf'].id }} bash /domain-ddl/init-domain-dbs.sh
+
       - name: Apply CHF Doris schema (ADR-0058, migrated ADR-0192)
         # GitHub Actions service containers don't support the docker-compose-style
         # /docker-entrypoint-initdb.d/ auto-init volume mount (services start before checkout even
@@ -425,10 +432,10 @@ jobs:
         # same-host-only local-dev defaults (nfs/chf/src/main.cpp's own
         # chf_rating_postgres_conninfo/chf_redis_conninfo/chf_doris_options comments).
         env:
-          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
-          PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
           BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
@@ -833,6 +840,13 @@ jobs:
         # the CAP scoped-charging test's rating_decision query answered -1 only under ASan/TSan.
         run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
+      - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
+        # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
+        # deploy/db/charging/ applied in file order) + orchestration. product-catalog persists here.
+        run: |
+          docker cp deploy/db ${{ job.services['postgres-chf'].id }}:/domain-ddl
+          docker exec -e POSTGRES_USER=postgres ${{ job.services['postgres-chf'].id }} bash /domain-ddl/init-domain-dbs.sh
+
       - name: Apply CHF Doris schema (ADR-0058, migrated ADR-0192)
         run: |
           docker exec ${{ job.services.doris.id }} mysql -h 127.0.0.1 -P 9030 -u root -e "CREATE DATABASE IF NOT EXISTS chf_cdr"
@@ -873,10 +887,10 @@ jobs:
         # internals during concurrent handshake cert-chain verification -- not this project's own
         # code. Harmless on the asan-ubsan leg (TSAN_OPTIONS is simply unused there).
         env:
-          TEST_POSTGRES_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
-          PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@localhost:15432/product_catalog
+          PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
           BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
           ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect

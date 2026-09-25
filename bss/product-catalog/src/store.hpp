@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <pqxx/pqxx>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,23 @@
 // one yet, since nothing has been benchmarked (ADR-0049's own standing disclosure).
 
 namespace product_catalog {
+
+// ADR-0384: the stores write the normalized TMF620 model in the consolidated charging DB
+// (schema product_catalog, deploy/db/charging/30-product.sql + 31-product-lossless.sql). The
+// relational model enforces what the JSONB model accepted silently, so two failure kinds are
+// surfaced to the API instead of becoming a 500:
+//   InvalidRequest -> 400: a missing mandatory field, a malformed date-time, a reference to an
+//                          entity that does not exist (FK), a duplicate reference in one list.
+//   Conflict       -> 409: deleting an entity something else still references (an offering in a
+//                          customer's product_subscription, a price an offering uses, ...).
+class InvalidRequest : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+class Conflict : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 class ProductOfferingStore {
 public:

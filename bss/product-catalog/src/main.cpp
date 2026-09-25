@@ -86,6 +86,21 @@ constexpr const char* kApiRoot = "/tmf-api/productCatalogManagement/v4";
 
 } // namespace
 
+// ADR-0384: the normalized store rejects what the relational model cannot accept; surface that as
+// the client error it is (TMF630 error codes map onto these HTTP statuses) instead of a 500.
+template <typename Handler> auto guarded(Handler handler) {
+    return [handler = std::move(handler)](
+               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
+        try {
+            return handler(req);
+        } catch (const product_catalog::InvalidRequest& e) {
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+        } catch (const product_catalog::Conflict& e) {
+            return sbi_core::http2::problem_response(409, "Conflict", e.what());
+        }
+    };
+}
+
 int main() {
     sbi_core::init_logging("product-catalog");
     sbi_core::init_tracing("product-catalog");
@@ -151,7 +166,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/productOffering",
-        [&offering_store, &offering_create_counter](const sbi_core::http2::Request& req) {
+        guarded([&offering_store, &offering_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<bss_sid::ProductOffering>(req, err);
             if (!body.has_value()) {
@@ -167,18 +182,18 @@ int main() {
             resp.headers.emplace("location", std::string(kApiRoot) + "/productOffering/" + id);
             resp.body = json(*stored).dump();
             return resp;
-        });
+        }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productOffering",
-                     [&offering_store](const sbi_core::http2::Request&) {
+                     guarded([&offering_store](const sbi_core::http2::Request&) {
                          const auto offerings = offering_store.list();
                          return sbi_core::http2::Response::json(200, json(offerings).dump());
-                     });
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productOffering/{id}",
-                     [&offering_store](const sbi_core::http2::Request& req) {
+                     guarded([&offering_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto offering = offering_store.get(id);
                          if (!offering.has_value()) {
@@ -186,11 +201,11 @@ int main() {
                                  404, "Not Found", "No ProductOffering " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*offering).dump());
-                     });
+                     }));
 
     server.add_route("DELETE",
                      std::string(kApiRoot) + "/productOffering/{id}",
-                     [&offering_store](const sbi_core::http2::Request& req) {
+                     guarded([&offering_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!offering_store.remove(id)) {
                              return sbi_core::http2::problem_response(
@@ -199,14 +214,14 @@ int main() {
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;
-                     });
+                     }));
 
     // --- ProductOfferingPrice ---
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/productOfferingPrice",
-        [&price_store, &price_create_counter](const sbi_core::http2::Request& req) {
+        guarded([&price_store, &price_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<bss_sid::ProductOfferingPrice>(req, err);
             if (!body.has_value()) {
@@ -222,18 +237,18 @@ int main() {
             resp.headers.emplace("location", std::string(kApiRoot) + "/productOfferingPrice/" + id);
             resp.body = json(*stored).dump();
             return resp;
-        });
+        }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productOfferingPrice",
-                     [&price_store](const sbi_core::http2::Request&) {
+                     guarded([&price_store](const sbi_core::http2::Request&) {
                          const auto prices = price_store.list();
                          return sbi_core::http2::Response::json(200, json(prices).dump());
-                     });
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productOfferingPrice/{id}",
-                     [&price_store](const sbi_core::http2::Request& req) {
+                     guarded([&price_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto price = price_store.get(id);
                          if (!price.has_value()) {
@@ -241,11 +256,11 @@ int main() {
                                  404, "Not Found", "No ProductOfferingPrice " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*price).dump());
-                     });
+                     }));
 
     server.add_route("DELETE",
                      std::string(kApiRoot) + "/productOfferingPrice/{id}",
-                     [&price_store](const sbi_core::http2::Request& req) {
+                     guarded([&price_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!price_store.remove(id)) {
                              return sbi_core::http2::problem_response(
@@ -254,14 +269,14 @@ int main() {
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;
-                     });
+                     }));
 
     // --- ProductSpecification ---
 
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/productSpecification",
-        [&spec_store, &spec_create_counter](const sbi_core::http2::Request& req) {
+        guarded([&spec_store, &spec_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body = sbi_core::http2::parse_json_body<bss_sid::ProductSpecification>(req, err);
             if (!body.has_value()) {
@@ -277,18 +292,18 @@ int main() {
             resp.headers.emplace("location", std::string(kApiRoot) + "/productSpecification/" + id);
             resp.body = json(*stored).dump();
             return resp;
-        });
+        }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productSpecification",
-                     [&spec_store](const sbi_core::http2::Request&) {
+                     guarded([&spec_store](const sbi_core::http2::Request&) {
                          const auto specs = spec_store.list();
                          return sbi_core::http2::Response::json(200, json(specs).dump());
-                     });
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/productSpecification/{id}",
-                     [&spec_store](const sbi_core::http2::Request& req) {
+                     guarded([&spec_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto spec = spec_store.get(id);
                          if (!spec.has_value()) {
@@ -296,11 +311,11 @@ int main() {
                                  404, "Not Found", "No ProductSpecification " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*spec).dump());
-                     });
+                     }));
 
     server.add_route("DELETE",
                      std::string(kApiRoot) + "/productSpecification/{id}",
-                     [&spec_store](const sbi_core::http2::Request& req) {
+                     guarded([&spec_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          if (!spec_store.remove(id)) {
                              return sbi_core::http2::problem_response(
@@ -309,7 +324,7 @@ int main() {
                          sbi_core::http2::Response resp;
                          resp.status = 204;
                          return resp;
-                     });
+                     }));
 
     server.start();
     spdlog::info("product-catalog: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

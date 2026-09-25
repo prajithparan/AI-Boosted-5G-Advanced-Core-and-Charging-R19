@@ -528,10 +528,11 @@ services:
     depends_on:
       pki-init:
         condition: service_completed_successfully
-      postgres:
+      postgres-chf:
         condition: service_healthy
     environment:
-      PRODUCT_CATALOG_DATABASE_URL: postgresql://product_catalog:product_catalog@postgres:5432/product_catalog
+      # ADR-0384: the consolidated charging DB, schema product_catalog (normalized TMF620 model).
+      PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
     volumes:
       - certs_data:/build/certs
     ports:
@@ -590,6 +591,9 @@ services:
     volumes:
       - postgres_chf_data:/var/lib/postgresql/data
       - ../../nfs/chf/schema.postgres.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # ADR-0384: the consolidated domain DBs (charging, orchestration) on this same instance.
+      - ../db:/domain-ddl:ro
+      - ../db/init-domain-dbs.sh:/docker-entrypoint-initdb.d/20-domain-dbs.sh:ro
     ports:
       - "5434:5432"
     healthcheck:

@@ -3,5 +3,5 @@
   "db_pool_size": 16,
   "advertised_ipv4": "127.0.0.1",
   "metrics_bind_address": "0.0.0.0:9473",
-  "database_url": "postgresql://product_catalog:product_catalog@localhost:5432/product_catalog"
+  "database_url": "postgresql://postgres@127.0.0.1:5434/charging"
 }

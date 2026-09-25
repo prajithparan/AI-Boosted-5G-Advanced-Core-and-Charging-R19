@@ -8,7 +8,7 @@ find_package(libpqxx CONFIG REQUIRED)
 # (test_product_catalog_postgres.cpp) can link against the actual store classes directly, instead
 # of re-implementing them or only testing through the HTTP layer.
 add_library(product_catalog_store STATIC src/store.cpp)
-target_link_libraries(product_catalog_store PUBLIC bss_sid libpqxx::pqxx nf_config)
+target_link_libraries(product_catalog_store PUBLIC bss_sid libpqxx::pqxx nf_config sbi_core)
 target_include_directories(product_catalog_store PUBLIC src)
 
 add_executable(product-catalog src/main.cpp)

@@ -23,7 +23,7 @@ std::string test_conninfo() {
     if (const char* env = std::getenv("TEST_POSTGRES_URL")) {
         return env;
     }
-    return "postgresql://product_catalog:product_catalog@localhost:5432/product_catalog";
+    return "postgresql://postgres@127.0.0.1:5434/charging";
 }
 
 // Returns true if `conninfo` is actually reachable right now -- used to decide whether to skip,
