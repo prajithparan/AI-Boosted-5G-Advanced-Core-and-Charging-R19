@@ -27,7 +27,7 @@ BSD-3-Clause licence above:
 
 | Path | What it is |
 |---|---|
-| `103221-1/x1-validation.xsd` | ADR-0372 validation wrapper. libxml2's schema loader needs a `schemaLocation` for every imported namespace; the normative `TS_103_221_01.xsd` imports the 103280 common namespace and the X1 HashedID namespace without one. This wrapper supplies those locations and imports the normative schema unchanged (its own `targetNamespace` is the project URN `urn:5gc-r19:li:x1-validation-wrapper`). The authoritative schema remains ETSI's `TS_103_221_01.xsd`. |
+| `103221-1/x1-validation.xsd` | ADR-0372 validation wrapper. libxml2's schema loader needs a `schemaLocation` for every imported namespace; the normative `TS_103_221_01.xsd` imports the 103280 common namespace and the X1 HashedID namespace without one. This wrapper supplies those locations and imports the normative schema unchanged. It also imports the 3GPP X1 extension schema that accompanies TS 33.128 V19.7.0 (`../../3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd`, namespace `urn:3GPP:ns:li:3GPPX1Extensions:r19:v4`), because the ETSI `Extension` wildcard is strict and 3GPP extension content (e.g. `IdentifierAssociationExtensions`) would otherwise fail validation (ADR-0440) (its own `targetNamespace` is the project URN `urn:5gc-r19:li:x1-validation-wrapper`). The authoritative schema remains ETSI's `TS_103_221_01.xsd`. |
 
 ## Specification documents (NOT committed)
 
