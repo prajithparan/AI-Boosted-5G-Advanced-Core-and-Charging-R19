@@ -1,0 +1,14 @@
+{
+  "port": 7810,
+  "bind_address": "127.0.0.1",
+  "metrics_bind_address": "127.0.0.1:9510",
+  "product_catalog_base_url": "https://127.0.0.1:7785",
+  "provisioning_base_url": "https://127.0.0.1:7790",
+  "static_dir": "gui/web/dist",
+  "server_cert_path": "certs/oam-gui-bff/cert.pem",
+  "server_key_path": "certs/oam-gui-bff/key.pem",
+  "operator_ca_path": "certs/oam-operator-ca/ca.crt",
+  "client_cert_path": "certs/oam-gui-bff/cert.pem",
+  "client_key_path": "certs/oam-gui-bff/key.pem",
+  "service_ca_path": "certs/ca/ca.crt"
+}

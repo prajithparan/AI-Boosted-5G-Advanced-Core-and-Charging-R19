@@ -1,0 +1,27 @@
+{
+  "name": "5gc-r19-oam-gui",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Phase 7 operator GUI: JSON-Schema-driven TMF620 catalog and customer onboarding screens (ADR-0420). Served by gui/bff (oam-gui-bff).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "licenses": "python3 scripts/check_licenses.py package-lock.json"
+  },
+  "dependencies": {
+    "@jsonforms/core": "3.8.0",
+    "@jsonforms/react": "3.8.0",
+    "@jsonforms/vanilla-renderers": "3.8.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.1"
+  }
+}
