@@ -18,6 +18,11 @@ namespace {
 
 constexpr const char* kX1Ns = "http://uri.etsi.org/03221/X1/2017/10";
 constexpr const char* kXsiNs = "http://www.w3.org/2001/XMLSchema-instance";
+// The 3GPP X1 extension namespace (TS 33.128 V19.7.0 attachment
+// urn_3GPP_ns_li_3GPPX1Extensions.xsd). Extension content is matched on namespace AND local name:
+// an ETSI Extension is <xs:any namespace="##other"/>, so a bare local-name match could pick up
+// an unrelated vendor's element of the same name.
+constexpr const char* k3gppX1ExtNs = "urn:3GPP:ns:li:3GPPX1Extensions:r19:v4";
 
 // The one schema, loaded once (the wrapper that wires the 103280 + HashedID imports). The X1
 // interface is served on NF worker threads (the AMF POI, increment 4), so libxml2's global
@@ -145,6 +150,65 @@ TargetIdentifier read_target(xmlNodePtr ti) {
     return out;
 }
 
+bool is_ns(xmlNodePtr node, const char* ns, const char* name) {
+    return is(node, name) && node->ns != nullptr && node->ns->href != nullptr &&
+           xmlStrcmp(node->ns->href, reinterpret_cast<const xmlChar*>(ns)) == 0;
+}
+
+xmlNodePtr child_ns(xmlNodePtr parent, const char* ns, const char* name) {
+    for (xmlNodePtr n = parent->children; n != nullptr; n = n->next) {
+        if (is_ns(n, ns, name)) {
+            return n;
+        }
+    }
+    return nullptr;
+}
+
+// An IdentifierAssociationExtensions-typed element (either the global
+// <IdentifierAssociationExtensions> or <X1Extensions><IdentifierAssociation>): its one mandatory
+// child IdentifierAssociationEventsGenerated, an xs:string enumeration {IdentifierAssociation,
+// All}. The document is schema-validated before this runs, so any other value never gets here;
+// nullopt is defensive only.
+std::optional<IdentifierAssociationEventsGenerated> read_identifier_association(xmlNodePtr ext) {
+    xmlNodePtr eg = child_ns(ext, k3gppX1ExtNs, "IdentifierAssociationEventsGenerated");
+    if (eg == nullptr) {
+        return std::nullopt;
+    }
+    const std::string v = node_text(eg);
+    if (v == "IdentifierAssociation") {
+        return IdentifierAssociationEventsGenerated::IdentifierAssociation;
+    }
+    if (v == "All") {
+        return IdentifierAssociationEventsGenerated::All;
+    }
+    return std::nullopt;
+}
+
+// TS 33.128 table 6.2.2.1.1-1: TaskDetailsExtensions/IdentifierAssociationExtensions. A
+// TaskDetails may carry several taskDetailsExtensions (maxOccurs unbounded), each an ETSI
+// Extension (Owner + ##other wildcard content); scan them all.
+std::optional<IdentifierAssociationEventsGenerated> read_task_gating(xmlNodePtr td) {
+    for (xmlNodePtr ext = td->children; ext != nullptr; ext = ext->next) {
+        if (!is(ext, "taskDetailsExtensions")) {
+            continue;
+        }
+        for (xmlNodePtr n = ext->children; n != nullptr; n = n->next) {
+            if (is_ns(n, k3gppX1ExtNs, "IdentifierAssociationExtensions")) {
+                if (auto g = read_identifier_association(n)) {
+                    return g;
+                }
+            } else if (is_ns(n, k3gppX1ExtNs, "X1Extensions")) {
+                if (xmlNodePtr ia = child_ns(n, k3gppX1ExtNs, "IdentifierAssociation")) {
+                    if (auto g = read_identifier_association(ia)) {
+                        return g;
+                    }
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 DeliveryType read_delivery(const std::string& s) {
     if (s == "X2Only") {
         return DeliveryType::X2Only;
@@ -206,6 +270,7 @@ TaskDetails read_task_details(xmlNodePtr td) {
     if (auto c = child_text(td, "implicitDeactivationAllowed")) {
         task.implicit_deactivation_allowed = (*c == "true" || *c == "1");
     }
+    task.identifier_association_events = read_task_gating(td);
     return task;
 }
 

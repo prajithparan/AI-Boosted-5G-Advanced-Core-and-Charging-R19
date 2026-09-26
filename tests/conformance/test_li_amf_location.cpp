@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "li_location.hpp"
+#include "ngap_core/ngap_codec.hpp"
 
 #include <gtest/gtest.h>
 
@@ -104,4 +105,43 @@ TEST(LiAmfLocation, UnmodelledBranchReturnsNullopt) {
     uli.present = UserLocationInformation_PR_userLocationInformationN3IWF;
     uli.choice.userLocationInformationN3IWF = nullptr;
     EXPECT_FALSE(amf::parse_user_location(uli).has_value());
+}
+
+// ADR-0440: the AMF's LI hooks read the location straight out of an NGAP message's IE container
+// (UplinkNASTransport / PathSwitchRequest / HandoverNotify, where id-UserLocationInformation = 121
+// is mandatory). Round-trip a real PER-encoded IE through user_location_from_ies.
+TEST(LiAmfLocation, DecodesUserLocationFromAnIeContainer) {
+    UserLocationInformation uli{};
+    uli.present = UserLocationInformation_PR_userLocationInformationNR;
+    auto* nr =
+        static_cast<UserLocationInformationNR*>(std::calloc(1, sizeof(UserLocationInformationNR)));
+    set_plmn(nr->nR_CGI.pLMNIdentity, "999", "70");
+    set_cell_id(nr->nR_CGI.nRCellIdentity, 0x000000ABCULL, 36);
+    set_plmn(nr->tAI.pLMNIdentity, "999", "70");
+    set_octets(nr->tAI.tAC, {0x00, 0x00, 0x01});
+    uli.choice.userLocationInformationNR = nr;
+
+    ConcreteProtocolIE_Container_t container{};
+    ::ngap::add_ie(container,
+                   ::ngap::make_ie(121 /* id-UserLocationInformation */,
+                                   Criticality_ignore,
+                                   &asn_DEF_UserLocationInformation,
+                                   &uli));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_UserLocationInformation, &uli);
+
+    const auto loc = amf::user_location_from_ies(container);
+    ASSERT_TRUE(loc.has_value());
+    ASSERT_TRUE(loc->nr.has_value());
+    EXPECT_EQ(loc->nr->ncgi.plmn.mcc, "999");
+    EXPECT_EQ(loc->nr->ncgi.plmn.mnc, "70");
+    EXPECT_EQ(loc->nr->ncgi.nr_cell_id, 0x000000ABCULL);
+    ASSERT_EQ(loc->nr->tai.tac.size(), 3u);
+    EXPECT_EQ(loc->nr->tai.tac[2], 0x01);
+
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_ConcreteProtocolIE_Container, &container);
+}
+
+TEST(LiAmfLocation, IeContainerWithoutUserLocationReturnsNullopt) {
+    ConcreteProtocolIE_Container_t container{};
+    EXPECT_FALSE(amf::user_location_from_ies(container).has_value());
 }

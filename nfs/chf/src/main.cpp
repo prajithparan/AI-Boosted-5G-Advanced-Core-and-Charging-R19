@@ -535,7 +535,10 @@ int main() {
     // P4.5/ADR-0060 (E5): real RatingDecision audit table -- see rating_decision_store.hpp's own
     // header for the same graceful-degradation design principle CdrWriter already established
     // (ADR-0058): a PostgreSQL outage must never crash or block real-time charging.
-    chf::RatingDecisionStore rating_decision_store(rating_database_url);
+    chf::RatingDecisionStore rating_decision_store(
+        rating_database_url,
+        static_cast<std::size_t>(
+            nf_config::require<int>(config, "rating_db_pool_size", "CHF_RATING_DB_POOL_SIZE")));
     if (!rating_decision_store.is_connected()) {
         nf_config::fatal("chf: PostgreSQL (RatingDecision audit store) is unreachable at startup");
     }
