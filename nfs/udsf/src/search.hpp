@@ -23,6 +23,7 @@
 //     record store does).
 
 #include <nlohmann/json.hpp>
+
 #include <optional>
 #include <set>
 #include <string>

@@ -62,8 +62,8 @@ std::optional<std::string> extract_boundary(const std::string& content_type_head
 
 std::string media_type_of(const std::string& content_type_header) {
     const auto semi = content_type_header.find(';');
-    return to_lower(
-        trim(semi == std::string::npos ? content_type_header : content_type_header.substr(0, semi)));
+    return to_lower(trim(semi == std::string::npos ? content_type_header
+                                                   : content_type_header.substr(0, semi)));
 }
 
 // The RFC 2046 framing shared by every multipart subtype. `what` only names the subtype in error

@@ -109,11 +109,11 @@ struct MediationDetails {
     std::vector<std::string> dids;
 };
 
-// TS 33.128 V19.7.0 table 6.2.2.1.1-2 / clause 6.2.2.2.1: the per-task gating parameter that decides
-// whether the IRI-POI in the AMF generates AMFIdentifierAssociation / AMFIdentifierDeassociation
-// records (and, in IdentifierAssociation mode, restricts the target to those plus
-// AMFLocationUpdate). Carried in a TaskDetails taskDetailsExtensions (an ETSI Extension: Owner +
-// <xs:any namespace="##other"/>) as the 3GPP X1 extension schema's
+// TS 33.128 V19.7.0 table 6.2.2.1.1-2 / clause 6.2.2.2.1: the per-task gating parameter that
+// decides whether the IRI-POI in the AMF generates AMFIdentifierAssociation /
+// AMFIdentifierDeassociation records (and, in IdentifierAssociation mode, restricts the target to
+// those plus AMFLocationUpdate). Carried in a TaskDetails taskDetailsExtensions (an ETSI Extension:
+// Owner + <xs:any namespace="##other"/>) as the 3GPP X1 extension schema's
 //   <IdentifierAssociationExtensions><IdentifierAssociationEventsGenerated>
 // or, through the schema's X1Extension choice, as
 //   <X1Extensions><IdentifierAssociation><IdentifierAssociationEventsGenerated>

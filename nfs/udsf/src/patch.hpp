@@ -13,8 +13,9 @@
 //   * all-or-nothing: PatchRecord -- "If one or more modification instructions cannot be applied,
 //     no changes shall be made to record ... 422 with the execution report" (5.2.2.4.8).
 
-#include <functional>
 #include <nlohmann/json.hpp>
+
+#include <functional>
 #include <string>
 #include <tl/expected.hpp>
 #include <vector>
@@ -24,7 +25,8 @@
 namespace udsf {
 
 // Decodes a JSON Patch request body (array of PatchItem, minItems 1).
-tl::expected<std::vector<sbi_gen::PatchItem>, std::string> parse_patch_items(const std::string& body);
+tl::expected<std::vector<sbi_gen::PatchItem>, std::string>
+parse_patch_items(const std::string& body);
 
 nlohmann::json to_rfc6902(const sbi_gen::PatchItem& item);
 

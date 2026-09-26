@@ -2,11 +2,12 @@
 
 #include "sbi_core/uuid.hpp"
 
+#include <openssl/evp.h>
+
 #include <array>
 #include <chrono>
 #include <cstring>
 #include <ctime>
-#include <openssl/evp.h>
 
 namespace udsf {
 
@@ -51,8 +52,8 @@ std::optional<EtagCondition> parse_etag_condition(const std::optional<std::strin
     std::size_t pos = 0;
     while (pos <= v.size()) {
         const auto comma = v.find(',', pos);
-        std::string item = trim(v.substr(pos, comma == std::string::npos ? std::string::npos
-                                                                          : comma - pos));
+        std::string item =
+            trim(v.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos));
         if (!item.empty()) {
             c.tags.push_back(item);
         }

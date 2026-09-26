@@ -10,7 +10,9 @@
 
 namespace udsf {
 
-Response problem(int status, const std::string& title, const std::string& detail,
+Response problem(int status,
+                 const std::string& title,
+                 const std::string& detail,
                  const std::optional<std::string>& cause) {
     Response r;
     r.status = status;
@@ -19,8 +21,11 @@ Response problem(int status, const std::string& title, const std::string& detail
     return r;
 }
 
-Response extended_problem(int status, const std::string& title, const std::string& detail,
-                          const std::string& cause, const nlohmann::json& stored_meta) {
+Response extended_problem(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          const std::string& cause,
+                          const nlohmann::json& stored_meta) {
     nlohmann::json j = sbi_core::make_problem_details(status, title, detail, cause);
     j["meta"] = stored_meta; // ProblemDetailsExtension -> Record{meta}
     Response r;
@@ -32,8 +37,9 @@ Response extended_problem(int status, const std::string& title, const std::strin
 
 std::optional<std::string> header(const Request& req, const std::string& name) {
     std::string key = name;
-    std::transform(key.begin(), key.end(), key.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
     const auto it = req.headers.find(key);
     if (it == req.headers.end()) {
         return std::nullopt;
@@ -55,20 +61,22 @@ bool query_flag(const Request& req, const std::string& name) {
 }
 
 tl::expected<std::optional<std::int64_t>, std::string> query_uint(const Request& req,
-                                                                   const std::string& name) {
+                                                                  const std::string& name) {
     const auto v = query(req, name);
     if (!v) {
         return std::optional<std::int64_t>{};
     }
-    if (v->empty() || !std::all_of(v->begin(), v->end(), [](unsigned char c) {
-            return std::isdigit(c) != 0;
-        }) || v->size() > 18) {
+    if (v->empty() ||
+        !std::all_of(v->begin(), v->end(), [](unsigned char c) { return std::isdigit(c) != 0; }) ||
+        v->size() > 18) {
         return tl::unexpected(name + " shall be an unsigned integer (Uinteger)");
     }
     return std::optional<std::int64_t>(std::stoll(*v));
 }
 
-std::optional<Response> authorize(const Ctx& ctx, const Request& req, const std::string& scope,
+std::optional<Response> authorize(const Ctx& ctx,
+                                  const Request& req,
+                                  const std::string& scope,
                                   const std::string& api_uri) {
     const auto value = header(req, "authorization");
     if (!value) {
@@ -99,18 +107,21 @@ std::optional<Response> authorize(const Ctx& ctx, const Request& req, const std:
     std::size_t pos = 0;
     while (pos <= v.scope.size()) {
         const auto sp = v.scope.find(' ', pos);
-        scopes.push_back(v.scope.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos));
+        scopes.push_back(
+            v.scope.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos));
         if (sp == std::string::npos) {
             break;
         }
         pos = sp + 1;
     }
     if (std::find(scopes.begin(), scopes.end(), scope) == scopes.end()) {
-        auto r = problem(403, "Forbidden", "access token scope does not include " + scope,
+        auto r = problem(403,
+                         "Forbidden",
+                         "access token scope does not include " + scope,
                          "INSUFFICIENT_SCOPES");
-        r.headers.emplace("www-authenticate", "Bearer realm=\"" + api_uri +
-                                                  "\", error=\"insufficient_scope\", scope=\"" +
-                                                  scope + "\"");
+        r.headers.emplace("www-authenticate",
+                          "Bearer realm=\"" + api_uri +
+                              "\", error=\"insufficient_scope\", scope=\"" + scope + "\"");
         return r;
     }
     return std::nullopt;
@@ -118,15 +129,16 @@ std::optional<Response> authorize(const Ctx& ctx, const Request& req, const std:
 
 tl::expected<StorageRef, Response> resolve_storage(const Ctx& ctx, const Request& req) {
     StorageRef s{req.path_params.at("realmId"), req.path_params.at("storageId")};
-    const bool realm_known =
-        std::any_of(ctx.settings.storages.begin(), ctx.settings.storages.end(),
-                    [&](const auto& p) { return p.first == s.realm; });
+    const bool realm_known = std::any_of(ctx.settings.storages.begin(),
+                                         ctx.settings.storages.end(),
+                                         [&](const auto& p) { return p.first == s.realm; });
     if (!realm_known) {
         return tl::unexpected(
             problem(404, "Not Found", "realm " + s.realm + " is not served", "REALM_NOT_FOUND"));
     }
     if (ctx.settings.storages.count({s.realm, s.storage}) == 0) {
-        return tl::unexpected(problem(404, "Not Found",
+        return tl::unexpected(problem(404,
+                                      "Not Found",
                                       "storage " + s.storage + " is not served in realm " + s.realm,
                                       "STORAGE_NOT_FOUND"));
     }
@@ -163,8 +175,8 @@ Conditions conditions(const Request& req) {
     return c;
 }
 
-void add_validators(const Ctx& ctx, Response& r, const std::string& etag, std::int64_t lm,
-                    bool cacheable) {
+void add_validators(
+    const Ctx& ctx, Response& r, const std::string& etag, std::int64_t lm, bool cacheable) {
     if (!etag.empty()) {
         r.headers.emplace("etag", etag);
     }

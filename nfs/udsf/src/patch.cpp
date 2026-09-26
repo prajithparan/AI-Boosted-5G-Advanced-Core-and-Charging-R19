@@ -2,7 +2,8 @@
 
 namespace udsf {
 
-tl::expected<std::vector<sbi_gen::PatchItem>, std::string> parse_patch_items(const std::string& body) {
+tl::expected<std::vector<sbi_gen::PatchItem>, std::string>
+parse_patch_items(const std::string& body) {
     try {
         const auto j = nlohmann::json::parse(body);
         if (!j.is_array() || j.empty()) {

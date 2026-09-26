@@ -9,9 +9,10 @@
 #include "sbi_core/jwt.hpp"
 #include "sbi_core/multipart.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <map>
-#include <nlohmann/json.hpp>
 #include <optional>
 #include <set>
 #include <string>
@@ -41,8 +42,8 @@ inline constexpr const char* kTimerFeatures = "5";
 
 struct Settings {
     std::set<std::pair<std::string, std::string>> storages; // (realmId, storageId)
-    std::int64_t max_record_ttl_seconds = 0;                  // 0 = no operator ceiling
-    std::int64_t max_subscription_seconds = 0;                // 0 = no operator ceiling
+    std::int64_t max_record_ttl_seconds = 0;                // 0 = no operator ceiling
+    std::int64_t max_subscription_seconds = 0;              // 0 = no operator ceiling
     std::int64_t cache_max_age_seconds = 0;
     bool oauth2_required = false;
     std::string self_base; // https://<advertised>:<port>
@@ -55,13 +56,18 @@ struct Ctx {
 };
 
 // ---- errors -------------------------------------------------------------------------------------
-Response problem(int status, const std::string& title, const std::string& detail,
+Response problem(int status,
+                 const std::string& title,
+                 const std::string& detail,
                  const std::optional<std::string>& cause = std::nullopt);
 // ExtendedProblemDetails = ProblemDetails + ProblemDetailsExtension (anyOf Record | RecordMeta).
 // The Record alternative is used with only its (required) `meta`: blocks are opaque bytes and have
 // no JSON representation.
-Response extended_problem(int status, const std::string& title, const std::string& detail,
-                          const std::string& cause, const nlohmann::json& stored_meta);
+Response extended_problem(int status,
+                          const std::string& title,
+                          const std::string& detail,
+                          const std::string& cause,
+                          const nlohmann::json& stored_meta);
 
 // ---- request helpers ----------------------------------------------------------------------------
 std::optional<std::string> header(const Request& req, const std::string& name);
@@ -69,11 +75,11 @@ std::optional<std::string> query(const Request& req, const std::string& name);
 bool query_flag(const Request& req, const std::string& name); // "true" -> true
 // Positive integer query parameter; error text if present but malformed.
 tl::expected<std::optional<std::int64_t>, std::string> query_uint(const Request& req,
-                                                                   const std::string& name);
+                                                                  const std::string& name);
 
 // TS 29.500 6.7.3: 401/403 with WWW-Authenticate when the token is invalid / lacks `scope`.
-std::optional<Response> authorize(const Ctx& ctx, const Request& req, const std::string& scope,
-                                  const std::string& api_uri);
+std::optional<Response>
+authorize(const Ctx& ctx, const Request& req, const std::string& scope, const std::string& api_uri);
 tl::expected<StorageRef, Response> resolve_storage(const Ctx& ctx, const Request& req);
 
 struct Conditions {
@@ -88,8 +94,8 @@ struct Conditions {
 Conditions conditions(const Request& req);
 
 // Adds ETag, Last-Modified and (when `cacheable`) Cache-Control: max-age.
-void add_validators(const Ctx& ctx, Response& r, const std::string& etag, std::int64_t lm,
-                    bool cacheable);
+void add_validators(
+    const Ctx& ctx, Response& r, const std::string& etag, std::int64_t lm, bool cacheable);
 Response not_modified(const Ctx& ctx, const std::string& etag, std::int64_t lm);
 
 // Negotiated features: the intersection of ours and the consumer's supported-features (hex).

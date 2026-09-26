@@ -291,7 +291,7 @@ std::vector<std::size_t> event_indices(const std::vector<li_core::Pdu>& pdus) {
     return out;
 }
 
-constexpr std::size_t kRegistrationIdx = 0;   // xiri::Event alternative indices
+constexpr std::size_t kRegistrationIdx = 0; // xiri::Event alternative indices
 constexpr std::size_t kLocationUpdateIdx = 3;
 constexpr std::size_t kIdentifierAssociationIdx = 4;
 
@@ -327,7 +327,9 @@ TEST(LiAmfPoiGating, RecordMatrix) {
     EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierAssociation));
     EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierDeassociation));
     // All: everything.
-    for (auto r : {R::Registration, R::LocationUpdate, R::IdentifierAssociation,
+    for (auto r : {R::Registration,
+                   R::LocationUpdate,
+                   R::IdentifierAssociation,
                    R::IdentifierDeassociation}) {
         EXPECT_TRUE(amf::xiri_record_enabled(G::All, r));
     }

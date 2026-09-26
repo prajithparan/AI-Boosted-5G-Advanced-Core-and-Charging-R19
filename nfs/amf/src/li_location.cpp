@@ -1,7 +1,5 @@
 #include "li_location.hpp"
 
-#include <ngap_core/ngap_codec.hpp>
-
 #include <EUTRA-CGI.h>
 #include <NR-CGI.h>
 #include <TAI.h>
@@ -9,6 +7,7 @@
 #include <UserLocationInformationEUTRA.h>
 #include <UserLocationInformationNR.h>
 #include <cstdint>
+#include <ngap_core/ngap_codec.hpp>
 #include <string>
 #include <vector>
 

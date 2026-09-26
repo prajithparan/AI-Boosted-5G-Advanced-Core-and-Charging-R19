@@ -117,12 +117,12 @@ tl::expected<SearchExpr, std::string> parse_filter_param(const std::string& text
 
 bool uses_advanced_query(const SearchExpr& e) {
     switch (e.kind) {
-    case SearchExpr::Kind::Comparison:
-        return e.op != "EQ";
-    case SearchExpr::Kind::IdList:
-        return false;
-    case SearchExpr::Kind::Condition:
-        return true; // "shall not use the cond attribute" without AdvancedQuery (table 6.1.8-1)
+        case SearchExpr::Kind::Comparison:
+            return e.op != "EQ";
+        case SearchExpr::Kind::IdList:
+            return false;
+        case SearchExpr::Kind::Condition:
+            return true; // "shall not use the cond attribute" without AdvancedQuery (table 6.1.8-1)
     }
     return false;
 }
@@ -131,26 +131,27 @@ bool uses_id_list(const SearchExpr& e) {
     if (e.kind == SearchExpr::Kind::IdList) {
         return true;
     }
-    return std::any_of(e.units.begin(), e.units.end(), [](const auto& u) { return uses_id_list(u); });
+    return std::any_of(
+        e.units.begin(), e.units.end(), [](const auto& u) { return uses_id_list(u); });
 }
 
 tl::expected<std::set<std::string>, std::string> evaluate(const SearchExpr& e, TagIndex& index) {
     switch (e.kind) {
-    case SearchExpr::Kind::Comparison:
-        if (e.tag.empty() && e.op == "GTE") {
-            return index.all(); // 6.1.3.2.3.2: select every record
-        }
-        if (e.op == "EQ") {
-            return index.eq(e.tag, e.value);
-        }
-        if (e.op == "NEQ") {
-            return minus(index.all(), index.eq(e.tag, e.value));
-        }
-        return index.range(e.tag, e.op, e.value);
-    case SearchExpr::Kind::IdList:
-        return index.existing(e.ids);
-    case SearchExpr::Kind::Condition:
-        break;
+        case SearchExpr::Kind::Comparison:
+            if (e.tag.empty() && e.op == "GTE") {
+                return index.all(); // 6.1.3.2.3.2: select every record
+            }
+            if (e.op == "EQ") {
+                return index.eq(e.tag, e.value);
+            }
+            if (e.op == "NEQ") {
+                return minus(index.all(), index.eq(e.tag, e.value));
+            }
+            return index.range(e.tag, e.op, e.value);
+        case SearchExpr::Kind::IdList:
+            return index.existing(e.ids);
+        case SearchExpr::Kind::Condition:
+            break;
     }
     std::set<std::string> acc;
     bool first = true;

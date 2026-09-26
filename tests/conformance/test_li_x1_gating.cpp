@@ -44,7 +44,8 @@ std::string envelope(const std::string& type, const std::string& extensions) {
 </X1Request>)";
 }
 
-// TS 33.128 table 6.2.2.1.1-1's path, literally: TaskDetailsExtensions/IdentifierAssociationExtensions.
+// TS 33.128 table 6.2.2.1.1-1's path, literally:
+// TaskDetailsExtensions/IdentifierAssociationExtensions.
 std::string direct_form(const std::string& value) {
     return R"(
       <taskDetailsExtensions>
@@ -180,7 +181,8 @@ TEST(LiX1Gating, FoundAmongSeveralExtensions) {
 // ModifyTask carries a full TaskDetails, so it can set -- and, by omitting the extension, clear --
 // the gating.
 TEST(LiX1Gating, ModifyTaskCarriesTheGating) {
-    const auto set = parse_task(envelope("ModifyTaskRequest", direct_form("IdentifierAssociation")));
+    const auto set =
+        parse_task(envelope("ModifyTaskRequest", direct_form("IdentifierAssociation")));
     ASSERT_TRUE(set.identifier_association_events.has_value());
     const auto cleared = parse_task(envelope("ModifyTaskRequest", ""));
     EXPECT_FALSE(cleared.identifier_association_events.has_value());

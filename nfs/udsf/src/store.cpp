@@ -16,8 +16,8 @@ namespace {
 
 constexpr int kMaxAttempts = 32;
 
-std::string tag_key(const std::string& p, const char* kind, const std::string& tag,
-                    const std::string& value) {
+std::string
+tag_key(const std::string& p, const char* kind, const std::string& tag, const std::string& value) {
     return p + kind + ":" + std::to_string(tag.size()) + ":" + tag + ":" + value;
 }
 
@@ -50,8 +50,12 @@ std::int64_t ttl_ms_of(const nlohmann::json& meta) {
 }
 
 template <typename Tx>
-void queue_index(Tx& tx, const std::string& p, const char* kind, const std::string& id,
-                 const nlohmann::json& tags, bool add) {
+void queue_index(Tx& tx,
+                 const std::string& p,
+                 const char* kind,
+                 const std::string& id,
+                 const nlohmann::json& tags,
+                 bool add) {
     for (const auto& [tag, value] : tag_pairs(tags)) {
         if (add) {
             tx.sadd(tag_key(p, kind, tag, value), id);
@@ -65,8 +69,11 @@ void queue_index(Tx& tx, const std::string& p, const char* kind, const std::stri
 
 class IndexImpl : public TagIndex {
 public:
-    IndexImpl(std::shared_ptr<sw::redis::Redis> redis, std::string prefix, const char* kind,
-              std::string set_key, bool schema_capable)
+    IndexImpl(std::shared_ptr<sw::redis::Redis> redis,
+              std::string prefix,
+              const char* kind,
+              std::string set_key,
+              bool schema_capable)
         : redis_(std::move(redis)), p_(std::move(prefix)), kind_(kind),
           set_key_(std::move(set_key)), schema_capable_(schema_capable) {}
 
@@ -176,8 +183,8 @@ std::optional<ResourceRef> parse_record_uri(const std::string& uri) {
     std::size_t pos = 0;
     while (pos <= path.size()) {
         const auto slash = path.find('/', pos);
-        std::string part = path.substr(pos, slash == std::string::npos ? std::string::npos
-                                                                        : slash - pos);
+        std::string part =
+            path.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
         if (!part.empty()) {
             seg.push_back(part);
         }
@@ -227,8 +234,9 @@ Store::load_record(sw::redis::Redis& r, const StorageRef& s, const std::string& 
         b.data = bd[bid];
         rec.blocks.push_back(std::move(b));
     }
-    std::sort(rec.blocks.begin(), rec.blocks.end(),
-              [](const Block& a, const Block& b) { return a.id < b.id; });
+    std::sort(rec.blocks.begin(), rec.blocks.end(), [](const Block& a, const Block& b) {
+        return a.id < b.id;
+    });
     return rec;
 }
 
@@ -288,7 +296,8 @@ std::vector<Notification> Store::data_change_notifications(sw::redis::Redis& r,
         }
         if (sub.subFilter && sub.subFilter->operations && !sub.subFilter->operations->empty()) {
             const auto& ops = *sub.subFilter->operations;
-            if (std::none_of(ops.begin(), ops.end(), [&](const auto& o) { return o.value == op; })) {
+            if (std::none_of(
+                    ops.begin(), ops.end(), [&](const auto& o) { return o.value == op; })) {
                 continue;
             }
         }
@@ -343,7 +352,9 @@ Store::modify_record(const StorageRef& s,
             }
         }
         const auto notes = data_change_notifications(
-            r, s, out.before,
+            r,
+            s,
+            out.before,
             v == Verdict::Delete ? std::nullopt : std::optional<Record>(out.after));
 
         if (out.before) {
@@ -377,10 +388,8 @@ Store::modify_record(const StorageRef& s,
                 tx.hset(p + "blkd:" + id, b.id, b.data);
                 tx.hset(p + "blkm:" + id,
                         b.id,
-                        nlohmann::json{{"ct", b.content_type},
-                                       {"cte", b.cte},
-                                       {"etag", b.etag},
-                                       {"lm", b.lm}}
+                        nlohmann::json{
+                            {"ct", b.content_type}, {"cte", b.cte}, {"etag", b.etag}, {"lm", b.lm}}
                             .dump());
             }
             if (const auto ttl = ttl_ms_of(out.after.meta); ttl > 0) {
@@ -413,7 +422,8 @@ std::unique_ptr<TagIndex> Store::timer_index(const StorageRef& s) {
 
 // ---- generic documents -------------------------------------------------------------------------
 
-std::optional<Doc> Store::load_doc(sw::redis::Redis& r, const std::string& key, const std::string& id) {
+std::optional<Doc>
+Store::load_doc(sw::redis::Redis& r, const std::string& key, const std::string& id) {
     std::unordered_map<std::string, std::string> h;
     r.hgetall(key, std::inserter(h, h.end()));
     if (h.empty() || h.count("body") == 0) {
@@ -507,8 +517,12 @@ Store::modify_sub(const StorageRef& s,
     const std::string p = s.prefix();
     const std::string key = p + "sub:" + id;
     return modify_doc(
-        *redis_, key, p + "subs", id,
-        [&](sw::redis::Redis& r) { return load_doc(r, key, id); }, fn,
+        *redis_,
+        key,
+        p + "subs",
+        id,
+        [&](sw::redis::Redis& r) { return load_doc(r, key, id); },
+        fn,
         [&](auto& tx, const std::optional<Doc>&, const Doc* after) {
             tx.zrem(p + "due:subexp", id);
             tx.zrem(p + "due:subnot", id);
@@ -535,8 +549,12 @@ Store::modify_schema(const StorageRef& s,
     const std::string p = s.prefix();
     const std::string key = p + "schema:" + id;
     return modify_doc(
-        *redis_, key, p + "schemas", id,
-        [&](sw::redis::Redis& r) { return load_doc(r, key, id); }, fn,
+        *redis_,
+        key,
+        p + "schemas",
+        id,
+        [&](sw::redis::Redis& r) { return load_doc(r, key, id); },
+        fn,
         [](auto&, const std::optional<Doc>&, const Doc*) {});
 }
 
@@ -555,12 +573,16 @@ Store::DocTx Store::modify_timer(const StorageRef& s,
     const std::string p = s.prefix();
     const std::string key = p + "tmr:" + id;
     return modify_doc(
-        *redis_, key, p + "timers", id,
-        [&](sw::redis::Redis& r) { return load_doc(r, key, id); }, fn,
+        *redis_,
+        key,
+        p + "timers",
+        id,
+        [&](sw::redis::Redis& r) { return load_doc(r, key, id); },
+        fn,
         [&](auto& tx, const std::optional<Doc>& before, const Doc* after) {
             if (before) {
-                queue_index(tx, p, "ttag", id, before->body.value("metaTags", nlohmann::json()),
-                            false);
+                queue_index(
+                    tx, p, "ttag", id, before->body.value("metaTags", nlohmann::json()), false);
                 if (before->body.contains("schemaId") && before->body["schemaId"].is_string()) {
                     tx.srem(p + "tschema:" + before->body["schemaId"].get<std::string>(), id);
                 }
@@ -568,8 +590,8 @@ Store::DocTx Store::modify_timer(const StorageRef& s,
             tx.zrem(p + "due:tmr", id);
             tx.zrem(p + "due:tmrdel", id);
             if (after != nullptr) {
-                queue_index(tx, p, "ttag", id, after->body.value("metaTags", nlohmann::json()),
-                            true);
+                queue_index(
+                    tx, p, "ttag", id, after->body.value("metaTags", nlohmann::json()), true);
                 if (after->body.contains("schemaId") && after->body["schemaId"].is_string()) {
                     tx.sadd(p + "tschema:" + after->body["schemaId"].get<std::string>(), id);
                 }
@@ -583,12 +605,18 @@ Store::DocTx Store::modify_timer(const StorageRef& s,
         });
 }
 
-std::vector<std::string> Store::claim_due(const StorageRef& s, const std::string& which,
-                                          std::int64_t now, long limit) {
+std::vector<std::string>
+Store::claim_due(const StorageRef& s, const std::string& which, std::int64_t now, long limit) {
     const std::string key = s.prefix() + "due:" + which;
     std::vector<std::string> claimed;
-    for (const auto& m : run(*redis_, {"ZRANGEBYSCORE", key, "-inf", std::to_string(now), "LIMIT",
-                                       "0", std::to_string(limit)})) {
+    for (const auto& m : run(*redis_,
+                             {"ZRANGEBYSCORE",
+                              key,
+                              "-inf",
+                              std::to_string(now),
+                              "LIMIT",
+                              "0",
+                              std::to_string(limit)})) {
         if (redis_->zrem(key, m) == 1) {
             claimed.push_back(m);
         }
@@ -596,7 +624,9 @@ std::vector<std::string> Store::claim_due(const StorageRef& s, const std::string
     return claimed;
 }
 
-void Store::schedule(const StorageRef& s, const std::string& which, const std::string& member,
+void Store::schedule(const StorageRef& s,
+                     const std::string& which,
+                     const std::string& member,
                      std::int64_t at_ms) {
     redis_->zadd(s.prefix() + "due:" + which, member, static_cast<double>(at_ms));
 }

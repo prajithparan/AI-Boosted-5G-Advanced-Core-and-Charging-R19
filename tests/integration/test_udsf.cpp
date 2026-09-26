@@ -16,7 +16,6 @@
 
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
-#include <sw/redis++/redis++.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -25,6 +24,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <sw/redis++/redis++.h>
 #include <thread>
 #include <vector>
 
@@ -69,8 +69,8 @@ public:
         }
         return s;
     }
-    std::set<std::string> range(const std::string& tag, const std::string& op,
-                                const std::string& value) override {
+    std::set<std::string>
+    range(const std::string& tag, const std::string& op, const std::string& value) override {
         std::set<std::string> s;
         for (const auto& [id, tags] : recs) {
             auto it = tags.find(tag);
@@ -78,8 +78,10 @@ public:
                 continue;
             }
             for (const auto& v : it->second) {
-                const bool hit = op == "GT" ? v > value : op == "GTE" ? v >= value
-                                         : op == "LT" ? v < value : v <= value;
+                const bool hit = op == "GT"    ? v > value
+                                 : op == "GTE" ? v >= value
+                                 : op == "LT"  ? v < value
+                                               : v <= value;
                 if (hit) {
                     s.insert(id);
                 }
@@ -128,13 +130,15 @@ TEST(UdsfLogic, SearchComparisonAndConditions) {
     EXPECT_EQ(eval({{"op", "GT"}, {"tag", "supi"}, {"value", "imsi-001"}}, f), (S{"r2", "r3"}));
     EXPECT_EQ(eval({{"op", "LTE"}, {"tag", "supi"}, {"value", "imsi-002"}}, f), (S{"r1", "r2"}));
     EXPECT_EQ(eval({{"cond", "OR"},
-                    {"units", json::array({{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-001"}},
-                                           {{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-003"}}})}},
+                    {"units",
+                     json::array({{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-001"}},
+                                  {{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-003"}}})}},
                    f),
               (S{"r1", "r3"}));
     EXPECT_EQ(eval({{"cond", "AND"},
-                    {"units", json::array({{{"op", "EQ"}, {"tag", "dnn"}, {"value", "ims"}},
-                                           {{"op", "EQ"}, {"tag", "dnn"}, {"value", "internet"}}})}},
+                    {"units",
+                     json::array({{{"op", "EQ"}, {"tag", "dnn"}, {"value", "ims"}},
+                                  {{"op", "EQ"}, {"tag", "dnn"}, {"value", "internet"}}})}},
                    f),
               (S{"r2"}));
     EXPECT_EQ(eval({{"cond", "NOT"},
@@ -148,13 +152,15 @@ TEST(UdsfLogic, SearchComparisonAndConditions) {
 
 TEST(UdsfLogic, SearchCardinalityAndShapeAreEnforced) {
     const json one = {{"op", "EQ"}, {"tag", "a"}, {"value", "b"}};
-    EXPECT_FALSE(udsf::parse_search_expression({{"cond", "NOT"}, {"units", json::array({one, one})}}));
+    EXPECT_FALSE(
+        udsf::parse_search_expression({{"cond", "NOT"}, {"units", json::array({one, one})}}));
     EXPECT_FALSE(udsf::parse_search_expression({{"cond", "AND"}, {"units", json::array({one})}}));
-    EXPECT_FALSE(udsf::parse_search_expression({{"cond", "XOR"}, {"units", json::array({one, one})}}));
+    EXPECT_FALSE(
+        udsf::parse_search_expression({{"cond", "XOR"}, {"units", json::array({one, one})}}));
     EXPECT_FALSE(udsf::parse_search_expression({{"op", "LIKE"}, {"tag", "a"}, {"value", "b"}}));
     EXPECT_FALSE(udsf::parse_search_expression({{"op", "EQ"}, {"tag", "a"}})); // value missing
-    EXPECT_FALSE(udsf::parse_search_expression({{"op", "EQ"}, {"tag", "a"}, {"value", "b"},
-                                                {"recordIdList", json::array({"x"})}}));
+    EXPECT_FALSE(udsf::parse_search_expression(
+        {{"op", "EQ"}, {"tag", "a"}, {"value", "b"}, {"recordIdList", json::array({"x"})}}));
     EXPECT_FALSE(udsf::parse_filter_param("{not json"));
     // SearchCondition.schemaId on records cannot be honoured (RecordMeta has no schemaId in the
     // R19 YAML) -- an error, never a silently ignored filter.
@@ -169,7 +175,8 @@ TEST(UdsfLogic, JsonPatchItemwiseAndAtomic) {
     auto items = udsf::parse_patch_items(
         R"([{"op":"replace","path":"/a","value":2},{"op":"remove","path":"/missing"},{"op":"add","path":"/b","value":"x"}])");
     ASSERT_TRUE(items);
-    auto r = udsf::apply_itemwise(json{{"a", 1}}, *items, [](const json&) { return std::string(); });
+    auto r =
+        udsf::apply_itemwise(json{{"a", 1}}, *items, [](const json&) { return std::string(); });
     EXPECT_EQ(r.document, (json{{"a", 2}, {"b", "x"}}));
     ASSERT_EQ(r.discarded.size(), 1U);
     EXPECT_EQ(r.discarded[0].path, "/missing");
@@ -191,7 +198,7 @@ TEST(UdsfLogic, ConditionalRequestHelpers) {
     auto list = udsf::parse_etag_condition("\"x\", " + tag);
     EXPECT_TRUE(udsf::if_match_passes(*list, tag));
     auto weak = udsf::parse_etag_condition("W/" + tag);
-    EXPECT_FALSE(udsf::if_match_passes(*weak, tag)); // strong comparison
+    EXPECT_FALSE(udsf::if_match_passes(*weak, tag));      // strong comparison
     EXPECT_FALSE(udsf::if_none_match_passes(*weak, tag)); // weak comparison
     EXPECT_EQ(udsf::parse_http_date(udsf::http_date(784111777)), 784111777);
     EXPECT_EQ(udsf::http_date(784111777), "Sun, 06 Nov 1994 08:49:37 GMT");
@@ -200,8 +207,10 @@ TEST(UdsfLogic, ConditionalRequestHelpers) {
 }
 
 TEST(UdsfLogic, MultipartMixedAndParallelRoundTrip) {
-    std::vector<mp::Part> parts{{"application/json", std::string("meta"), R"({"tags":{"a":["b"]}})"}};
-    mp::Part bin{"application/octet-stream", std::string("blk1"), std::string("\x00\r\n--x\x01", 6)};
+    std::vector<mp::Part> parts{
+        {"application/json", std::string("meta"), R"({"tags":{"a":["b"]}})"}};
+    mp::Part bin{
+        "application/octet-stream", std::string("blk1"), std::string("\x00\r\n--x\x01", 6)};
     bin.content_transfer_encoding = "binary";
     parts.push_back(bin);
     parts.push_back({"text/plain", std::string("empty"), ""});
@@ -231,8 +240,8 @@ constexpr int kReceiverPort = 19931;
 constexpr const char* kReceiver = "https://127.0.0.1:19931";
 
 std::string realm() {
-    static const std::string r = "udsf-it-" + std::to_string(::getpid()) + "-" +
-                                 std::to_string(std::time(nullptr));
+    static const std::string r =
+        "udsf-it-" + std::to_string(::getpid()) + "-" + std::to_string(std::time(nullptr));
     return r;
 }
 
@@ -273,7 +282,9 @@ struct Seen {
 class Receiver {
 public:
     Receiver()
-        : server_(ioc_, "127.0.0.1", kReceiverPort,
+        : server_(ioc_,
+                  "127.0.0.1",
+                  kReceiverPort,
                   sbi_core::http2::TlsConfig{.cert_path = CERTS_DIR "/hello-nf/cert.pem",
                                              .key_path = CERTS_DIR "/hello-nf/key.pem",
                                              .ca_path = CERTS_DIR "/ca/ca.crt"}) {
@@ -374,9 +385,12 @@ protected:
     static std::string base(const char* host = kUdsfA) {
         return std::string(host) + "/nudsf-dr/v1/" + realm() + "/S1";
     }
-    static std::string tbase() { return std::string(kUdsfA) + "/nudsf-timer/v1/" + realm() + "/S1"; }
+    static std::string tbase() {
+        return std::string(kUdsfA) + "/nudsf-timer/v1/" + realm() + "/S1";
+    }
 
-    sbi_core::http2::ClientResponse send(const std::string& method, const std::string& url,
+    sbi_core::http2::ClientResponse send(const std::string& method,
+                                         const std::string& url,
                                          const std::string& body = "",
                                          const std::string& ct = "",
                                          std::multimap<std::string, std::string> hdrs = {}) {
@@ -393,14 +407,18 @@ protected:
         return r ? *r : sbi_core::http2::ClientResponse{};
     }
 
-    sbi_core::http2::ClientResponse put_record(const std::string& id, const json& meta,
+    sbi_core::http2::ClientResponse put_record(const std::string& id,
+                                               const json& meta,
                                                const std::vector<mp::Part>& blocks = {},
                                                std::multimap<std::string, std::string> hdrs = {},
                                                const std::string& q = "") {
         std::vector<mp::Part> parts{{"application/json", std::string("meta"), meta.dump()}};
         parts.insert(parts.end(), blocks.begin(), blocks.end());
         const auto enc = mp::encode_subtype("mixed", parts);
-        return send("PUT", base() + "/records/" + id + q, enc.body, enc.content_type_header,
+        return send("PUT",
+                    base() + "/records/" + id + q,
+                    enc.body,
+                    enc.content_type_header,
                     std::move(hdrs));
     }
 
@@ -461,7 +479,8 @@ std::string token(sbi_core::http2::Client& c, const std::string& scope, const st
 // 5.2.2.3.2 / 5.2.2.2.2 / 5.2.2.4.2 / 5.2.2.5.2 with conditional requests and get-previous.
 TEST_F(Udsf, RecordCreateRetrieveUpdateDelete) {
     const json meta{{"tags", {{"supi", {"imsi-001010000000001"}}, {"dnn", {"ims"}}}}};
-    auto r = put_record("rec1", meta,
+    auto r = put_record("rec1",
+                        meta,
                         {block("b1", "application/octet-stream", std::string("\x00\x01\x02", 3)),
                          block("b2", "application/json", R"({"k":1})")});
     ASSERT_EQ(r.status, 201) << r.body;
@@ -488,7 +507,8 @@ TEST_F(Udsf, RecordCreateRetrieveUpdateDelete) {
     EXPECT_FALSE(header_of(g, "last-modified").empty());
     EXPECT_EQ(header_of(g, "cache-control"), "max-age=60");
 
-    EXPECT_EQ(send("GET", base() + "/records/rec1", "", "", {{"if-none-match", etag1}}).status, 304);
+    EXPECT_EQ(send("GET", base() + "/records/rec1", "", "", {{"if-none-match", etag1}}).status,
+              304);
     auto pre = send("GET", base() + "/records/rec1", "", "", {{"if-match", "\"stale\""}});
     EXPECT_EQ(pre.status, 412);
     EXPECT_EQ(cause(pre), "INCORRECT_CONDITIONAL_GET_REQUEST");
@@ -513,8 +533,8 @@ TEST_F(Udsf, RecordCreateRetrieveUpdateDelete) {
     auto u2 = put_record("rec1", meta2);
     EXPECT_EQ(u2.status, 204);
 
-    auto d412 = send("DELETE", base() + "/records/rec1?get-previous=true", "", "",
-                     {{"if-match", etag1}});
+    auto d412 =
+        send("DELETE", base() + "/records/rec1?get-previous=true", "", "", {{"if-match", etag1}});
     EXPECT_EQ(d412.status, 412);
     EXPECT_TRUE(mp::parse_any(header_of(d412, "content-type"), d412.body)); // RecordBody
     auto d = send("DELETE", base() + "/records/rec1?get-previous=true");
@@ -544,24 +564,31 @@ TEST_F(Udsf, RealmAndStorageNotFoundAndBadBodies) {
 
 // 5.2.2.2.3 Meta Retrieval, 5.2.2.4.4 Meta Update (item-wise, 200 PatchResult on discard).
 TEST_F(Udsf, MetaRetrievalAndUpdate) {
-    ASSERT_EQ(put_record("m1", json{{"tags", {{"ueId", {"455345"}}, {"recordId", {"1"}}}}}).status, 201);
+    ASSERT_EQ(put_record("m1", json{{"tags", {{"ueId", {"455345"}}, {"recordId", {"1"}}}}}).status,
+              201);
     auto g = send("GET", base() + "/records/m1/meta");
     ASSERT_EQ(g.status, 200);
     EXPECT_EQ(json::parse(g.body).get<sbi_gen::RecordMeta>().tags,
               (json{{"ueId", {"455345"}}, {"recordId", {"1"}}}));
-    auto p = send("PATCH", base() + "/records/m1/meta",
-                  R"([{"op":"replace","path":"/tags/ueId","value":["450005"]},{"op":"remove","path":"/tags/recordId"}])",
-                  "application/json-patch+json");
+    auto p = send(
+        "PATCH",
+        base() + "/records/m1/meta",
+        R"([{"op":"replace","path":"/tags/ueId","value":["450005"]},{"op":"remove","path":"/tags/recordId"}])",
+        "application/json-patch+json");
     EXPECT_EQ(p.status, 204) << p.body;
-    p = send("PATCH", base() + "/records/m1/meta",
-             R"([{"op":"add","path":"/tags/x","value":["1"]},{"op":"remove","path":"/tags/nope"},{"op":"add","path":"/tags/y","value":[]}])",
-             "application/json-patch+json");
+    p = send(
+        "PATCH",
+        base() + "/records/m1/meta",
+        R"([{"op":"add","path":"/tags/x","value":["1"]},{"op":"remove","path":"/tags/nope"},{"op":"add","path":"/tags/y","value":[]}])",
+        "application/json-patch+json");
     ASSERT_EQ(p.status, 200) << p.body;
     const auto pr = json::parse(p.body).get<sbi_gen::PatchResult>();
     ASSERT_EQ(pr.report.size(), 2U);
     g = send("GET", base() + "/records/m1/meta");
     EXPECT_EQ(json::parse(g.body)["tags"], (json{{"ueId", {"450005"}}, {"x", {"1"}}}));
-    EXPECT_EQ(send("PATCH", base() + "/records/nope/meta", R"([{"op":"remove","path":"/tags"}])",
+    EXPECT_EQ(send("PATCH",
+                   base() + "/records/nope/meta",
+                   R"([{"op":"remove","path":"/tags"}])",
                    "application/json-patch+json")
                   .status,
               404);
@@ -570,7 +597,9 @@ TEST_F(Udsf, MetaRetrievalAndUpdate) {
 // 5.2.2.2.4 / 5.2.2.2.5 / 5.2.2.3.3 / 5.2.2.4.3 / 5.2.2.5.3.
 TEST_F(Udsf, BlockLifecycle) {
     ASSERT_EQ(put_record("k1", json{{"tags", {{"t", {"1"}}}}}).status, 201);
-    auto c = send("PUT", base() + "/records/k1/blocks/blob", std::string("\x10\x20", 2),
+    auto c = send("PUT",
+                  base() + "/records/k1/blocks/blob",
+                  std::string("\x10\x20", 2),
                   "application/vnd.test");
     ASSERT_EQ(c.status, 201) << c.body;
     EXPECT_NE(header_of(c, "location").find("/records/k1/blocks/blob"), std::string::npos);
@@ -597,14 +626,17 @@ TEST_F(Udsf, BlockLifecycle) {
     ASSERT_TRUE(parts);
     EXPECT_EQ(parts->size(), 2U);
 
-    auto u = send("PUT", base() + "/records/k1/blocks/blob?get-previous=true", "new", "text/plain",
+    auto u = send("PUT",
+                  base() + "/records/k1/blocks/blob?get-previous=true",
+                  "new",
+                  "text/plain",
                   {{"if-match", etag}});
     ASSERT_EQ(u.status, 200);
     EXPECT_EQ(u.body, std::string("\x10\x20", 2)); // previous value
-    EXPECT_EQ(send("PUT", base() + "/records/k1/blocks/blob", "z", "text/plain",
-                   {{"if-match", etag}})
-                  .status,
-              412);
+    EXPECT_EQ(
+        send("PUT", base() + "/records/k1/blocks/blob", "z", "text/plain", {{"if-match", etag}})
+            .status,
+        412);
     EXPECT_EQ(send("PUT", base() + "/records/k1/blocks/blob", "z", "text/plain").status, 204);
     auto d = send("DELETE", base() + "/records/k1/blocks/blob?get-previous=true");
     ASSERT_EQ(d.status, 200);
@@ -617,13 +649,16 @@ TEST_F(Udsf, BlockLifecycle) {
 
 // 5.2.2.4.8 Record Partial Update (PartialRecordUpdate, all-or-nothing, 422 PatchResult).
 TEST_F(Udsf, RecordPartialUpdate) {
-    ASSERT_EQ(put_record("p1", json{{"tags", {{"a", {"1"}}}}},
-                         {block("old", "text/plain", "old-bytes"), block("keep", "text/plain", "k")})
-                  .status,
-              201);
-    const json patch = json::array({{{"op", "replace"}, {"path", "/meta/tags/a"}, {"value", {"2"}}},
-                                    {{"op", "remove"}, {"path", "/blocks/old"}},
-                                    {{"op", "add"}, {"path", "/blocks/fresh"}, {"value", "part-1"}}});
+    ASSERT_EQ(
+        put_record("p1",
+                   json{{"tags", {{"a", {"1"}}}}},
+                   {block("old", "text/plain", "old-bytes"), block("keep", "text/plain", "k")})
+            .status,
+        201);
+    const json patch =
+        json::array({{{"op", "replace"}, {"path", "/meta/tags/a"}, {"value", {"2"}}},
+                     {{"op", "remove"}, {"path", "/blocks/old"}},
+                     {{"op", "add"}, {"path", "/blocks/fresh"}, {"value", "part-1"}}});
     std::vector<mp::Part> body{{"application/json-patch+json", std::string("patch"), patch.dump()},
                                block("part-1", "application/octet-stream", "fresh-bytes")};
     auto enc = mp::encode_subtype("mixed", body);
@@ -640,7 +675,8 @@ TEST_F(Udsf, RecordPartialUpdate) {
     // One failing item -> nothing applied, 422 with the report.
     const json bad = json::array({{{"op", "replace"}, {"path", "/meta/tags/a"}, {"value", {"3"}}},
                                   {{"op", "remove"}, {"path", "/blocks/missing"}}});
-    enc = mp::encode_subtype("mixed", {{"application/json-patch+json", std::string("patch"), bad.dump()}});
+    enc = mp::encode_subtype("mixed",
+                             {{"application/json-patch+json", std::string("patch"), bad.dump()}});
     r = send("PATCH", base() + "/records/p1", enc.body, enc.content_type_header);
     ASSERT_EQ(r.status, 422) << r.body;
     EXPECT_EQ(json::parse(r.body).get<sbi_gen::PatchResult>().report.at(0).path, "/blocks/missing");
@@ -653,8 +689,9 @@ TEST_F(Udsf, SearchAndBulkDelete) {
     const std::string b2 = std::string(kUdsfA) + "/nudsf-dr/v1/" + realm() + "/S2";
     auto put2 = [&](const std::string& id, const json& tags, const std::string& blob) {
         const auto enc = mp::encode_subtype(
-            "mixed", {{"application/json", std::string("meta"), json{{"tags", tags}}.dump()},
-                      block("b", "text/plain", blob)});
+            "mixed",
+            {{"application/json", std::string("meta"), json{{"tags", tags}}.dump()},
+             block("b", "text/plain", blob)});
         return send("PUT", b2 + "/records/" + id, enc.body, enc.content_type_header).status;
     };
     ASSERT_EQ(put2("s1", {{"supi", {"imsi-1"}}, {"dnn", {"ims"}}}, "one"), 201);
@@ -669,7 +706,8 @@ TEST_F(Udsf, SearchAndBulkDelete) {
     EXPECT_EQ(d.count, 2);
     ASSERT_TRUE(d.references);
     EXPECT_EQ(d.references->size(), 2U);
-    r = search({{"cond", "NOT"}, {"units", json::array({{{"op", "EQ"}, {"tag", "dnn"}, {"value", "ims"}}})}});
+    r = search({{"cond", "NOT"},
+                {"units", json::array({{{"op", "EQ"}, {"tag", "dnn"}, {"value", "ims"}}})}});
     EXPECT_EQ(json::parse(r.body)["count"], 1);
     r = search({{"op", "GT"}, {"tag", "supi"}, {"value", "imsi-1"}}, "&limit-range=1");
     d = json::parse(r.body).get<sbi_gen::RecordSearchResultDescriptor>();
@@ -680,7 +718,9 @@ TEST_F(Udsf, SearchAndBulkDelete) {
     EXPECT_EQ(d.count, 3);
     EXPECT_FALSE(d.references);
     EXPECT_EQ(search({{"op", "EQ"}, {"tag", "dnn"}, {"value", "none"}}).status, 204);
-    EXPECT_EQ(search({{"cond", "AND"}, {"units", json::array({{{"op", "EQ"}, {"tag", "a"}, {"value", "b"}}})}}).status,
+    EXPECT_EQ(search({{"cond", "AND"},
+                      {"units", json::array({{{"op", "EQ"}, {"tag", "a"}, {"value", "b"}}})}})
+                  .status,
               400);
     EXPECT_EQ(send("GET", b2 + "/records").status, 400);
     EXPECT_EQ(send("GET", b2 + "/records?tag-count-filter=" + pct("{}")).status, 400);
@@ -699,21 +739,28 @@ TEST_F(Udsf, SearchAndBulkDelete) {
     EXPECT_EQ((*parts)[2].content_id, "s1/b");
     EXPECT_EQ((*parts)[2].body, "one");
     // max-payload-size caps the records included: 0 KB admits none, the descriptor still comes.
-    r = search({{"op", "GTE"}, {"tag", ""}, {"value", ""}}, "&retrieve-records=ONLY_META&max-payload-size=0");
+    r = search({{"op", "GTE"}, {"tag", ""}, {"value", ""}},
+               "&retrieve-records=ONLY_META&max-payload-size=0");
     parts = mp::parse_any(header_of(r, "content-type"), r.body);
     ASSERT_TRUE(parts);
     EXPECT_EQ(parts->size(), 1U);
 
     // Bulk delete by filter, then everything (GTE ""), then nothing left -> 204.
-    r = send("DELETE", b2 + "/records?filter=" + pct(json{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-1"}}.dump()));
+    r = send("DELETE",
+             b2 + "/records?filter=" +
+                 pct(json{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-1"}}.dump()));
     ASSERT_EQ(r.status, 200) << r.body;
     EXPECT_EQ(json::parse(r.body).get<sbi_gen::RecordDeleteResponse>().recordIdList,
               std::vector<std::string>{"s1"});
-    r = send("DELETE", b2 + "/records?filter=" + pct(json{{"op", "GTE"}, {"tag", ""}, {"value", ""}}.dump()));
+    r = send("DELETE",
+             b2 + "/records?filter=" + pct(json{{"op", "GTE"}, {"tag", ""}, {"value", ""}}.dump()));
     ASSERT_EQ(r.status, 200);
     EXPECT_EQ(json::parse(r.body)["recordIdList"].size(), 2U);
-    EXPECT_EQ(send("DELETE", b2 + "/records?filter=" + pct(json{{"op", "GTE"}, {"tag", ""}, {"value", ""}}.dump())).status,
-              204);
+    EXPECT_EQ(
+        send("DELETE",
+             b2 + "/records?filter=" + pct(json{{"op", "GTE"}, {"tag", ""}, {"value", ""}}.dump()))
+            .status,
+        204);
     EXPECT_EQ(send("DELETE", b2 + "/records").status, 400);
 }
 
@@ -731,7 +778,8 @@ TEST_F(Udsf, SubscriptionsAndDataChangeNotification) {
     ASSERT_EQ(r.status, 201) << r.body;
     EXPECT_FALSE(header_of(r, "location").empty());
     auto created = json::parse(r.body).get<sbi_gen::NotificationSubscription>();
-    EXPECT_TRUE(created.expiry.has_value()); // operator ceiling applied (UDSF_MAX_SUBSCRIPTION_SECONDS)
+    EXPECT_TRUE(
+        created.expiry.has_value()); // operator ceiling applied (UDSF_MAX_SUBSCRIPTION_SECONDS)
     EXPECT_EQ(created.supportedFeatures, "1");
 
     // Missing monitored record -> 409 with the missing URIs.
@@ -753,12 +801,15 @@ TEST_F(Udsf, SubscriptionsAndDataChangeNotification) {
 
     // A change to the monitored record reaches the callback (via the other replica, too).
     const auto enc = mp::encode_subtype(
-        "mixed", {{"application/json", std::string("meta"), json{{"tags", {{"t", {"2"}}}}}.dump()},
-                  block("x", "text/plain", "payload")});
-    ASSERT_EQ(send("PUT", base(kUdsfB) + "/records/w1", enc.body, enc.content_type_header).status, 204);
+        "mixed",
+        {{"application/json", std::string("meta"), json{{"tags", {{"t", {"2"}}}}}.dump()},
+         block("x", "text/plain", "payload")});
+    ASSERT_EQ(send("PUT", base(kUdsfB) + "/records/w1", enc.body, enc.content_type_header).status,
+              204);
     auto got = receiver_->wait("/data-change", 1, 10s);
     ASSERT_EQ(got.size(), 1U);
-    EXPECT_EQ(got[0].headers.find("3gpp-sbi-callback")->second, "Nudsf_DataRepository_onDataChange");
+    EXPECT_EQ(got[0].headers.find("3gpp-sbi-callback")->second,
+              "Nudsf_DataRepository_onDataChange");
     auto parts = mp::parse_any(got[0].headers.find("content-type")->second, got[0].body);
     ASSERT_TRUE(parts) << parts.error();
     ASSERT_EQ(parts->size(), 3U);
@@ -769,11 +820,13 @@ TEST_F(Udsf, SubscriptionsAndDataChangeNotification) {
     EXPECT_EQ((*parts)[2].body, "payload");
 
     // Filter to DELETED only via PATCH; an update no longer notifies, a delete does.
-    r = send("PATCH", base() + "/subs-to-notify/sub1",
+    r = send("PATCH",
+             base() + "/subs-to-notify/sub1",
              R"([{"op":"add","path":"/subFilter/operations","value":["DELETED"]}])",
              "application/json-patch+json");
     EXPECT_EQ(r.status, 204) << r.body;
-    r = send("PATCH", base() + "/subs-to-notify/sub1",
+    r = send("PATCH",
+             base() + "/subs-to-notify/sub1",
              R"([{"op":"replace","path":"/clientId","value":{"nfSetId":"x"}}])",
              "application/json-patch+json");
     EXPECT_EQ(r.status, 200); // discarded: the owner cannot change
@@ -792,7 +845,10 @@ TEST_F(Udsf, SubscriptionsAndDataChangeNotification) {
     EXPECT_EQ(send("DELETE", base() + "/subs-to-notify/sub1").status, 400);
     EXPECT_EQ(cause(send("DELETE", base() + "/subs-to-notify/sub1?nfSetId=set-x")),
               "SUBSCRIPTION_EXISTS");
-    r = send("DELETE", base() + "/subs-to-notify/sub1?nfId=11111111-1111-4111-8111-111111111111&get-previous=true");
+    r = send(
+        "DELETE",
+        base() +
+            "/subs-to-notify/sub1?nfId=11111111-1111-4111-8111-111111111111&get-previous=true");
     ASSERT_EQ(r.status, 200) << r.body;
     EXPECT_EQ(json::parse(r.body).get<std::vector<sbi_gen::NotificationSubscription>>().size(), 1U);
     EXPECT_EQ(cause(send("GET", base() + "/subs-to-notify/sub1")), "SUBSCRIPTION_NOT_FOUND");
@@ -813,7 +869,8 @@ TEST_F(Udsf, RecordAndSubscriptionExpiry) {
               201);
     auto got = receiver_->wait("/record-expired", 1, 10s);
     ASSERT_EQ(got.size(), 1U);
-    EXPECT_NE(got[0].headers.find("content-location")->second.find("/records/e1"), std::string::npos);
+    EXPECT_NE(got[0].headers.find("content-location")->second.find("/records/e1"),
+              std::string::npos);
     auto parts = mp::parse_any(got[0].headers.find("content-type")->second, got[0].body);
     ASSERT_TRUE(parts);
     ASSERT_EQ(parts->size(), 2U);
@@ -827,12 +884,14 @@ TEST_F(Udsf, RecordAndSubscriptionExpiry) {
                    {"expiryCallbackReference", std::string(kReceiver) + "/sub-expiry"},
                    {"expiry", soon(2)},
                    {"expiryNotification", 0}};
-    ASSERT_EQ(send("PUT", base() + "/subs-to-notify/exp1", sub.dump(), "application/json").status, 201);
+    ASSERT_EQ(send("PUT", base() + "/subs-to-notify/exp1", sub.dump(), "application/json").status,
+              201);
     got = receiver_->wait("/sub-expiry", 1, 10s);
     ASSERT_EQ(got.size(), 1U);
     EXPECT_EQ(got[0].headers.find("3gpp-sbi-callback")->second,
               "Nudsf_DataRepository_subscriptionExpiryNotification");
-    const auto info = json::parse(got[0].body).get<sbi_gen::NotificationInfo_Nudsf_DataRepository>();
+    const auto info =
+        json::parse(got[0].body).get<sbi_gen::NotificationInfo_Nudsf_DataRepository>();
     ASSERT_EQ(info.expiredSubscriptions.size(), 1U);
     EXPECT_EQ(info.expiredSubscriptions[0].clientId.nfSetId, "set-e");
     EXPECT_EQ(send("GET", base() + "/subs-to-notify/exp1").status, 404);
@@ -840,8 +899,10 @@ TEST_F(Udsf, RecordAndSubscriptionExpiry) {
 
 // Meta Schema resource (5.2.2.2.9, 5.2.2.3.4, 5.2.2.4.7, 5.2.2.5.4).
 TEST_F(Udsf, MetaSchemaLifecycle) {
-    const json schema{{"schemaId", "sch1"},
-                      {"metaTags", json::array({{{"tagName", "supi"}, {"keyType", "SEARCH_KEY"}, {"sort", true}}})}};
+    const json schema{
+        {"schemaId", "sch1"},
+        {"metaTags",
+         json::array({{{"tagName", "supi"}, {"keyType", "SEARCH_KEY"}, {"sort", true}}})}};
     auto r = send("PUT", base() + "/meta-schemas/sch1", schema.dump(), "application/json");
     ASSERT_EQ(r.status, 201) << r.body;
     EXPECT_EQ(json::parse(r.body).get<sbi_gen::MetaSchema>().schemaId, "sch1");
@@ -851,9 +912,12 @@ TEST_F(Udsf, MetaSchemaLifecycle) {
     EXPECT_EQ(json::parse(r.body).get<sbi_gen::MetaSchema>().metaTags.size(), 1U);
     json bad = schema;
     bad["metaTags"][0].erase("sort");
-    EXPECT_EQ(send("PUT", base() + "/meta-schemas/sch1", bad.dump(), "application/json").status, 400);
-    EXPECT_EQ(send("PUT", base() + "/meta-schemas/other", schema.dump(), "application/json").status, 400);
-    EXPECT_EQ(send("PUT", base() + "/meta-schemas/sch1", schema.dump(), "application/json").status, 204);
+    EXPECT_EQ(send("PUT", base() + "/meta-schemas/sch1", bad.dump(), "application/json").status,
+              400);
+    EXPECT_EQ(send("PUT", base() + "/meta-schemas/other", schema.dump(), "application/json").status,
+              400);
+    EXPECT_EQ(send("PUT", base() + "/meta-schemas/sch1", schema.dump(), "application/json").status,
+              204);
     // Referenced by a timer -> SCHEMA_IN_USE.
     const json timer{{"expires", sbi_core::format_rfc3339(std::chrono::system_clock::now() + 1h)},
                      {"schemaId", "sch1"}};
@@ -872,7 +936,8 @@ TEST_F(Udsf, TimerService) {
     const auto at = [](std::chrono::milliseconds d) {
         return sbi_core::format_rfc3339(std::chrono::system_clock::now() + d);
     };
-    const json t1{{"expires", at(1h)}, {"metaTags", {{"supi", {"imsi-9"}}}},
+    const json t1{{"expires", at(1h)},
+                  {"metaTags", {{"supi", {"imsi-9"}}}},
                   {"callbackReference", std::string(kReceiver) + "/timer"}};
     auto r = send("PUT", tbase() + "/timers/t1", t1.dump(), "application/json");
     ASSERT_EQ(r.status, 201) << r.body;
@@ -890,9 +955,12 @@ TEST_F(Udsf, TimerService) {
     EXPECT_EQ(send("PUT", tbase() + "/timers/t2", with_id.dump(), "application/json").status, 400);
 
     // Tagged search / expired search.
-    r = send("GET", tbase() + "/timers?filter=" + pct(json{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-9"}}.dump()));
+    r = send("GET",
+             tbase() + "/timers?filter=" +
+                 pct(json{{"op", "EQ"}, {"tag", "supi"}, {"value", "imsi-9"}}.dump()));
     ASSERT_EQ(r.status, 200);
-    EXPECT_EQ(json::parse(r.body).get<sbi_gen::TimerIdList>().timerIds, std::vector<std::string>{"t1"});
+    EXPECT_EQ(json::parse(r.body).get<sbi_gen::TimerIdList>().timerIds,
+              std::vector<std::string>{"t1"});
     EXPECT_EQ(send("GET", tbase() + "/timers?expired-filter=null").status, 204);
     EXPECT_EQ(send("GET", tbase() + "/timers").status, 400);
 
@@ -919,16 +987,29 @@ TEST_F(Udsf, TimerService) {
     EXPECT_EQ(json::parse(r.body)["timerIds"], json::array({"t1"}));
 
     // Stop: single and by filter.
-    ASSERT_EQ(send("PUT", tbase() + "/timers/t3", json{{"expires", at(1h)}, {"metaTags", {{"g", {"x"}}}}}.dump(), "application/json").status, 201);
-    ASSERT_EQ(send("PUT", tbase() + "/timers/t4", json{{"expires", at(1h)}, {"metaTags", {{"g", {"x"}}}}}.dump(), "application/json").status, 201);
-    r = send("DELETE", tbase() + "/timers?filter=" + pct(json{{"op", "EQ"}, {"tag", "g"}, {"value", "x"}}.dump()));
+    ASSERT_EQ(send("PUT",
+                   tbase() + "/timers/t3",
+                   json{{"expires", at(1h)}, {"metaTags", {{"g", {"x"}}}}}.dump(),
+                   "application/json")
+                  .status,
+              201);
+    ASSERT_EQ(send("PUT",
+                   tbase() + "/timers/t4",
+                   json{{"expires", at(1h)}, {"metaTags", {{"g", {"x"}}}}}.dump(),
+                   "application/json")
+                  .status,
+              201);
+    r = send("DELETE",
+             tbase() +
+                 "/timers?filter=" + pct(json{{"op", "EQ"}, {"tag", "g"}, {"value", "x"}}.dump()));
     ASSERT_EQ(r.status, 200) << r.body;
     EXPECT_EQ(json::parse(r.body).get<sbi_gen::TimerDeleteResponse>().timerIds,
               (std::vector<std::string>{"t3", "t4"}));
     ASSERT_EQ(send("DELETE", tbase() + "/timers/t1").status, 204);
     EXPECT_EQ(cause(send("DELETE", tbase() + "/timers/t1")), "TIMER_NOT_FOUND");
-    EXPECT_EQ(cause(send("PATCH", tbase() + "/timers/t1", patch.dump(), "application/json-patch+json")),
-              "TIMER_NOT_FOUND");
+    EXPECT_EQ(
+        cause(send("PATCH", tbase() + "/timers/t1", patch.dump(), "application/json-patch+json")),
+        "TIMER_NOT_FOUND");
     EXPECT_EQ(send("DELETE", tbase() + "/timers?expired-filter=null").status, 204);
 }
 
@@ -955,8 +1036,12 @@ TEST_F(Udsf, RegisteredAndDiscoverable) {
     ASSERT_FALSE(tok.empty());
     json instances;
     for (int i = 0; i < 50 && instances.empty(); ++i) {
-        auto r = send("GET", std::string(kNrf) + "/nnrf-disc/v1/nf-instances?target-nf-type=UDSF&requester-nf-type=AMF",
-                      "", "", {{"authorization", "Bearer " + tok}});
+        auto r = send("GET",
+                      std::string(kNrf) +
+                          "/nnrf-disc/v1/nf-instances?target-nf-type=UDSF&requester-nf-type=AMF",
+                      "",
+                      "",
+                      {{"authorization", "Bearer " + tok}});
         if (r.status == 200) {
             instances = json::parse(r.body).value("nfInstances", json::array());
         }

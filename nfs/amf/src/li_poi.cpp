@@ -276,8 +276,7 @@ struct LiPoi::Impl {
         const auto now = static_cast<std::uint32_t>(std::time(nullptr));
         pdu.attributes.push_back(li_core::attr_sequence_number(next_sequence(matched.xid)));
         pdu.attributes.push_back(li_core::attr_network_function_id(config.network_function_id));
-        pdu.attributes.push_back(
-            li_core::attr_interception_point_id(config.interception_point_id));
+        pdu.attributes.push_back(li_core::attr_interception_point_id(config.interception_point_id));
         pdu.attributes.push_back(li_core::attr_timestamp(now, 0));
         pdu.attributes.push_back(li_core::attr_matched_target_identifier(
             "<" + matched.target.element + ">" + matched.target.value + "</" +

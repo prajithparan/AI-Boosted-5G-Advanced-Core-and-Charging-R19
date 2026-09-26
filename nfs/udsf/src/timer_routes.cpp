@@ -78,8 +78,9 @@ std::string validate_timer(const json& body, bool allow_timer_id) {
 // (Re)derives the schedule from the body: first expiry at `expires`, `repetitionCount` more.
 void schedule_from_body(Doc& d) {
     d.next_ms = to_ms(d.body.at("expires").get<std::string>());
-    d.left = d.body.contains("periodicRepetition") ? d.body.value("repetitionCount", std::int64_t{0})
-                                                   : 0;
+    d.left = d.body.contains("periodicRepetition")
+                 ? d.body.value("repetitionCount", std::int64_t{0})
+                 : 0;
 }
 
 bool expired(const Doc& d, std::int64_t now) {
@@ -123,7 +124,8 @@ void add_timer_routes(sbi_core::http2::Server& server, Ctx& ctx) {
         const auto filter_text = query(req, "filter");
         const bool expired_filter = query(req, "expired-filter").has_value();
         if (!filter_text && !expired_filter) {
-            return tl::unexpected(problem(400, "Bad Request",
+            return tl::unexpected(problem(400,
+                                          "Bad Request",
                                           "filter or expired-filter shall be present",
                                           std::string("MANDATORY_QUERY_PARAM_MISSING")));
         }
@@ -132,11 +134,12 @@ void add_timer_routes(sbi_core::http2::Server& server, Ctx& ctx) {
         if (filter_text) {
             auto expr = parse_filter_param(*filter_text);
             if (!expr) {
-                return tl::unexpected(problem(400, "Bad Request", expr.error(),
-                                              std::string("INVALID_QUERY_PARAM")));
+                return tl::unexpected(
+                    problem(400, "Bad Request", expr.error(), std::string("INVALID_QUERY_PARAM")));
             }
             if (uses_id_list(*expr)) {
-                return tl::unexpected(problem(400, "Bad Request",
+                return tl::unexpected(problem(400,
+                                              "Bad Request",
                                               "a RecordIdList does not select timers",
                                               std::string("INVALID_QUERY_PARAM")));
             }
@@ -164,202 +167,228 @@ void add_timer_routes(sbi_core::http2::Server& server, Ctx& ctx) {
 
     // ---- SearchTimer (5.3.2.5.2 expired, 5.3.2.5.3 tagged) --------------------------------------
     server.add_route("GET", timers, instrument("SearchTimer", [pre, select](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        auto ids = select(req, *s);
-        if (!ids) {
-            return ids.error();
-        }
-        if (ids->empty()) {
-            return empty(204);
-        }
-        sbi_gen::TimerIdList out;
-        out.timerIds.assign(ids->begin(), ids->end());
-        return json_response(200, json(out));
-    }));
+                         auto s = pre(req);
+                         if (!s) {
+                             return s.error();
+                         }
+                         auto ids = select(req, *s);
+                         if (!ids) {
+                             return ids.error();
+                         }
+                         if (ids->empty()) {
+                             return empty(204);
+                         }
+                         sbi_gen::TimerIdList out;
+                         out.timerIds.assign(ids->begin(), ids->end());
+                         return json_response(200, json(out));
+                     }));
 
-    // ---- DeleteTimers (5.3.2.4.3) ----------------------------------------------------------------
-    server.add_route("DELETE", timers, instrument("DeleteTimers", [&ctx, pre, select](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        auto ids = select(req, *s);
-        if (!ids) {
-            return ids.error();
-        }
-        std::vector<std::string> deleted;
-        std::vector<std::string> failed;
-        for (const auto& id : *ids) {
-            try {
-                auto tx = ctx.store.modify_timer(
-                    *s, id,
-                    [](const std::optional<Doc>& b, Doc&) {
-                        return b ? Verdict::Delete : Verdict::Abort;
-                    },
-                    timer_delete_at_ms);
-                if (tx.committed) {
-                    deleted.push_back(id);
-                }
-            } catch (const std::exception&) {
-                failed.push_back(id);
+    // ---- DeleteTimers (5.3.2.4.3)
+    // ----------------------------------------------------------------
+    server.add_route(
+        "DELETE", timers, instrument("DeleteTimers", [&ctx, pre, select](const Request& req) {
+            auto s = pre(req);
+            if (!s) {
+                return s.error();
             }
-        }
-        if (deleted.empty() && failed.empty()) {
-            return empty(204);
-        }
-        if (!failed.empty() && (deleted.empty() ||
-                                !feature_negotiated(query(req, "supported-features"), 3))) {
-            return problem(500, "Internal Server Error",
-                           std::to_string(failed.size()) + " matching timer(s) could not be "
-                           "stopped; negotiate TimerDeletePartialSuccess for a partial report",
-                           std::string("SYSTEM_FAILURE"));
-        }
-        sbi_gen::TimerDeleteResponse out;
-        out.timerIds = deleted;
-        if (!failed.empty()) {
-            out.failedTimerIdList = failed;
-        }
-        return json_response(200, json(out));
-    }));
-
-    // ---- CreateOrModifyTimer (5.3.2.2.2 Timer Start) ---------------------------------------------
-    server.add_route("PUT", one, instrument("CreateOrModifyTimer", [&ctx, pre](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        const auto id = req.path_params.at("timerId");
-        json body;
-        try {
-            body = json::parse(req.body);
-        } catch (const json::parse_error& e) {
-            return problem(400, "Malformed JSON", e.what(), std::string("INVALID_MSG_FORMAT"));
-        }
-        if (auto why = validate_timer(body, false); !why.empty()) {
-            return problem(400, "Bad Request", why, std::string("INVALID_MSG_FORMAT"));
-        }
-        if (to_ms(body.at("expires").get<std::string>()) <= now_ms()) {
-            return problem(403, "Forbidden", "the expires time is in the past",
-                           std::string("EXPIRES_VALUE_NOT_ALLOWED"));
-        }
-        auto tx = ctx.store.modify_timer(
-            *s, id,
-            [&](const std::optional<Doc>&, Doc& next) {
-                next.body = body;
-                schedule_from_body(next);
-                return Verdict::Write;
-            },
-            timer_delete_at_ms);
-        if (!tx.before) {
-            Response r = empty(201);
-            r.headers.emplace("location", ctx.settings.self_base + kTimerRoot + "/" + s->realm + "/" +
-                                              s->storage + "/timers/" + id);
-            return r;
-        }
-        return empty(204);
-    }));
-
-    // ---- UpdateTimer (5.3.2.3.2) -------------------------------------------------------------------
-    server.add_route("PATCH", one, instrument("UpdateTimer", [&ctx, pre](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        const auto id = req.path_params.at("timerId");
-        auto items = parse_patch_items(req.body);
-        if (!items) {
-            return problem(400, "Bad Request", items.error(), std::string("INVALID_MSG_FORMAT"));
-        }
-        std::optional<Response> early;
-        std::vector<sbi_gen::ReportItem> discarded;
-        ctx.store.modify_timer(
-            *s, id,
-            [&](const std::optional<Doc>& before, Doc& next) {
-                early.reset();
-                discarded.clear();
-                if (!before) {
-                    early = problem(404, "Not Found", "timer " + id + " does not exist",
-                                    std::string("TIMER_NOT_FOUND"));
-                    return Verdict::Abort;
-                }
-                json doc = before->body;
-                doc.erase("lastExpiry");
-                const auto now = now_ms();
-                auto res = apply_itemwise(doc, *items, [&](const json& d) {
-                    auto why = validate_timer(d, false);
-                    if (why.empty() && d.at("expires") != doc.at("expires") &&
-                        to_ms(d.at("expires").get<std::string>()) <= now) {
-                        why = "EXPIRES_VALUE_NOT_ALLOWED: the expires time is in the past";
+            auto ids = select(req, *s);
+            if (!ids) {
+                return ids.error();
+            }
+            std::vector<std::string> deleted;
+            std::vector<std::string> failed;
+            for (const auto& id : *ids) {
+                try {
+                    auto tx = ctx.store.modify_timer(
+                        *s,
+                        id,
+                        [](const std::optional<Doc>& b, Doc&) {
+                            return b ? Verdict::Delete : Verdict::Abort;
+                        },
+                        timer_delete_at_ms);
+                    if (tx.committed) {
+                        deleted.push_back(id);
                     }
-                    return why;
-                });
-                discarded = res.discarded;
-                if (res.discarded.size() == items->size()) {
-                    return Verdict::Abort;
+                } catch (const std::exception&) {
+                    failed.push_back(id);
                 }
-                const bool reschedule =
-                    res.document.at("expires") != doc.at("expires") ||
-                    res.document.value("periodicRepetition", json()) !=
-                        doc.value("periodicRepetition", json()) ||
-                    res.document.value("repetitionCount", json()) !=
-                        doc.value("repetitionCount", json());
-                next.body = res.document;
-                if (reschedule) {
+            }
+            if (deleted.empty() && failed.empty()) {
+                return empty(204);
+            }
+            if (!failed.empty() &&
+                (deleted.empty() || !feature_negotiated(query(req, "supported-features"), 3))) {
+                return problem(
+                    500,
+                    "Internal Server Error",
+                    std::to_string(failed.size()) +
+                        " matching timer(s) could not be "
+                        "stopped; negotiate TimerDeletePartialSuccess for a partial report",
+                    std::string("SYSTEM_FAILURE"));
+            }
+            sbi_gen::TimerDeleteResponse out;
+            out.timerIds = deleted;
+            if (!failed.empty()) {
+                out.failedTimerIdList = failed;
+            }
+            return json_response(200, json(out));
+        }));
+
+    // ---- CreateOrModifyTimer (5.3.2.2.2 Timer Start)
+    // ---------------------------------------------
+    server.add_route(
+        "PUT", one, instrument("CreateOrModifyTimer", [&ctx, pre](const Request& req) {
+            auto s = pre(req);
+            if (!s) {
+                return s.error();
+            }
+            const auto id = req.path_params.at("timerId");
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const json::parse_error& e) {
+                return problem(400, "Malformed JSON", e.what(), std::string("INVALID_MSG_FORMAT"));
+            }
+            if (auto why = validate_timer(body, false); !why.empty()) {
+                return problem(400, "Bad Request", why, std::string("INVALID_MSG_FORMAT"));
+            }
+            if (to_ms(body.at("expires").get<std::string>()) <= now_ms()) {
+                return problem(403,
+                               "Forbidden",
+                               "the expires time is in the past",
+                               std::string("EXPIRES_VALUE_NOT_ALLOWED"));
+            }
+            auto tx = ctx.store.modify_timer(
+                *s,
+                id,
+                [&](const std::optional<Doc>&, Doc& next) {
+                    next.body = body;
                     schedule_from_body(next);
-                } else if (before->body.contains("lastExpiry")) {
-                    next.body["lastExpiry"] = before->body["lastExpiry"];
-                }
-                return Verdict::Write;
-            },
-            timer_delete_at_ms);
-        if (early) {
-            return *early;
-        }
-        if (!discarded.empty()) {
-            sbi_gen::PatchResult pr;
-            pr.report = discarded;
-            return json_response(200, json(pr));
-        }
-        return empty(204);
-    }));
+                    return Verdict::Write;
+                },
+                timer_delete_at_ms);
+            if (!tx.before) {
+                Response r = empty(201);
+                r.headers.emplace("location",
+                                  ctx.settings.self_base + kTimerRoot + "/" + s->realm + "/" +
+                                      s->storage + "/timers/" + id);
+                return r;
+            }
+            return empty(204);
+        }));
 
-    // ---- DeleteTimer (5.3.2.4.2) -------------------------------------------------------------------
+    // ---- UpdateTimer (5.3.2.3.2)
+    // -------------------------------------------------------------------
+    server.add_route(
+        "PATCH", one, instrument("UpdateTimer", [&ctx, pre](const Request& req) {
+            auto s = pre(req);
+            if (!s) {
+                return s.error();
+            }
+            const auto id = req.path_params.at("timerId");
+            auto items = parse_patch_items(req.body);
+            if (!items) {
+                return problem(
+                    400, "Bad Request", items.error(), std::string("INVALID_MSG_FORMAT"));
+            }
+            std::optional<Response> early;
+            std::vector<sbi_gen::ReportItem> discarded;
+            ctx.store.modify_timer(
+                *s,
+                id,
+                [&](const std::optional<Doc>& before, Doc& next) {
+                    early.reset();
+                    discarded.clear();
+                    if (!before) {
+                        early = problem(404,
+                                        "Not Found",
+                                        "timer " + id + " does not exist",
+                                        std::string("TIMER_NOT_FOUND"));
+                        return Verdict::Abort;
+                    }
+                    json doc = before->body;
+                    doc.erase("lastExpiry");
+                    const auto now = now_ms();
+                    auto res = apply_itemwise(doc, *items, [&](const json& d) {
+                        auto why = validate_timer(d, false);
+                        if (why.empty() && d.at("expires") != doc.at("expires") &&
+                            to_ms(d.at("expires").get<std::string>()) <= now) {
+                            why = "EXPIRES_VALUE_NOT_ALLOWED: the expires time is in the past";
+                        }
+                        return why;
+                    });
+                    discarded = res.discarded;
+                    if (res.discarded.size() == items->size()) {
+                        return Verdict::Abort;
+                    }
+                    const bool reschedule = res.document.at("expires") != doc.at("expires") ||
+                                            res.document.value("periodicRepetition", json()) !=
+                                                doc.value("periodicRepetition", json()) ||
+                                            res.document.value("repetitionCount", json()) !=
+                                                doc.value("repetitionCount", json());
+                    next.body = res.document;
+                    if (reschedule) {
+                        schedule_from_body(next);
+                    } else if (before->body.contains("lastExpiry")) {
+                        next.body["lastExpiry"] = before->body["lastExpiry"];
+                    }
+                    return Verdict::Write;
+                },
+                timer_delete_at_ms);
+            if (early) {
+                return *early;
+            }
+            if (!discarded.empty()) {
+                sbi_gen::PatchResult pr;
+                pr.report = discarded;
+                return json_response(200, json(pr));
+            }
+            return empty(204);
+        }));
+
+    // ---- DeleteTimer (5.3.2.4.2)
+    // -------------------------------------------------------------------
     server.add_route("DELETE", one, instrument("DeleteTimer", [&ctx, pre](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        const auto id = req.path_params.at("timerId");
-        auto tx = ctx.store.modify_timer(
-            *s, id,
-            [](const std::optional<Doc>& b, Doc&) { return b ? Verdict::Delete : Verdict::Abort; },
-            timer_delete_at_ms);
-        if (!tx.committed) {
-            return problem(404, "Not Found", "timer " + id + " does not exist",
-                           std::string("TIMER_NOT_FOUND"));
-        }
-        return empty(204);
-    }));
+                         auto s = pre(req);
+                         if (!s) {
+                             return s.error();
+                         }
+                         const auto id = req.path_params.at("timerId");
+                         auto tx = ctx.store.modify_timer(
+                             *s,
+                             id,
+                             [](const std::optional<Doc>& b, Doc&) {
+                                 return b ? Verdict::Delete : Verdict::Abort;
+                             },
+                             timer_delete_at_ms);
+                         if (!tx.committed) {
+                             return problem(404,
+                                            "Not Found",
+                                            "timer " + id + " does not exist",
+                                            std::string("TIMER_NOT_FOUND"));
+                         }
+                         return empty(204);
+                     }));
 
-    // ---- GetTimer ----------------------------------------------------------------------------------
+    // ---- GetTimer
+    // ----------------------------------------------------------------------------------
     server.add_route("GET", one, instrument("GetTimer", [&ctx, pre](const Request& req) {
-        auto s = pre(req);
-        if (!s) {
-            return s.error();
-        }
-        const auto id = req.path_params.at("timerId");
-        auto d = ctx.store.get_timer(*s, id);
-        if (!d) {
-            return problem(404, "Not Found", "timer " + id + " does not exist",
-                           std::string("TIMER_NOT_FOUND"));
-        }
-        json body = d->body;
-        body.erase("lastExpiry");
-        return json_response(200, body);
-    }));
+                         auto s = pre(req);
+                         if (!s) {
+                             return s.error();
+                         }
+                         const auto id = req.path_params.at("timerId");
+                         auto d = ctx.store.get_timer(*s, id);
+                         if (!d) {
+                             return problem(404,
+                                            "Not Found",
+                                            "timer " + id + " does not exist",
+                                            std::string("TIMER_NOT_FOUND"));
+                         }
+                         json body = d->body;
+                         body.erase("lastExpiry");
+                         return json_response(200, body);
+                     }));
 }
 
 } // namespace udsf

@@ -107,9 +107,12 @@ json udsf_info(const udsf::Settings& settings) {
     return json{{"storageIdRanges", ranges}};
 }
 
-void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base,
-                       const std::string& advertised_ipv4, unsigned short port,
-                       int heartbeat_seconds, const json& info) {
+void run_nrf_lifecycle(const std::string& instance_id,
+                       const std::string& nrf_base,
+                       const std::string& advertised_ipv4,
+                       unsigned short port,
+                       int heartbeat_seconds,
+                       const json& info) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/udsf/cert.pem",
         .key_path = CERTS_DIR "/udsf/key.pem",
@@ -125,18 +128,18 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    sbi_core::OAuth2Client oauth(http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm",
-                                 "NRF");
+    sbi_core::OAuth2Client oauth(
+        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
     auto service = [&](const char* name, const char* version, const char* features) {
-        return json{{"serviceInstanceId", name},
-                    {"serviceName", name},
-                    {"versions", json::array({json{{"apiVersionInUri", "v1"},
-                                                   {"apiFullVersion", version}}})},
-                    {"scheme", "https"},
-                    {"nfServiceStatus", "REGISTERED"},
-                    {"ipEndPoints", json::array({json{{"ipv4Address", advertised_ipv4},
-                                                      {"port", port}}})},
-                    {"supportedFeatures", features}};
+        return json{
+            {"serviceInstanceId", name},
+            {"serviceName", name},
+            {"versions",
+             json::array({json{{"apiVersionInUri", "v1"}, {"apiFullVersion", version}}})},
+            {"scheme", "https"},
+            {"nfServiceStatus", "REGISTERED"},
+            {"ipEndPoints", json::array({json{{"ipv4Address", advertised_ipv4}, {"port", port}}})},
+            {"supportedFeatures", features}};
     };
     const json profile{
         {"nfInstanceId", instance_id},
@@ -146,8 +149,9 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
         {"heartBeatTimer", heartbeat_seconds},
         {"udsfInfo", info},
         // info.version of each YAML: DataRepository 1.3.0; Timer 1.3.0 (see the YAML files).
-        {"nfServices", json::array({service("nudsf-dr", "1.3.0", udsf::kDrFeatures),
-                                    service("nudsf-timer", "1.3.0", udsf::kTimerFeatures)})},
+        {"nfServices",
+         json::array({service("nudsf-dr", "1.3.0", udsf::kDrFeatures),
+                      service("nudsf-timer", "1.3.0", udsf::kTimerFeatures)})},
     };
     while (true) {
         auto token = oauth.get_bearer_token();
@@ -199,7 +203,8 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port", "UDSF_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "UDSF_METRICS_BIND_ADDRESS");
-    const auto nrf_base = nf_config::require<std::string>(config, "nrf_base_url", "UDSF_NRF_BASE_URL");
+    const auto nrf_base =
+        nf_config::require<std::string>(config, "nrf_base_url", "UDSF_NRF_BASE_URL");
     const auto advertised_ipv4 =
         nf_config::require<std::string>(config, "advertised_ipv4", "UDSF_ADVERTISED_IPV4");
     auto redis_url = nf_config::require<std::string>(config, "redis_url", "UDSF_REDIS_URL");
@@ -208,8 +213,8 @@ int main() {
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "UDSF_NRF_HEARTBEAT_SECONDS");
     const auto storages = nf_config::require<json>(config, "storages", "UDSF_STORAGES");
-    const auto sweep_ms = nf_config::require<int>(config, "expiry_sweep_interval_ms",
-                                                  "UDSF_EXPIRY_SWEEP_INTERVAL_MS");
+    const auto sweep_ms = nf_config::require<int>(
+        config, "expiry_sweep_interval_ms", "UDSF_EXPIRY_SWEEP_INTERVAL_MS");
 
     udsf::Settings settings;
     settings.max_record_ttl_seconds = nf_config::require<std::int64_t>(
@@ -270,11 +275,17 @@ int main() {
     std::thread worker_thread([&] { worker.run(); });
     sbi_core::on_shutdown_signal([&] { worker.stop(); });
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, port,
-                heartbeat_seconds, udsf_info(settings))
+    std::thread(run_nrf_lifecycle,
+                instance_id,
+                nrf_base,
+                advertised_ipv4,
+                port,
+                heartbeat_seconds,
+                udsf_info(settings))
         .detach();
     server.start();
-    spdlog::info("udsf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS), {} storage(s)", port,
+    spdlog::info("udsf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS), {} storage(s)",
+                 port,
                  settings.storages.size());
     spdlog::info("udsf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);

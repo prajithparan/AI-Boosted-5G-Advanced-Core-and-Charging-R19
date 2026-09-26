@@ -15,8 +15,8 @@ std::string new_etag();
 
 // Parsed If-Match / If-None-Match header: "*" or a list of entity tags.
 struct EtagCondition {
-    bool any = false;                 // "*"
-    std::vector<std::string> tags;    // quoted as received; W/ prefixes kept
+    bool any = false;              // "*"
+    std::vector<std::string> tags; // quoted as received; W/ prefixes kept
 };
 std::optional<EtagCondition> parse_etag_condition(const std::optional<std::string>& header);
 

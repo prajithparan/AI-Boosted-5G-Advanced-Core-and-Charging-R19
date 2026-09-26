@@ -38,10 +38,11 @@
 // received, so a schemaId a consumer sends is kept and returned -- but it is NOT interpreted:
 // with_schema() on the record index answers nullopt and the search layer turns that into a 400.
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <optional>
 #include <set>
 #include <string>
@@ -110,10 +111,9 @@ public:
         std::optional<Record> before;
         Record after;
     };
-    RecordTx modify_record(
-        const StorageRef& s,
-        const std::string& id,
-        const std::function<Verdict(const std::optional<Record>&, Record&)>& fn);
+    RecordTx modify_record(const StorageRef& s,
+                           const std::string& id,
+                           const std::function<Verdict(const std::optional<Record>&, Record&)>& fn);
     std::unique_ptr<TagIndex> record_index(const StorageRef& s);
     std::string record_uri(const StorageRef& s, const std::string& id) const;
 
@@ -153,7 +153,9 @@ public:
     // single winner among replicas).
     std::vector<std::string>
     claim_due(const StorageRef& s, const std::string& which, std::int64_t now_ms, long limit);
-    void schedule(const StorageRef& s, const std::string& which, const std::string& member,
+    void schedule(const StorageRef& s,
+                  const std::string& which,
+                  const std::string& member,
                   std::int64_t at_ms);
     void enqueue(const StorageRef& s, const Notification& n);
     std::vector<Notification> dequeue(const StorageRef& s, long max);
@@ -162,7 +164,8 @@ public:
     void purge_storage(const StorageRef& s);
 
 private:
-    std::optional<Record> load_record(sw::redis::Redis& r, const StorageRef& s, const std::string& id);
+    std::optional<Record>
+    load_record(sw::redis::Redis& r, const StorageRef& s, const std::string& id);
     std::optional<Doc> load_doc(sw::redis::Redis& r, const std::string& key, const std::string& id);
     std::vector<Notification> data_change_notifications(sw::redis::Redis& r,
                                                         const StorageRef& s,
