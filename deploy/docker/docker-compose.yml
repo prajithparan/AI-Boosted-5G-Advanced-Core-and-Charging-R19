@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf"
 
   nrf:
     build:
@@ -376,6 +376,29 @@ services:
     ports:
       - "7800:7800"   # Nmfaf_3daDataManagement + ContextManagement + inbound/fetch (TLS 1.3 + mTLS)
       - "9487:9487"   # Prometheus /metrics
+
+  # ADR-0400: UDSF -- Nudsf_DataRepository + Nudsf_Timer (TS 29.598); all state in Valkey, so
+  # replicas are stateless (--scale udsf=N; expiries are claimed so each fires once).
+  udsf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/udsf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+      valkey:
+        condition: service_healthy
+    environment:
+      UDSF_REDIS_URL: tcp://valkey:6379
+      UDSF_NRF_BASE_URL: https://nrf:7777
+      UDSF_ADVERTISED_IPV4: udsf
+    volumes:
+      - certs_data:/build/certs
+    ports:
+      - "7830:7830"   # Nudsf_DataRepository + Nudsf_Timer (TLS 1.3 + mTLS)
+      - "9530:9530"   # Prometheus /metrics
 
   # ADR-0366: DCCF -- data collection coordination; one source subscription per data spec,
   # fanned out through the MFAF; state in Valkey (stateless replicas, --scale dccf=N).

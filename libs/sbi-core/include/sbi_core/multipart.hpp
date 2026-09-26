@@ -33,6 +33,10 @@ struct Part {
                                            // 3GPP operations examined: the root/jsonData part is
                                            // always first with no explicit `start=` parameter).
     std::string body;
+    // RFC 2045 Content-Transfer-Encoding of the part, when it carried one. multipart/related
+    // callers never set it (encode() then emits no such header, as before); TS 29.598 6.1.2.4
+    // requires it on every UDSF Block part (ADR-0400).
+    std::optional<std::string> content_transfer_encoding = std::nullopt;
 };
 
 // content_type_header: the raw Content-Type header value, e.g.
@@ -55,5 +59,21 @@ Encoded encode(const std::vector<Part>& parts);
 // parameters) -- what NF handler code checks before choosing the multipart path over the plain
 // application/json path for operations that support both (see e.g. AMF's UEContextTransfer).
 bool is_multipart_related(const std::string& content_type_header);
+
+// ---- Any RFC 2046 multipart subtype (ADR-0400) -------------------------------------------------
+// TS 29.598 6.1.2.4 carries UDSF Records as multipart/mixed and a BlockCollection as
+// multipart/parallel -- same RFC 2046 framing, no RFC 2387 `type=`/root semantics. These are
+// additive: parse()/encode() above keep their multipart/related-only contract.
+
+// True for any `multipart/<subtype>` media type (case-insensitive, parameters ignored).
+bool is_multipart(const std::string& content_type_header);
+
+// Like parse(), for any multipart subtype. Also reads each part's Content-Transfer-Encoding.
+tl::expected<std::vector<Part>, std::string> parse_any(const std::string& content_type_header,
+                                                       const std::string& body);
+
+// `multipart/<subtype>; boundary="..."` with no `type=` parameter; emits each part's
+// Content-Transfer-Encoding when set. Parts are written in the order given.
+Encoded encode_subtype(const std::string& subtype, const std::vector<Part>& parts);
 
 } // namespace sbi_core::multipart
