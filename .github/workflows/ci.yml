@@ -57,71 +57,11 @@ env:
 jobs:
   build:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
-    # Real PostgreSQL for tests/integration/test_product_catalog_postgres.cpp (ADR-0054) -- without
-    # this, that test's SetUp() finds no reachable Postgres and calls GTEST_SKIP() (a real,
-    # disclosed local-dev fallback, not a CI behavior); this service makes CI actually exercise the
-    # real DB path instead of skipping it.
+    # Real datastores for the integration tests. Since ADR-0384..0388 every charging/BSS service
+    # persists in ONE consolidated PostgreSQL (postgres-chf: databases `charging` + `orchestration`,
+    # created by deploy/db/init-domain-dbs.sh); the per-service product-catalog / balance /
+    # subscriber / roaming instances were retired (ADR-0390). UDR and ADRF keep their own by design.
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: product_catalog
-          POSTGRES_PASSWORD: product_catalog
-          POSTGRES_DB: product_catalog
-        ports:
-          - 15432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      # Real PostgreSQL for tests/integration/test_subscriber_management_postgres.cpp and
-      # test_roaming_interconnect_postgres.cpp (P4.7) -- same "one postgres per consumer" shape
-      # docker-compose.yml already established for balance-management/chf (ADR-0056/ADR-0058).
-      postgres-subscriber:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: subscriber_management
-          POSTGRES_PASSWORD: subscriber_management
-          POSTGRES_DB: subscriber_management
-        ports:
-          - 15435:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      # Real PostgreSQL for bss/balance-management, which tests/integration/test_cap_scoped_charging
-      # .cpp spawns (ADR-0351/09689d8). Never provided before: that test was added after the last
-      # green run and CI did not reach Test again until ADR-0363, when it failed on
-      # "connection to server at localhost, port 5433 refused". Same credentials and database as
-      # deploy/docker/docker-compose.yml's postgres-balance; host port +10000 (ADR-0363).
-      postgres-balance:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: balance_management
-          POSTGRES_PASSWORD: balance_management
-          POSTGRES_DB: balance_management
-        ports:
-          - 15433:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      postgres-roaming:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: roaming_interconnect
-          POSTGRES_PASSWORD: roaming_interconnect
-          POSTGRES_DB: roaming_interconnect
-        ports:
-          - 15436:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, gap-closure
       # Tier 1a) -- this test spawns the real udr binary, which now hard-requires PostgreSQL to
       # start at all (see nfs/udr/src/main.cpp's own database_conninfo() comment).
@@ -360,24 +300,8 @@ jobs:
         # rediscover this: grep -rhoE 'CERTS_DIR "/[a-z0-9-]+/' nfs bss is the list.
         run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning
 
-      - name: Apply product-catalog PostgreSQL schema (ADR-0054)
-        # docker exec into the service container: no psql on the host, and the same command on
-        # GitHub-hosted and self-hosted runners (ADR-0363).
-        run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
-
-      - name: Apply balance-management PostgreSQL schema (ADR-0056)
-        run: docker exec -i ${{ job.services['postgres-balance'].id }} psql -U balance_management -d balance_management < bss/balance-management/schema.sql
-
-      - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
-        run: |
-          docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
-          docker exec -i ${{ job.services['postgres-roaming'].id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
-
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
-
-      - name: Apply CHF PostgreSQL schema (ADR-0060)
-        run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
       - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
         # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
@@ -509,63 +433,6 @@ jobs:
         sanitizer: [asan-ubsan, tsan]
     # See the build job's identical services block comment (ADR-0054/P4.7).
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: product_catalog
-          POSTGRES_PASSWORD: product_catalog
-          POSTGRES_DB: product_catalog
-        ports:
-          - 15432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      postgres-subscriber:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: subscriber_management
-          POSTGRES_PASSWORD: subscriber_management
-          POSTGRES_DB: subscriber_management
-        ports:
-          - 15435:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      # Real PostgreSQL for bss/balance-management, which tests/integration/test_cap_scoped_charging
-      # .cpp spawns (ADR-0351/09689d8). Never provided before: that test was added after the last
-      # green run and CI did not reach Test again until ADR-0363, when it failed on
-      # "connection to server at localhost, port 5433 refused". Same credentials and database as
-      # deploy/docker/docker-compose.yml's postgres-balance; host port +10000 (ADR-0363).
-      postgres-balance:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: balance_management
-          POSTGRES_PASSWORD: balance_management
-          POSTGRES_DB: balance_management
-        ports:
-          - 15433:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      postgres-roaming:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: roaming_interconnect
-          POSTGRES_PASSWORD: roaming_interconnect
-          POSTGRES_DB: roaming_interconnect
-        ports:
-          - 15436:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       # Real PostgreSQL for tests/integration/test_udr_context_data.cpp (ADR-0068, gap-closure
       # Tier 1a) -- this test spawns the real udr binary, which now hard-requires PostgreSQL to
       # start at all (see nfs/udr/src/main.cpp's own database_conninfo() comment).
@@ -823,26 +690,8 @@ jobs:
         # see ADR-0224 for the full disclosure.
         run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning
 
-      - name: Apply product-catalog PostgreSQL schema (ADR-0054)
-        # docker exec into the service container: no psql on the host, and the same command on
-        # GitHub-hosted and self-hosted runners (ADR-0363).
-        run: docker exec -i ${{ job.services.postgres.id }} psql -U product_catalog -d product_catalog < bss/product-catalog/schema.sql
-
-      - name: Apply balance-management PostgreSQL schema (ADR-0056)
-        run: docker exec -i ${{ job.services['postgres-balance'].id }} psql -U balance_management -d balance_management < bss/balance-management/schema.sql
-
-      - name: Apply subscriber-management/roaming-interconnect PostgreSQL schemas (P4.7)
-        run: |
-          docker exec -i ${{ job.services['postgres-subscriber'].id }} psql -U subscriber_management -d subscriber_management < bss/subscriber-management/schema.sql
-          docker exec -i ${{ job.services['postgres-roaming'].id }} psql -U roaming_interconnect -d roaming_interconnect < bss/roaming-interconnect/schema.sql
-
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
-
-      - name: Apply CHF PostgreSQL schema (ADR-0060)
-        # Missing here until ADR-0367: the build job applied it, the sanitizer legs did not, and
-        # the CAP scoped-charging test's rating_decision query answered -1 only under ASan/TSan.
-        run: docker exec -i ${{ job.services['postgres-chf'].id }} psql -U postgres -d chf_rating < nfs/chf/schema.postgres.sql
 
       - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
         # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
