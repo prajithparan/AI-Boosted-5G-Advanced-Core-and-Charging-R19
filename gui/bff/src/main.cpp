@@ -1,9 +1,10 @@
-// oam-gui-bff: backend-for-frontend for the Phase 7 operator GUI (ADR-0420, ADR-0422). See bff.hpp
-// for the route allow-list and the security model. Not a 3GPP NF: no NRF registration, no OAuth2
-// -- the operator is authenticated by client certificate (separate operator CA), and the BFF
-// authenticates to the BSS services with its own lab-CA identity exactly like any other client.
+// oam-gui-bff: backend-for-frontend for the Phase 7 operator GUI (ADR-0420..0425). See bff.hpp
+// for the trust layering and app.cpp for the route table. Not a 3GPP NF: no NRF registration.
 
+#include "auth.hpp"
 #include "bff.hpp"
+#include "config_mgmt.hpp"
+#include "iam.hpp"
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -16,6 +17,9 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
 #include <string>
 
 #ifndef REPO_ROOT
@@ -31,8 +35,21 @@ std::string resolve(const std::string& p) {
     return path.is_absolute() ? p : (std::filesystem::path(REPO_ROOT) / path).string();
 }
 
-std::string path_key(const nlohmann::json& config, const char* key, const char* env) {
-    return resolve(nf_config::require<std::string>(config, key, env));
+std::string read_secret_file(const std::string& path) {
+    std::ifstream in(path);
+    if (!in) nf_config::fatal("oam-gui-bff: cannot read the OIDC client secret file " + path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string s = ss.str();
+    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back();
+    if (s.empty()) nf_config::fatal("oam-gui-bff: the OIDC client secret file is empty");
+    return s;
+}
+
+std::vector<std::string> strings(const nlohmann::json& j) {
+    std::vector<std::string> out;
+    for (const auto& v : j) out.push_back(v.get<std::string>());
+    return out;
 }
 
 } // namespace
@@ -52,35 +69,86 @@ int main() {
         config, "product_catalog_base_url", "OAM_GUI_BFF_PRODUCT_CATALOG_BASE_URL");
     bff.provisioning_base_url = nf_config::require<std::string>(
         config, "provisioning_base_url", "OAM_GUI_BFF_PROVISIONING_BASE_URL");
-    bff.static_dir = path_key(config, "static_dir", "OAM_GUI_BFF_STATIC_DIR");
+    bff.static_dir = resolve(
+        nf_config::require<std::string>(config, "static_dir", "OAM_GUI_BFF_STATIC_DIR"));
 
-    // Browser-facing listener: this server's certificate + the OPERATOR CA (who may use the GUI).
+    // Browser-facing listener: this server's certificate + the OPERATOR CA (which terminals may
+    // connect at all).
     const sbi_core::http2::TlsConfig browser_tls{
-        .cert_path = path_key(config, "server_cert_path", "OAM_GUI_BFF_SERVER_CERT_PATH"),
-        .key_path = path_key(config, "server_key_path", "OAM_GUI_BFF_SERVER_KEY_PATH"),
-        .ca_path = path_key(config, "operator_ca_path", "OAM_GUI_BFF_OPERATOR_CA_PATH"),
+        .cert_path = resolve(nf_config::require<std::string>(config, "server_cert_path",
+                                                             "OAM_GUI_BFF_SERVER_CERT_PATH")),
+        .key_path = resolve(nf_config::require<std::string>(config, "server_key_path",
+                                                            "OAM_GUI_BFF_SERVER_KEY_PATH")),
+        .ca_path = resolve(nf_config::require<std::string>(config, "operator_ca_path",
+                                                           "OAM_GUI_BFF_OPERATOR_CA_PATH")),
     };
     // Service-facing client: the BFF's own lab-CA identity + the lab CA (whom it calls).
+    const auto client_cert = resolve(
+        nf_config::require<std::string>(config, "client_cert_path", "OAM_GUI_BFF_CLIENT_CERT_PATH"));
+    const auto client_key = resolve(
+        nf_config::require<std::string>(config, "client_key_path", "OAM_GUI_BFF_CLIENT_KEY_PATH"));
     const sbi_core::http2::TlsConfig service_tls{
-        .cert_path = path_key(config, "client_cert_path", "OAM_GUI_BFF_CLIENT_CERT_PATH"),
-        .key_path = path_key(config, "client_key_path", "OAM_GUI_BFF_CLIENT_KEY_PATH"),
-        .ca_path = path_key(config, "service_ca_path", "OAM_GUI_BFF_SERVICE_CA_PATH"),
+        .cert_path = client_cert,
+        .key_path = client_key,
+        .ca_path = resolve(nf_config::require<std::string>(config, "service_ca_path",
+                                                           "OAM_GUI_BFF_SERVICE_CA_PATH")),
     };
 
+    // operator_iam, as the least-privileged `oam_gui_bff` role (INSERT-only on the audit trail).
+    const auto iam_url = nf_config::require<std::string>(config, "iam_database_url",
+                                                         "OAM_GUI_BFF_IAM_DATABASE_URL");
+    const auto iam_pool = nf_config::require<int>(config, "iam_db_pool_size",
+                                                  "OAM_GUI_BFF_IAM_DB_POOL_SIZE");
+    const auto chain_key = nf_config::require<std::string>(config, "audit_chain_key",
+                                                           "OAM_GUI_BFF_AUDIT_CHAIN_KEY");
+
+    // OIDC (ADR-0424).
+    const auto oidc_cfg = nf_config::require<nlohmann::json>(config, "oidc");
+    oam_gui_bff::OidcConfig oidc;
+    oidc.issuer = oidc_cfg.at("issuer").get<std::string>();
+    oidc.authorization_endpoint = oidc_cfg.at("authorization_endpoint").get<std::string>();
+    oidc.token_endpoint = oidc_cfg.at("token_endpoint").get<std::string>();
+    oidc.jwks_uri = oidc_cfg.at("jwks_uri").get<std::string>();
+    oidc.end_session_endpoint = oidc_cfg.value("end_session_endpoint", "");
+    oidc.client_id = oidc_cfg.at("client_id").get<std::string>();
+    oidc.redirect_uri = oidc_cfg.at("redirect_uri").get<std::string>();
+    oidc.post_logout_redirect_uri = oidc_cfg.value("post_logout_redirect_uri", "");
+    oidc.acr_values = oidc_cfg.value("acr_values", "");
+    oidc.mfa_amr = strings(oidc_cfg.at("mfa_amr"));
+    oidc.mfa_acr = strings(oidc_cfg.at("mfa_acr"));
+    oidc.client_secret =
+        read_secret_file(resolve(oidc_cfg.at("client_secret_file").get<std::string>()));
+    const sbi_core::http2::TlsConfig idp_tls{client_cert, client_key,
+                                             resolve(oidc_cfg.at("idp_ca_path").get<std::string>())};
+
+    // NF configuration management (ADR-0425).
+    const auto nfc = nf_config::require<nlohmann::json>(config, "nf_config");
+    std::set<std::string> editable;
+    for (const auto& s : strings(nfc.at("editable"))) editable.insert(s);
+
     sbi_core::init_metrics(metrics_bind_address);
+
+    oam_gui_bff::IamStore iam(iam_url, static_cast<std::size_t>(iam_pool), chain_key);
+    iam.ensure_audit_partitions();
+    oam_gui_bff::OidcAuthenticator auth(oidc, iam, idp_tls);
+    oam_gui_bff::NfConfigManager configs(resolve(nfc.at("config_dir").get<std::string>()),
+                                         resolve(nfc.at("schema_dir").get<std::string>()),
+                                         editable);
 
     auto static_files = oam_gui_bff::load_static_files(bff.static_dir);
     spdlog::info("oam-gui-bff: serving {} static file(s) from {}", static_files.size(),
                  bff.static_dir);
 
-    sbi_core::http2::Client client(service_tls);
+    sbi_core::http2::Client services(service_tls);
+    oam_gui_bff::Deps deps{services, iam, auth, configs, bff};
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, bind_address, port, browser_tls);
-    oam_gui_bff::register_routes(server, client, bff, std::move(static_files));
+    oam_gui_bff::register_routes(server, deps, std::move(static_files));
 
-    spdlog::info("oam-gui-bff: listening on https://{}:{} (TLS 1.3 + operator mTLS); "
-                 "catalog={} provisioning={}",
-                 bind_address, port, bff.product_catalog_base_url, bff.provisioning_base_url);
+    spdlog::info("oam-gui-bff: listening on https://{}:{} (TLS 1.3 + operator mTLS + OIDC "
+                 "sessions); catalog={} provisioning={} idp={}",
+                 bind_address, port, bff.product_catalog_base_url, bff.provisioning_base_url,
+                 oidc.issuer);
     server.start();
     sbi_core::run_multi_threaded(ioc);
     return 0;

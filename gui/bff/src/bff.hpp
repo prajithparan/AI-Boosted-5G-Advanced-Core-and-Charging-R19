@@ -1,29 +1,25 @@
 #pragma once
 
-// oam-gui-bff: the backend-for-frontend between the operator's browser and the BSS services
-// (ADR-0422). The NFs/BSS services speak HTTP/2 + mutual TLS only and never see a browser: the
-// browser authenticates to THIS process with an operator client certificate issued by a separate
-// operator CA, and this process calls the services with its own lab-CA identity (CN=oam-gui-bff).
-// NF mTLS is not weakened anywhere -- no service gains a new trust anchor or an anonymous port.
+// oam-gui-bff: the backend-for-frontend between the operator's browser and the BSS services /
+// NF configuration (ADR-0422, ADR-0423, ADR-0424, ADR-0425).
 //
-// It is deliberately NOT a generic reverse proxy: only the routes below are forwarded, bodies are
-// passed through as bytes (never parsed, so SIM keys in a provisioning order are never
-// materialised into a log string, a JSON error message or a span attribute), and only
-// content-type/accept travel upstream.
+// Trust, outermost first:
+//   1. operator mTLS: the browser's TLS client certificate (terminal identity) must chain to the
+//      separate OPERATOR CA -- an NF certificate from the lab CA cannot even connect;
+//   2. an OIDC login (IdP-side MFA) creates a server-side session bound to that terminal cert;
+//   3. every /api call is authorized here from operator_iam (permission + org-unit scope) and
+//      audited (allowed AND denied) before anything is forwarded;
+//   4. the BFF calls the services with its OWN lab-CA identity (CN=oam-gui-bff). NF mTLS is not
+//      weakened: no service gains a trust anchor or an anonymous port.
 //
-//   browser path                                    upstream (base URL from config)
-//   GET|POST /api/tmf620/productOffering            {catalog}/tmf-api/productCatalogManagement/v4/productOffering
-//   GET      /api/tmf620/productOffering/{id}       .../productOffering/{id}
-//   GET|POST /api/tmf620/productOfferingPrice       .../productOfferingPrice
-//   GET      /api/tmf620/productOfferingPrice/{id}  .../productOfferingPrice/{id}
-//   POST     /api/provisioning/customerOrder        {provisioning}/provisioning/v1/customerOrder
-//   GET      /api/provisioning/customerOrder/{id}   .../customerOrder/{id}
-//   GET      /, /index.html, /assets/{file}         the built web app (static_dir), loaded at start
-//
-// CSRF: browsers attach client certificates automatically, so a state-changing request must carry
-// `x-requested-by: oam-gui` and `content-type: application/json`. Both force a CORS preflight on a
-// cross-origin request, and this server answers no OPTIONS / sends no CORS headers, so a foreign
-// page can never complete one.
+// It is not a generic reverse proxy: only the routes in app.cpp exist. CSRF: browsers attach
+// cookies and client certificates automatically, so every state-changing request must carry
+// `x-requested-by: oam-gui` and `content-type: application/json`; both force a CORS preflight
+// cross-origin, and this server answers no OPTIONS, so a foreign page can never complete one.
+
+#include "auth.hpp"
+#include "config_mgmt.hpp"
+#include "iam.hpp"
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -46,6 +42,9 @@ struct Config {
 inline constexpr const char* kTmf620Root = "/tmf-api/productCatalogManagement/v4";
 inline constexpr const char* kProvisioningRoot = "/provisioning/v1";
 
+inline constexpr const char* kSessionCookie = "__Host-oam_session";
+inline constexpr const char* kLoginCookie = "__Host-oam_login";
+
 // Static files served from memory; loaded once, so a request path can never reach the filesystem.
 struct StaticFile {
     std::string content_type;
@@ -61,11 +60,15 @@ StaticFiles load_static_files(const std::string& dir);
 // only. Anything else (/, %, .., ?, #) is rejected with 400 rather than encoded and forwarded.
 bool is_safe_id(const std::string& id);
 
-// Registers every allow-listed route. `client` must outlive `server`; it carries the BFF's own
-// lab-CA identity towards the services.
-void register_routes(sbi_core::http2::Server& server,
-                     sbi_core::http2::Client& client,
-                     const Config& config,
-                     StaticFiles static_files);
+// Everything the routes need. All references must outlive the server.
+struct Deps {
+    sbi_core::http2::Client& services; // BFF's lab-CA identity towards the BSS services
+    IamStore& iam;
+    Authenticator& auth;
+    NfConfigManager& configs;
+    Config config;
+};
+
+void register_routes(sbi_core::http2::Server& server, Deps& deps, StaticFiles static_files);
 
 } // namespace oam_gui_bff

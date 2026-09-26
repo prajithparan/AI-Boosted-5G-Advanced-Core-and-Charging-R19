@@ -4,13 +4,14 @@
 # ADR-0422's trust split:
 #   lab/      the service CA (NFs + the BFF's own service-facing identity)
 #   operator/ the operator CA (who may open the GUI)
-# Leaves: upstream (lab, server+client), bff (lab, server+client), operator (operator CA,
-# clientAuth), rogue-nf (lab CA, clientAuth -- an NF identity that must NOT open the GUI).
+# Leaves: upstream + idp (lab, server+client), bff (lab, server+client), two shop terminals
+# (operator CA, clientAuth), rogue-nf (lab CA, clientAuth -- an NF identity that must NOT open the
+# GUI), and idp-sign: the fake IdP's ES256 ID-token signing key (+ its public point as DER).
 set -euo pipefail
 dir="$1"
 mkdir -p "$dir"
 cd "$dir"
-[ -f done ] && exit 0
+[ -f done-v2 ] && exit 0
 
 mkca() {
     openssl ecparam -name prime256v1 -genkey -noout -out "$1.key"
@@ -32,6 +33,12 @@ mkca lab
 mkca operator
 leaf upstream lab serverAuth,clientAuth
 leaf bff lab serverAuth,clientAuth
-leaf operator-alice operator clientAuth
+leaf idp lab serverAuth,clientAuth
+leaf terminal-shop-a operator clientAuth
+leaf terminal-shop-b operator clientAuth
 leaf rogue-nf lab clientAuth
-touch done
+mkdir -p idp-sign
+openssl ecparam -name prime256v1 -genkey -noout -out idp-sign/key.pem
+openssl ec -in idp-sign/key.pem -pubout -out idp-sign/pub.pem 2>/dev/null
+openssl ec -in idp-sign/key.pem -pubout -outform DER -out idp-sign/pub.der 2>/dev/null
+touch done-v2
