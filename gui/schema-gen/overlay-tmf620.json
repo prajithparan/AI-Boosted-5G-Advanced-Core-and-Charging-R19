@@ -1,0 +1,30 @@
+{
+  "$comment": "Service-side create rules the bss_sid structs cannot express (ADR-0421). Each rule must cite its source and name a field that already exists in the derived DTO schema -- derive_tmf620_schema.py refuses anything else. No rule may add a field.",
+  "ProductOffering": [
+    { "path": "name", "required": true, "source": "bss/product-catalog/src/store.cpp ProductOfferingStore::create: 'name is required (TMF620 ProductOffering_Create)'; deploy/db/charging/30-product.sql product_offering.name NOT NULL" },
+    { "path": "id", "readOnly": true, "x-ui-hidden": true, "source": "store.cpp ProductOfferingStore::create overwrites id from product_offering_id_seq" },
+    { "path": "href", "readOnly": true, "x-ui-hidden": true, "source": "store.cpp ProductOfferingStore::create overwrites href with the resource URL" },
+    { "path": "lastUpdate", "format": "date-time", "source": "store.cpp ts_in(o.lastUpdate): rejected with 400 unless RFC 3339" },
+    { "path": "validFor.startDateTime", "format": "date-time", "source": "store.cpp vf_start(o.validFor)" },
+    { "path": "validFor.endDateTime", "format": "date-time", "source": "store.cpp vf_end(o.validFor)" },
+    { "path": "prodSpecCharValueUse[].validFor.startDateTime", "format": "date-time", "source": "store.cpp insert_value_uses vf_start(u.validFor)" },
+    { "path": "prodSpecCharValueUse[].validFor.endDateTime", "format": "date-time", "source": "store.cpp insert_value_uses vf_end(u.validFor)" },
+    { "path": "prodSpecCharValueUse[].productSpecCharacteristicValue[].validFor.startDateTime", "format": "date-time", "source": "store.cpp insert_value_specs vf_start(v.validFor)" },
+    { "path": "prodSpecCharValueUse[].productSpecCharacteristicValue[].validFor.endDateTime", "format": "date-time", "source": "store.cpp insert_value_specs vf_end(v.validFor)" },
+    { "path": "productOfferingRelationship[].validFor.startDateTime", "format": "date-time", "source": "store.cpp offering_relationship insert vf_start(r.validFor)" },
+    { "path": "productOfferingRelationship[].validFor.endDateTime", "format": "date-time", "source": "store.cpp offering_relationship insert vf_end(r.validFor)" },
+    { "path": "productOfferingTerm[].validFor.startDateTime", "format": "date-time", "source": "store.cpp offering_term insert vf_start(t.validFor)" },
+    { "path": "productOfferingTerm[].validFor.endDateTime", "format": "date-time", "source": "store.cpp offering_term insert vf_end(t.validFor)" }
+  ],
+  "ProductOfferingPrice": [
+    { "path": "id", "readOnly": true, "x-ui-hidden": true, "source": "store.cpp ProductOfferingPriceStore::create overwrites id from its sequence" },
+    { "path": "href", "readOnly": true, "x-ui-hidden": true, "source": "store.cpp ProductOfferingPriceStore::create overwrites href with the resource URL" },
+    { "path": "lastUpdate", "format": "date-time", "source": "store.cpp ts_in(p.lastUpdate)" },
+    { "path": "validFor.startDateTime", "format": "date-time", "source": "store.cpp vf_start(p.validFor)" },
+    { "path": "validFor.endDateTime", "format": "date-time", "source": "store.cpp vf_end(p.validFor)" },
+    { "path": "prodSpecCharValueUse[].validFor.startDateTime", "format": "date-time", "source": "store.cpp insert_value_uses vf_start(u.validFor)" },
+    { "path": "prodSpecCharValueUse[].validFor.endDateTime", "format": "date-time", "source": "store.cpp insert_value_uses vf_end(u.validFor)" },
+    { "path": "prodSpecCharValueUse[].productSpecCharacteristicValue[].validFor.startDateTime", "format": "date-time", "source": "store.cpp insert_value_specs vf_start(v.validFor)" },
+    { "path": "prodSpecCharValueUse[].productSpecCharacteristicValue[].validFor.endDateTime", "format": "date-time", "source": "store.cpp insert_value_specs vf_end(v.validFor)" }
+  ]
+}

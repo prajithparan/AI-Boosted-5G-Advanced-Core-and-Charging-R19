@@ -2,7 +2,9 @@
 # ADR-0384: creates the consolidated domain databases on the postgres-chf instance and applies their
 # DDL in file order -- `charging` (one schema per NF: party, product_catalog, subscriber_mgmt,
 # balance_mgmt, chf_rating, roaming; deploy/db/charging/*.sql) and `orchestration` (the customer
-# onboarding saga, deploy/db/orchestration/schema.sql).
+# onboarding saga, deploy/db/orchestration/schema.sql) and `operator_iam` (the operator GUI's
+# identity, access, maker-checker, NF-config-version and audit domain, deploy/db/operator_iam/*.sql,
+# ADR-0423).
 #
 # Runs as a postgres /docker-entrypoint-initdb.d/ script in compose (first start of an empty volume
 # only), and is invoked the same way by CI against its service container. Idempotent on the database
@@ -29,3 +31,9 @@ done
 create_db orchestration
 echo "init-domain-dbs: orchestration <- schema.sql"
 "${PSQL[@]}" -d orchestration -f "${DDL_ROOT}/orchestration/schema.sql"
+
+create_db operator_iam
+for f in "${DDL_ROOT}"/operator_iam/*.sql; do
+    echo "init-domain-dbs: operator_iam <- $(basename "$f")"
+    "${PSQL[@]}" -d operator_iam -f "$f"
+done

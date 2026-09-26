@@ -50,6 +50,9 @@ struct Request {
     // Empty when the certificate carries no CN / no dNSName SAN.
     std::string peer_cert_cn;
     std::vector<std::string> peer_cert_dns_names;
+    // The TCP peer's IP address (ADR-0423: the operator GUI's audit trail records "from where").
+    // Empty if the socket could not report it.
+    std::string peer_address;
 };
 
 struct Response {

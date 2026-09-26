@@ -4,7 +4,7 @@
   "nrf_base_url": "https://127.0.0.1:7777",
   "product_catalog_base_url": "https://127.0.0.1:7785",
   "balance_management_base_url": "https://127.0.0.1:7786",
-  "rating_database_url": "postgresql://postgres@127.0.0.1:5434/chf_rating",
+  "rating_database_url": "postgresql://postgres@127.0.0.1:5434/charging",
   "idempotency_key_ttl_seconds": 3600,
   "idempotency_wait_poll_ms": 20,
   "idempotency_wait_max_ms": 2000,
@@ -22,5 +22,6 @@
   "quota_model_path": "",
   "ai_quota_latency_budget_us": 50000,
   "diameter_port": 3868,
-  "cap_port": 2905
+  "cap_port": 2905,
+  "rating_db_pool_size": 8
 }

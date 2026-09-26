@@ -20,11 +20,20 @@
 // The NGAP CHOICE, forward-declared so this header stays free of the NGAP generated headers (the
 // .cpp includes them); a reference parameter needs only the incomplete type.
 struct UserLocationInformation;
+struct ConcreteProtocolIE_Container;
 
 namespace amf {
 
 // Translate an NGAP UserLocationInformation into the xiri UserLocation the Location/LocationUpdate/
 // IdentifierAssociation xIRIs carry. nullopt when the CHOICE is an unmodelled branch or malformed.
 std::optional<li_core::xiri::UserLocation> parse_user_location(const UserLocationInformation& uli);
+
+// ADR-0440: find id-UserLocationInformation (121) in an NGAP message's IE container, PER-decode it
+// and translate it with parse_user_location. For the LI hooks on UplinkNASTransport,
+// PathSwitchRequest and HandoverNotify, where TS 38.413 makes the IE mandatory. nullopt when the
+// IE is absent, fails to decode, or is an unmodelled branch -- the caller then emits no
+// location-bearing xIRI rather than one with a fabricated location.
+std::optional<li_core::xiri::UserLocation>
+user_location_from_ies(const ConcreteProtocolIE_Container& container);
 
 } // namespace amf

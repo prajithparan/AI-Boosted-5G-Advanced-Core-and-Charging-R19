@@ -107,6 +107,7 @@ add_subdirectory(bss/provisioning)
 add_subdirectory(tools/sbi-loadgen)
 add_subdirectory(tools/mcp-server)
 add_subdirectory(tools/cdr-traffic-gen)
+add_subdirectory(gui) # Phase 7 operator GUI backend-for-frontend + schema checks (ADR-0420)
 
 if(5GC_BUILD_TESTS AND BUILD_TESTING)
     add_subdirectory(tests/integration)

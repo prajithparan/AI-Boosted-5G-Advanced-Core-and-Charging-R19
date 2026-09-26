@@ -20,6 +20,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "amf_ue_id_index_store.hpp"
 #include "gnb_association_registry.hpp"
+#include "li_location.hpp"
 #include "li_poi.hpp"
 #include "nas_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
@@ -1104,6 +1105,20 @@ void handle_path_switch_request(ngap_core::SctpSocket& assoc,
             "amf-ngap: re-pointed NGAP registry entry for SUPI {} to the new association after "
             "PathSwitchRequest",
             ctx->supi);
+
+        // LI IRI-POI hook, TS 33.128 6.2.2.2.4 (ADR-0440): "The UE mobility events resulting in
+        // generation of an AMFLocationUpdate xIRI include the N2 Path Switch Request (Xn based
+        // inter NG-RAN handover procedure described in TS 23.502 [4] clause 4.9.1.2)". Fired only
+        // on the success path (the switch was acknowledged); the location is the request's own
+        // mandatory UserLocationInformation, i.e. the target cell.
+        if (g_li_poi != nullptr && g_li_poi->is_target(ctx->supi)) {
+            if (const auto location = user_location_from_ies(container)) {
+                g_li_poi->report_location_update(ctx->supi, *location);
+            } else {
+                spdlog::warn("amf-li-poi: PathSwitchRequest UserLocationInformation is an "
+                             "unmodelled branch -- AMFLocationUpdate not emitted");
+            }
+        }
     }
 
     ASN_STRUCT_FREE(asn_DEF_RAN_UE_NGAP_ID, new_ran_ue_id);
@@ -1528,12 +1543,17 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
                  tmsi,
                  auth_state.amf_ue_id);
 
-    // LI IRI-POI hook (TS 33.127 6.2.2.4 "Registration", ADR-0377). The AMF has admitted the UE
-    // and assigned its 5G-GUTI, so it is registered on the network side; the UE's
-    // RegistrationComplete follows. Fired here, where SUPI + the just-allocated TMSI + this AMF's
-    // GUTI parts are all in scope. No-op unless LI is enabled and this SUPI is a provisioned
-    // target; delivery is best-effort (never breaks the registration). Disclosed: a stricter POI
-    // would wait for RegistrationComplete and carry the UE's actual registration type.
+    // LI IRI-POI hooks at REGISTRATION ACCEPT. No-op unless LI is enabled and this SUPI is a
+    // provisioned target; the POI applies each task's X1 IdentifierAssociationExtensions gating
+    // (TS 33.128 6.2.2.2.1) itself. Delivery is best-effort (never breaks the registration).
+    //  - Registration (TS 33.127 6.2.2.4, ADR-0378): the AMF has admitted the UE and assigned its
+    //    5G-GUTI. Disclosed: a stricter POI would wait for RegistrationComplete and carry the UE's
+    //    actual registration type.
+    //  - IdentifierAssociation (TS 33.128 6.2.2.2.7, ADR-0440): "a REGISTRATION ACCEPT message ...
+    //    has been sent by the AMF towards a target UE" -> generate immediately, "regardless of
+    //    whether the REGISTRATION ACCEPT ... procedure is subsequently successfully completed".
+    //    The mandatory location is this UplinkNASTransport's own UserLocationInformation (TS
+    //    38.413 makes it mandatory there): the UE's location as of the message the Accept answers.
     if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {
         GutiParts guti;
         guti.mcc = kMcc;
@@ -1543,6 +1563,13 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
         guti.amf_pointer = amf_pointer;
         guti.five_g_tmsi = tmsi;
         g_li_poi->report_registration(auth_state.supi, guti);
+        if (const auto location =
+                user_location_from_ies(msg.value.choice.UplinkNASTransport.protocolIEs)) {
+            g_li_poi->report_identifier_association(auth_state.supi, guti, *location);
+        } else {
+            spdlog::warn("amf-li-poi: UplinkNASTransport UserLocationInformation is absent or an "
+                         "unmodelled branch -- AMFIdentifierAssociation (location M) not emitted");
+        }
     }
 
     // Real, persistent security context (gap-closure task #100/ADR-0075) -- uplink_count=1 and
@@ -2242,6 +2269,10 @@ void run_association_thread(ngap_core::SctpSocket assoc,
                        amf_region_id,
                        amf_set_id,
                        amf_pointer);
+}
+
+LiPoi* li_poi() {
+    return g_li_poi;
 }
 
 void run_ngap_lifecycle(const std::string& bind_address,

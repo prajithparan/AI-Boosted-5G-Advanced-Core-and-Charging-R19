@@ -30083,6 +30083,639 @@ offering created via the TMF620 API completed, its `product_subscription` FK-joi
 in `charging`. The full DDL chain applies to a fresh PostgreSQL. `CapScopedCharging` (needs Doris)
 is left to CI.
 
+## ADR-0385: balance-management cut over to the consolidated charging DB -- lossless, NULL-safe, and reachable by the CHF
+
+**Date:** 2026-09-25. **Status:** accepted (user-directed: "proceed with balance management
+cut-over, don't wait"). Second service onto the `charging` DB after product-catalog (ADR-0384).
+
+**Found before cutting over (each would have broken charging for onboarded customers):**
+1. **The CHF could never find a provisioned customer's bucket.** The CHF resolves a subscriber's
+   bucket as `GET /bucket?relatedParty.id=<SUPI>` (shared bucket) else `bucket.id == SUPI`
+   (`charging_engine.cpp resolve_bucket_id`, every reserve); `bss/provisioning` (ADR-0382) created
+   `bkt-<digits>` ids. Fixed by keying the subscriber's own bucket by SUPI in provisioning (the older,
+   wider convention: CHF fallback, CAP test, lab data) -- the SID `bucket_logical_resource` link is
+   still written.
+2. **NULL amounts.** `40-balance.sql` left `remaining/reserved_value_amount` NULLable and provisioning
+   omits the reserved amount; `NULL + x` is NULL, so the first reserve on every provisioned bucket
+   would have "succeeded" while corrupting it. Now `NOT NULL DEFAULT 0` (backfilled).
+3. **Precision**: `NUMERIC(20,4)` held less than the old store's 6 decimals -> unbounded `NUMERIC`.
+4. **Account FK**: `bucket.party_account_id -> subscriber_mgmt.account` would reject top-up
+   auto-creation for every account subscriber-management still creates in its OLD per-service DB.
+   Dropped here; **re-add it in the subscriber-management cut-over** (recorded there too).
+5. **CI gap (pre-existing)**: `TEST_BALANCE_POSTGRES_URL` was never set in CI, so
+   `test_balance_shared_bucket.cpp` has been skipping there. Now set.
+
+**Decision.**
+- `bss/balance-management` persists TMF654 in schema `balance_mgmt` of `charging`; new idempotent
+  `deploy/db/charging/41-balance-lossless.sql` adds what the DTOs need; schema-qualified SQL.
+- **Access-path split, deliberately:** the **Bucket** (read and mutated on every charge) is
+  normalized (scalar columns + ordered `bucket_logical_resource` / `bucket_product` /
+  `bucket_related_party`). The **balance events** (topup/adjust/reserve; append-only, partitioned by
+  `occurred_at`, one reserve per rating decision -- hundreds of millions a day at the Tier-1 target)
+  keep their TMF654 reference lists as JSONB columns on the event row: one INSERT per event, no
+  child-table fan-out on the hottest write path. Scalars are columns; `id` gets its own index (the PK
+  is `(occurred_at, id)`, so a lookup by id would otherwise scan every partition).
+- `bucket_related_party(party_id)` indexed -- the CHF's shared-bucket lookup precedes every reserve.
+- **Semantics unchanged:** every movement is one conditional UPDATE (`WHERE remaining >= amount`,
+  row lock = concurrency safety); insufficient balance is a business outcome (201, status
+  `failed`), not an error; top-up of an unknown bucket creates it -- now as ONE atomic upsert
+  (`INSERT ... ON CONFLICT DO UPDATE ... RETURNING (xmax = 0)`), removing a create race the old
+  UPDATE-then-INSERT had. A malformed date-time is a 400 and rolls back the balance movement.
+- Wiring: config, compose (depends on postgres-chf), both CI jobs' `BALANCE_MANAGEMENT_DATABASE_URL`
+  and the new `TEST_BALANCE_POSTGRES_URL` -> `postgres-chf/charging`.
+
+**Rejected.** *CHF resolves by `logicalResource.id`* (SID-proper) -- a second round trip on every
+reserve; recorded as the follow-up once one subscriber needs several buckets (id = SUPI allows one
+own bucket per subscriber, so separate data/voice/monetary buckets are not yet possible).
+*Normalize event reference lists into child tables* -- write amplification on the hottest path.
+*Keep the account FK* -- blocks every account subscriber-management owns until its own cut-over.
+*COALESCE in the hot SQL* -- hides the NULL instead of making it impossible.
+
+**Measured** (same machine, 60 iterations of the CHF's per-charge pair, curl over fresh TLS each):
+shared-bucket lookup p50 5.5 ms (old) / 5.6 ms (new), p90 7.9 / 7.2; reserve p50 6.6 / 6.4, p90
+8.4 / 9.2 -- equivalent; no regression.
+
+**Disclosed.** The old per-service balance DB held 2 lab buckets (1 SUPI-keyed); not migrated,
+nothing seeds them. `accumulated_balance` stays unused (computed on the fly, as before). Old reads
+dropped `confirmationDate`/`partyAccount` on events; they now round-trip. Remaining on per-service
+DBs: subscriber-management, roaming-interconnect, CHF `chf_rating`.
+
+**Tests.** New `tests/integration/test_balance_lossless.cpp`: fully populated top-up/adjust/reserve
+round-trip exactly via GET (top-up amount beyond 6 decimals exact; created bucket carries the whole
+PartyAccountRef + products); unchanged semantics (credit, reserve, over-reserve fails untouched,
+release, adjust floor, accumulated sum); a provisioning-shaped bucket reserves correctly (the NULL
+case); 32 parallel reserves of 5 on 100 -> exactly 20 succeed, remaining 0, reserved 100; malformed
+date rejected with the balance unmoved. `test_balance_shared_bucket` moved to the normalized
+relatedParty table. Verified locally 2026-09-25 end to end with real processes (nrf, udr,
+product-catalog, balance-management, provisioning, chf, Doris): a customer onboarded through
+provisioning on a TMF620 offering got a CHF grant of 1,048,576 octets on rating group 20, and 0.01 USD
+was reserved from THEIR bucket (remaining 5.00 -> 4.99). Locally BalanceLossless*, SharedBucket*,
+ProductCatalog*, UdrOamProvisioning*, CapScopedCharging: 20/20.
+
+## ADR-0386: subscriber-management cut over to the consolidated charging DB -- TMF632 party lossless, SUPI/MSISDN as SID Resources, account FK restored
+
+**Date:** 2026-09-26. **Status:** accepted (continuing the user-directed charging-DB cut-over,
+ADR-0384/0385). Third service onto `charging`.
+
+**Decision.**
+- `bss/subscriber-management` persists TMF632 Individual / Organization in schema `party`
+  (normalized, `10-party.sql`) and the project's Account / Subscriber in `subscriber_mgmt`
+  (`20-subscriber.sql`), replacing its per-service JSONB rows. New idempotent
+  `21-party-subscriber-lossless.sql`: `birthDate`/`deathDate` as TIMESTAMPTZ (was DATE; TMF632 carries
+  a date-time), `href` on relatedParty and on parent/child organization refs, surrogate keys with the
+  optional TMF ids of TaxExemptionCertificate / TaxDefinition in their own columns, `ordinal` on every
+  TMF632 list, id sequences, and `subscriber_lifecycle_event` (the transition history the service
+  records, which `20-` had no home for).
+- **Subscriber SUPI / MSISDN are SID Resources** (`subscriber_mgmt.resource` rows, unique while
+  active), not columns; `get_by_supi` goes through `idx_resource_lookup`. A SUPI that is already an
+  active resource is a **409**.
+- **Stricter by design** (the relational model's NOT NULL/FK/CHECK): a subscriber needs an existing
+  `accountId` and a `chargingMode` (**400** otherwise); unknown individual / organization / parent
+  account / parent organization -> **400**; `accountKind` outside CONSUMER|ENTERPRISE -> **400**.
+  API-created subscribers start `active`, as before (the schema default `pendingActive` belongs to the
+  provisioning workflow).
+- **ADR-0385's deferred FK is restored:** `42-balance-account-fk.sql` re-adds
+  `balance_mgmt.bucket.party_account_id -> subscriber_mgmt.account` (NOT VALID: new rows enforced,
+  pre-existing lab rows not retro-checked); balance-management maps an unknown account on top-up to
+  **400**.
+- Wiring: config, compose (depends on postgres-chf), both CI jobs' `SUBSCRIBER_MANAGEMENT_DATABASE_URL`
+  / `TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL` -> `postgres-chf/charging`.
+
+**Found and fixed along the way.** `SUBSCRIBER_MANAGEMENT_TEST_URL` was never set in CI, so
+`test_subscriber_lifecycle.cpp` has **always skipped** (the second such silent skip after ADR-0385's
+balance one); now set, and the test asserts the recorded history. `test_subscriber_management_postgres`
+used a fixed SUPI and only ever passed on a fresh CI database; now unique per run.
+
+**Rejected.** *Keep SUPI/MSISDN as subscriber columns* -- duplicates the SID Resource the
+provisioning workflow and the rest of the domain already use. *Keep the bucket FK dropped* -- the
+reason (accounts in another DB) is gone. *VALIDATE the restored FK now* -- lab rows from earlier
+tests reference accounts that never existed; enforced for new rows, validation left as a clean-up step.
+
+**Disclosed.** Stores keep the one-connection-plus-mutex model (no pool yet; not on a hot path --
+nothing calls subscriber-management per charge). The old per-service DB's lab rows were not migrated.
+Canonicalisations as in ADR-0384 (UTC date-times with milliseconds; all-absent objects come back
+absent). Remaining on per-service DBs: roaming-interconnect and the CHF's `chf_rating`.
+
+**Tests.** New `tests/integration/test_party_lossless.cpp`: fully populated Individual and
+Organization (every field, every list >= 2, parent/child refs, tax certificates with definitions)
+round-trip exactly via get() and list(); integrity violations (unknown parent org, bad accountKind,
+subscriber without / with an unknown account, malformed date) are client errors. Balance: top-up for
+an unknown account -> 400. Verified locally 2026-09-26: PartyLossless, SubscriberManagementPostgres,
+SubscriberLifecycle (with its env var), BalanceLossless, SharedBucket -- 19/19; service-level POST
+account/subscriber 201, duplicate SUPI 409, no account 400; a provisioning order still completes with
+the restored FK.
+
+## ADR-0387: roaming-interconnect cut over to the consolidated charging DB -- TMF651 agreements in their domain home
+
+**Date:** 2026-09-26. **Status:** accepted (continuing the user-directed cut-over, ADR-0384..0386).
+
+**Decision.** An interconnect agreement is a TMF651 Agreement plus roaming specifics. The TMF651 part
+is stored in the domain's single TMF651 home, `subscriber_mgmt.agreement*` (normalized); the roaming
+part (partner PLMN, opaque `rateTerms`) in `roaming.interconnect_agreement`, whose `agreement_ref`
+is FK'd to the agreement; both rows share ONE server id from `subscriber_mgmt.agreement_id_seq`
+(one id space for every TMF651 agreement). TAP3 files live in `roaming.roaming_cdr_file`.
+New idempotent `51-agreement-roaming-lossless.sql` fixes what `50-agreement.sql` lost against
+`bss_sid::Agreement`: AgreementItem's product / productOffering / termOrCondition **lists** (were one
+product + one offering per row, terms hung off the agreement) -> `agreement_item_product`,
+`agreement_item_offering`, item-scoped terms; `associatedAgreement` (no home) ->
+`agreement_associated`; completionDate as a period; agreementSpecification href/description;
+ordinals; and `roaming_cdr_file` gains the **TAP3 payload, format and agreement link** it had no
+column for. `rateTerms` not supplied stays absent (stored as JSON null, not `{}`). Malformed
+date-times / a TAP3 file naming a non-existent agreement -> 400. Config, compose, both CI jobs ->
+`postgres-chf/charging`.
+
+**Rejected.** *Keep the TMF651 agreement as JSONB on the interconnect row* -- a second, unqueryable
+agreement home. *Separate id spaces* -- the nested TMF651 id has always equalled the interconnect id.
+
+**Disclosed.** Stores keep one connection + mutex (not a hot path). Old per-service lab rows not
+migrated. Remaining on its own DB: the CHF's `chf_rating`.
+
+**Tests.** New `tests/integration/test_roaming_lossless.cpp`: fully populated agreement (every field,
+lists >= 2 incl. per-item lists) round-trips exactly via get() and list(); omitted rateTerms stays
+omitted; TAP3 bytes round-trip; dangling agreement / bad date -> 400. Existing
+`RoamingInterconnectPostgres*` pass. Locally 5/5 (2026-09-26).
+
+## ADR-0388: the CHF rating store cut over to the consolidated charging DB -- the consolidation is complete
+
+**Date:** 2026-09-26. **Status:** accepted (user: "Please proceed fast"). Last per-service store onto
+`charging` (after ADR-0384..0387).
+
+**Decision.** `chf::RatingDecisionStore` writes schema `chf_rating` of `charging`: each decision
+into the time-partitioned `chf_rating.rating_decision` with `charging_data_ref` and
+`subscriber_identifier` (SUPI) as first-class columns (per-customer inquiry at Tier-1 volume; the
+lookup by chargingDataRef now uses `idx_rating_ref` instead of a JSONB expression), and its TMF678
+AppliedCustomerBillingRate as a row of `chf_rating.applied_customer_billing_rate` sharing the id.
+New idempotent `61-rating-lossless.sql` adds what the CHF records but `60-rating.sql` dropped: tariff
+id + pinned version, rule fired, AI advisory; unbounded NUMERIC amounts (was 4 decimals). The single
+writer (`charging_engine.cpp write_rating_decision`) now passes the SUPI. Audit rows use the
+`chf_rating.audit_record` shape (actor/action/detail with entityType/entityId/afterSnapshot/
+aiAdvisoryRef). Config (chf, mcp-server), compose, CI (`CHF_RATING_DATABASE_URL`,
+`MCP_RATING_DATABASE_URL`), the CAP test's direct query and `scripts/pipeline-clean.sh` ->
+`charging`/`chf_rating`.
+
+**Found and fixed.** `config/mcp-server.json` pointed its rating store at the UDR's Postgres
+(`udr:udr@...:5437/chf_rating`), so the MCP rating-decision tool could not have worked locally.
+
+**Disclosed.** The store is still ONE connection behind a mutex and is written on every rating
+decision -- a throughput limit on the CHF hot path (pre-existing; a pool is the follow-up before any
+scale run). `taxExcluded == taxIncluded` (no tax engine) as before. The old `chf_rating` database
+and CI's step applying `nfs/chf/schema.postgres.sql` to it are now unused (retire with the other
+per-service DBs). **With this, every charging/BSS service persists in the consolidated `charging`
+DB** (+ `orchestration`); UDR and ADRF keep their own DBs by design.
+
+**Tests.** Locally 2026-09-26: CapScopedCharging (the CHF rates an InitialDP and the test finds the
+decision in `chf_rating.rating_decision` of `charging`), plus ProductCatalogLossless, BalanceLossless
+-- 10/10; SQL check: decision row carries chargingDataRef, SUPI, tariff id; ACBR and audit rows
+written.
+
+## ADR-0389: CHF rating store gets a connection pool
+
+**Date:** 2026-09-26. **Status:** accepted (follow-up disclosed in ADR-0388). `chf::RatingDecisionStore`
+is written on every rating decision; it held ONE `pqxx::connection` behind a mutex, serialising
+every CHF worker thread's decision write. It now uses `nf_config::PgPool` (the pool the BSS stores
+use), sized by required config `rating_db_pool_size` (`config/chf.json`: 8; env
+`CHF_RATING_DB_POOL_SIZE`). `PgPool` exits the process if it cannot connect at startup (fail-closed,
+ADR e81fa02), replacing the store's own warn-and-disable path. The MCP server keeps a pool of 1
+(read-only lookups). Unchanged: a write that fails mid-run is logged and dropped (the decision is
+audit data, not the charge itself) -- disclosed as before.
+**Rejected.** *A connection per decision* (connect cost on the hot path). *Async writes via a queue*
+-- right for scale, but it changes durability semantics; deferred to the Tier-1 data-layer work.
+## ADR-0440: LI increment 4, prerequisite 2 -- the X1 IdentifierAssociationExtensions gating, and the AMF IdentifierAssociation + LocationUpdate hooks
+
+**Date:** 2026-09-26. **Status:** accepted (partial: IdentifierAssociation and LocationUpdate are
+wired; Deregistration, IdentifierDeassociation and StartOfInterceptionWithRegisteredUE are still
+blocked, see below). This continues ADR-0378. Pinned sources: TS 33.127/33.128 V19.7.0
+(`specs/3gpp/TS_33.128_j70.txt`), ETSI TS 103 221-1 V1.23.1 and TS 103 221-2 V1.10.1, and the
+TS 33.128 X1 extension schema already vendored with the other attachments by ADR-0364
+(`specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd`, target namespace
+`urn:3GPP:ns:li:3GPPX1Extensions:r19:v4`).
+
+**Decision 1: parse the gating parameter in `li_core::x1`, taking element names from the XSD.**
+TS 33.128 table 6.2.2.1.1-1 gives the field as "TaskDetailsExtensions/IdentifierAssociationExtensions",
+and table 6.2.2.1.1-2 calls its one member "TaskDetailsExtensions/EventsGenerated", with values
+IdentifierAssociation and All. The vendored XSD names that member `IdentifierAssociationEventsGenerated`
+and restricts it to the same two enumerators. The XSD is authoritative for element names (the
+YAML-prime rule, ADR-0250, applied to XML), so the code uses the XSD name and records the naming
+gap here. The clause 6.2.2.2.1 prose also misspells the parameter as "IdentifierAssocationExtensions".
+The XSD declares two global elements of type `IdentifierAssociationExtensions`: the element of that
+name, which is the path the TS table spells out, and `X1Extensions` with its `IdentifierAssociation`
+choice branch. Both are schema-valid inside the ETSI `Extension` wildcard, so both are parsed.
+Elements are matched on namespace URI plus local name. `TaskDetails.identifier_association_events`
+is `nullopt` when the parameter is absent.
+
+**Decision 2: the 3GPP schema joins the X1 validation set, and the images ship it.** The ETSI
+`Extension` type is `<xs:any namespace="##other"/>`, whose default `processContents` is strict.
+Before this change, any ActivateTask that carried a 3GPP extension failed validation and came back
+as a TopLevelError. `x1-validation.xsd` now imports the 3GPP schema, after the X1 namespace that
+the 3GPP schema imports without a schemaLocation. The import path
+(`../../3gpp/33128-attachments/...`) points outside `specs/etsi`, so `amf.Dockerfile` and
+`li-mdf.Dockerfile` now copy that one file too. Without it the schema set would not load in the
+container, and every X1 request would fail closed, including requests to the already-shipped MDF2.
+
+**Decision 3: gating is a per-task decision table in the POI.** Clause 6.2.2.2.1 reduces to
+`xiri_record_enabled(gating, record)`:
+
+| Gating | Records generated |
+|---|---|
+| Absent | every AMF record except Identifier(De)Association (table 6.2.2.1.1-1: absent means "shall not be generated") |
+| IdentifierAssociation | only IdentifierAssociation, IdentifierDeassociation and LocationUpdate ("No other record types shall be generated for that target") |
+| All | every AMF record type |
+
+So gating does not simply switch the POI on or off. With the parameter absent, Registration and
+LocationUpdate are still emitted. In IdentifierAssociation mode, the Registration hook from
+ADR-0378 is now suppressed. Emitting it there would be non-conformant.
+
+The target store keeps the gating per XID, and ModifyTask replaces it. `matches()` returns every
+task that targets the SUPI. The old lookup returned the first hit from an unordered_map, so when
+two warrants with different gating targeted one UE, which gating applied was nondeterministic.
+Each warrant now gets its own xIRI under its own XID and sequence number.
+
+**Decision 4: wire only the triggers the AMF really has.**
+- *IdentifierAssociation* (6.2.2.2.7): this fires when a REGISTRATION ACCEPT "has been sent by the
+  AMF towards a target UE", "regardless of whether [it] is subsequently successfully completed".
+  That is the existing RegistrationAccept site in `handle_uplink_nas_transport_smc_complete`.
+  - The mandatory `location` is the `UserLocationInformation` of the UplinkNASTransport being
+    handled. TS 38.413 makes that IE mandatory, per `specs/NGAP/ngap-17.9.asn`
+    UplinkNASTransport-IEs.
+  - It is encoded as `Location.locationInfo.userLocation`, as the table requires.
+  - Payload Direction is 5, as the clause states.
+  - If the ULI is an unmodelled branch (N3IWF or an extension), no record is emitted and the event
+    is logged. Emitting the record without its mandatory member would be worse.
+- *LocationUpdate* (6.2.2.2.4): the clause names "the N2 Path Switch Request (... TS 23.502 clause
+  4.9.1.2)" and "the N2 Handover Notify (... clause 4.9.1.3)". The AMF implements both procedures.
+  - The PathSwitchRequest hook fires only on the success path, after the acknowledge and the
+    registry re-point. It never fires on the ErrorIndication branch.
+  - The HandoverNotify hook fires after the registry re-point.
+  - In both cases the location is the message's mandatory ULI, which is the target cell.
+  - `ngap_handover.cpp` reaches the POI through a new `amf::ngap::li_poi()` accessor, not a second
+    global.
+- `parse_user_location` (prerequisite 1) is now used. `user_location_from_ies` wraps it: it finds
+  IE 121, PER-decodes it, parses it and frees it. `li_location.cpp` joins the `amf` target. The
+  NGAP decode runs only when the POI exists and the SUPI is a target, so the LI-off path costs
+  nothing.
+
+**Disclosed interpretation: LocationUpdate direction.** Clause 6.2.2.2.4 gives no Payload
+Direction. Table 5.3.2-1 sets the direction "based on the initiator of the network procedure".
+N2 and Xn handovers are initiated by the NG-RAN. They are not sent by the target UE and not
+addressed to it, so neither 2 (to target) nor 3 (from target) describes them. This slice uses 5
+(not applicable), the value 6.2.2.2.7 and 6.2.2.2.5 prescribe for the other network-detected AMF
+records. This is an interpretation, not a quoted rule. A reviewer who reads "initiator = network"
+as 2 has a defensible case.
+
+**Still blocked, and why (no trigger fabricated).**
+- *IdentifierDeassociation*: this needs "an identifier deassociation without a new association
+  within the same UE context". The AMF has no UE deregistration procedure. A re-registration with a
+  new 5G-TMSI is a new association, not a deassociation, and UEContextRelease keeps the GUTI
+  (CM-IDLE). The only conformant trigger is deregistration, which is ADR-0378 prerequisite 3.
+- *IdentifierAssociation via CONFIGURATION UPDATE COMMAND (5G-GUTI)*: the AMF does not implement
+  that NAS procedure, so it has no second trigger.
+- *LocationUpdate via PDU Session Resource Modify Indication (Dual Connectivity, TS 37.340)*: the
+  AMF has no handler for that NGAP message. Wiring it is NGAP work that comes before LI work. The
+  optional operator-policy triggers (RRC Inactive Transition Report, Namf_Location/EventExposure
+  sources) are not implemented either.
+- *Deregistration* and *StartOfInterceptionWithRegisteredUE*: no change from ADR-0378.
+
+**Verification.**
+- `test_li_x1_gating` (11 cases): both element forms, both values, absent, an enumeration
+  violation, a missing child, an unrelated SMSF extension, a same-named element in a foreign
+  namespace, several extensions, ModifyTask setting and clearing the gating, and the NE server
+  passing the value to the store callback. Every document goes through `parse_request`, so these
+  cases also prove the combined ETSI+3GPP schema set loads in libxml2.
+- `test_li_amf_location` +2: IE-container decode.
+- `test_li_amf_poi` +5 (`LiAmfPoiGating.*`): the decision table; the absent, IdentifierAssociation
+  and All modes over real LI_X1 provisioning and real LI_X2 to a loopback MDF2, with the mandatory
+  members (sUPI, gUTI, location) and direction 5 asserted on the decoded xIRIs; and the non-target
+  case.
+- *Not tested*: the NGAP-side hooks in `ngap_task.cpp`/`ngap_handover.cpp` are compile-verified
+  only. No test drives a PathSwitchRequest or HandoverNotify through the AMF with LI enabled.
+  That needs an AMF-process harness with the POI on, which no existing test has.
+
+**Rejected alternatives.**
+- *Emitting IdentifierAssociation without the parameter, or LocationUpdate only when gated*: both
+  misread 6.2.2.2.1.
+- *Using the TS table's "EventsGenerated" element name*: it is not declared in the schema, so a
+  conformant ADMF could never send it.
+- *Relaxing the wildcard (`processContents="lax"`) in a local copy of the ETSI schema instead of
+  importing the 3GPP one*: that would edit a normative ETSI file and stop validating the extension
+  content.
+- *Taking location from the stored InitialUEMessage*: the UplinkNASTransport's own mandatory ULI
+  is the more recent of the two, and it is already in scope.
+
+## ADR-0390: retire the per-service BSS/CHF PostgreSQL instances
+
+**Date:** 2026-09-26. **Status:** accepted (follows the completed consolidation, ADR-0384..0388).
+Nothing reads or writes the old per-service databases any more, so compose loses the `postgres`
+(product-catalog), `postgres-balance`, `postgres-subscriber` and `postgres-roaming` services and
+their volumes, `postgres-chf` stops loading `nfs/chf/schema.postgres.sql` into its legacy
+`chf_rating` database, and both CI jobs lose the four matching service containers and the five
+schema-apply steps -- 234 lines, four fewer PostgreSQL containers per CI job on the single
+self-hosted runner (whose memory pressure has been killing background work). Kept on purpose:
+`postgres-chf` (hosts `charging` + `orchestration`), `postgres-udr`, `postgres-adrf`.
+The legacy `bss/*/schema.sql` and `nfs/chf/schema.postgres.sql` files stay in the tree as history
+(referenced by earlier ADRs); nothing applies them. **Rejected:** keeping the containers "just in
+case" -- they would silently mask any regression back to a per-service URL.
+## ADR-0420: Phase 7 operator GUI stack -- React + JSON Forms (web), Dear ImGui + ImPlot (local engineering console, later)
+
+**Date:** 2026-09-26. **Status:** accepted (project owner's decision, recorded here). Resolves the
+open Phase 7 stack question (CLAUDE.md "GUI" line; README Phase 7 row).
+
+**Decision.** Two tracks, two audiences:
+1. **React + JSON Forms** (`gui/web`) for the operator / provisioning / configuration GUI:
+   remote-capable, schema-driven (every form is rendered from a JSON Schema DERIVED from the real
+   API or DTO definitions, ADR-0421), validating input before it leaves the browser. Served by a
+   C++ backend-for-frontend (`gui/bff`, ADR-0422), never directly by an NF.
+2. **Dear ImGui + ImPlot** for a separate LOCAL engineering console (live NF metrics, NWDAF analytics
+   plots, message/trace inspectors). **Not in this increment** -- the second, later track.
+
+**Toolchain (minimal, all OSI):** React 19.3 (MIT), @jsonforms/core + react + vanilla-renderers
+3.8.0 (MIT), TypeScript 5.9 (Apache-2.0, build only), Vite 8.3 (MIT, build only; pulls rolldown
+MIT, lightningcss MPL-2.0, postcss MIT). AJV (MIT) arrives transitively via JSON Forms but is not
+executed (ADR-0421). `@vitejs/plugin-react` is deliberately NOT used: Vite's built-in TSX transform
+suffices, and the plugin's babel/browserslist chain would bring `caniuse-lite` (CC-BY-4.0, not an
+OSI licence). `gui/web/scripts/check_licenses.py` gates the WHOLE lockfile (58 packages today: MIT
+41, MPL-2.0 12, Apache-2.0 2, BSD-3-Clause 2, ISC 1) and is a ctest (`gui_npm_licenses_osi_only`).
+TypeScript is the one sanctioned exception to the C/C++/Python-only rule (the GUI exception).
+
+**Rejected.** *Material renderers (@jsonforms/material-renderers)* -- better nested-array UX but pulls
+MUI + emotion for a first increment that needs three small custom renderers instead
+(`gui/web/src/forms/renderers.tsx`). *Server-side rendered forms in C++* -- would re-implement a
+schema-form engine. *Dear ImGui for the operator GUI* -- a native binary is not remote-capable for
+shop agents; kept for the engineering console where it fits.
+
+## ADR-0421: GUI schemas are derived, never re-typed -- TMF620 from the bss_sid DTOs, provisioning cross-checked against its source
+
+**Date:** 2026-09-26. **Status:** accepted.
+
+**TMF620 (ProductOffering, ProductOfferingPrice).** `gui/schema-gen/derive_tmf620_schema.py` parses
+`libs/bss-sid/include/bss_sid/product.hpp` (the structs product-catalog deserializes every request
+into; themselves transcribed from the real TMF620 v4.1.0 swagger) and emits
+`gui/web/src/schemas/tmf620.derived.json`: `std::string` -> required string (from_json uses
+`at()`), `optional<T>` -> optional, `vector<T>` -> array, nested structs inlined, `nlohmann::json`
+-> untyped. A small overlay (`overlay-tmf620.json`) adds only SERVICE-side create rules, each with a
+source citation (e.g. `name` required on ProductOffering create, `store.cpp`; `id`/`href`
+server-assigned; which date-times `ts_in` validates) -- and the generator refuses any overlay rule
+naming a field the DTO does not have, so the overlay can constrain but never invent.
+Independent check: `test_tmf620_schema_roundtrip.cpp` builds a maximal instance from the emitted
+schema (every property, one-element arrays, non-integral numbers) and round-trips it through the
+REAL `bss_sid::from_json`/`to_json` -- equality proves every key and type; a second test removes
+each property in turn and checks `from_json` throws exactly for the schema's `required`.
+ProductOfferingPrice has **no** required top-level field (true of the DTO, the DB and the TMF620
+swagger) -- stated, not "fixed".
+
+**Provisioning customer order.** A project-owned OAM API with no DTO to derive from, so the schema is
+hand-transcribed from `provisioning_store.hpp`'s documented request shape -- and
+`check_provisioning_schema.py` re-derives from the running code: every key the service reads
+(`jval`/`.value`, per nested object, including `initialBalance.usageType`, which the header comment
+omits), every validation regex and which fields it guards unconditionally (= required: `supi`,
+`sim.k`, `sim.opc`), and the `segment`/`chargingMode` enums from the charging DB CHECK
+constraints. `usageType`'s documented values come from a column comment only, so they are shown as
+a description, not enforced as an enum. `sim.k`/`sim.opc` are `writeOnly` (drives the masked input).
+`test_schema_checks.py` proves both checks REJECT realistic drift (10 mutations).
+
+**Rendering / validation.** The UI schema is generated from the schema (`uischema.ts`) because JSON
+Forms' default generator drops untyped properties silently and the vanilla set has no nested-object
+renderer; three small renderers fill the gaps (nested object, writeOnly secret -- a CSS-masked
+text input, deliberately not `type=password` so no browser offers to SAVE a SIM key -- and raw JSON
+for untyped fields). **AJV is not executed**: it compiles schemas with `new Function`, which the
+console's CSP (`script-src 'self'`, no `unsafe-eval`) forbids, and weakening the CSP is the wrong
+trade. `validate.ts` interprets the closed keyword set the derived schemas use; the BFF and the
+service validate again. Cost, disclosed: errors are listed at submit, not inline per field.
+`scripts/render_smoke.py` loads the built bundle in headless Chromium under the production CSP with
+canned /api responses and fails on any page/console error or "No applicable renderer".
+
+## ADR-0422: Browser-to-NF transport -- a C++ backend-for-frontend, NF mTLS untouched
+
+**Date:** 2026-09-26. **Status:** accepted (amended by ADR-0423: the BFF now parses bodies).
+
+**Decision.** `gui/bff` (`oam-gui-bff`, C++ on `libs/sbi-core`): the browser talks TLS 1.3 + mTLS +
+HTTP/2 to the BFF; the BFF calls product-catalog / provisioning with its OWN lab-CA identity
+(CN `oam-gui-bff`) via `sbi_core::http2::Client`. Two separate trust anchors: the browser-facing
+listener verifies clients against a separate **operator CA** (terminal certificates), so an NF's
+lab-CA certificate cannot even open the GUI (tested), and no NF gains a new trust anchor, port or
+exception. Only allow-listed routes exist (no generic proxy); only content-type/accept go upstream;
+upstream headers are allow-listed back (Location rewritten). CSRF: every write needs
+`x-requested-by: oam-gui` + `content-type: application/json`, which force a CORS preflight the BFF
+never answers. Static app served from memory with a strict CSP. Ports config-driven
+(`config/oam-gui-bff.json`, 8710 -- outside the NF/CI 7700-7899/9400-9499 ranges).
+`libs/sbi-core` gained one additive field, `Request::peer_address` (audit "from where").
+
+**Rejected.** *Browser straight to NFs with an operator client cert* -- every NF would have to
+trust operator certs and serve CORS; weakens NF mTLS. *Vite dev-server proxy / Node BFF* -- a
+second runtime, and http-proxy speaks HTTP/1.1 to h2-only services. *Python BFF* -- no reason
+beyond convenience; sbi-core already has the TLS/h2 stack. *Envoy/nginx in front* -- would terminate
+mTLS and still need an authorization service; the BFF is where authorization lives (ADR-0423).
+**Disclosed:** `sbi_core::http2::Client` sets no timeout, so a hung service holds a BFF worker.
+
+## ADR-0423: Operator identity, access, maker-checker and audit -- the `operator_iam` domain
+
+**Date:** 2026-09-26. **Status:** accepted; implemented for login, onboarding, catalog proposals,
+approvals and NF config; deferrals listed. Owner requirement: Tier-1 security governance for shop
+agents and back office.
+
+**Where.** Its own domain DB `operator_iam` (schema `iam`) on the postgres-chf instance, DDL in
+`deploy/db/operator_iam/` (00-schema, 10-roles), applied by `deploy/db/init-domain-dbs.sh`
+(DB-per-domain rule). The BFF connects as the least-privileged `oam_gui_bff` role (created by the
+DDL, credentials set by deployment): INSERT/SELECT on the audit trail, never UPDATE/DELETE.
+
+**Model.**
+- *Organisation:* `org_unit` (HQ, CHANNEL, DEALER, SHOP, BACK_OFFICE, NOC) with a closure table,
+  so "is shop S inside a grant anchored at U" is one indexed lookup at any depth. Re-parenting is
+  refused (mover = close + recreate) so the closure cannot go stale. `terminal` registers shop PCs
+  by their operator-CA certificate CN.
+- *Users:* `operator_user` holds the IdP issuer+subject, never a credential; status ACTIVE / LOCKED
+  / DORMANT / LEFT (joiner/leaver), `operator_user_move` (mover history, mover != moved), dormancy
+  from `auth_policy.dormant_after_days` enforced at login (the account is locked and the attempt
+  audited), `mfa_required` per user.
+- *Authorization, data-driven:* `permission` (resource, action) rows; `role` rows (seeded: shop
+  agent, shop supervisor, back-office agent, product/tariff manager, catalog approver, network
+  config engineer/approver, security admin/approver, read-only auditor -- editable data, never named
+  in C++); `role_permission` with scope OWN_SUBTREE or GLOBAL; `role_assignment` anchored at an org
+  unit with validity window, revocation, and a CHECK that the grantor is not the grantee.
+  `sod_rule` pairs (catalog maker vs checker, config maker vs checker, grant maker vs checker).
+- *Field-level:* `field_policy` -- SECRET_WRITE_ONLY (SIM K/OPc: accepted, forwarded once, never
+  returned/stored/audited; also scrubbed from any upstream response that echoed them, either case),
+  PII (masked in every response unless `pii:unmask` in scope AND a stated reason, the unmask itself
+  audited), CREDENTIAL (config secrets, masked; "unchanged" when the mask is sent back).
+- *Maker-checker:* `approval_policy` says which permissions need four eyes and which permission
+  approves; `approval_request` stores the (secret-free) payload + sha256, and a DB CHECK
+  `decided_by <> requested_by` plus a trigger refusing a grantee deciding their own role grant --
+  the BFF refuses first, the DB refuses even if the BFF is bypassed (both tested). Execution happens
+  under the checker's session; result stored on the request.
+- *Scope registry:* the provisioning API carries no shop, so the BFF CLAIMS the SUPI for the
+  caller's unit (`customer_ownership`, insert-or-read, race-free) before forwarding and records
+  `order_ownership` from the response. Idempotency keys are rewritten to `<unit>.<key>`, so a key
+  typed in shop B can never resume (and so read) shop A's order. Out-of-scope reads answer 404,
+  identical to unknown (no cross-shop existence oracle).
+- *Sessions:* `operator_session` stores only sha256(cookie); bound to the terminal certificate it
+  was opened on -- the cookie replayed from another terminal is refused and the session ended
+  (tested); idle and absolute timeouts from `auth_policy`. `login_state` holds OIDC state/nonce/PKCE,
+  single use, bound to the browser by a Lax login cookie.
+- *Audit:* `audit_event`, partitioned by month (+ DEFAULT partition, `ensure_audit_partition` run at
+  BFF start-up), who / session / unit / terminal CN / IP / action / resource / customer (SUPI) /
+  outcome (ALLOWED, DENIED, ERROR, PENDING_APPROVAL, APPROVED, REJECTED) / status / reason /
+  before-after (secrets stripped). Hash-chained per `chain_key` (one chain per BFF instance, so
+  instances never contend): a BEFORE INSERT trigger takes a per-chain advisory lock, assigns
+  `chain_seq`, links `prev_hash`, computes `row_hash` = sha256 over a deterministic canonical text.
+  UPDATE/DELETE/TRUNCATE are not granted AND refused by triggers; `audit_verify_chain()` finds an
+  edited or truncated chain (tested by a superuser disabling triggers and editing a row).
+  **Tamper-evident, not tamper-proof:** a superuser could rewrite a whole chain consistently; the
+  remedy (periodic export of chain heads to WORM/external storage) is deferred, below.
+  `audit_export` is the reviewer/export view.
+- *Order of operations in every handler:* session -> CSRF -> permission+scope -> AUDIT the decision
+  -> act -> audit the result. If the decision's audit write fails, the action is refused (503): no
+  change without a prior audit row. Denied and unauthenticated attempts are audited too (tested).
+  Handler exceptions are logged generically (pqxx/json texts can quote values).
+
+**Identity propagation to BSS/NF calls.** Implemented now: the BFF writes the attributed audit
+itself (real operator, unit, terminal, approval id) for every call it makes; the services' own
+`audit_record.actor` still says the service name. Designed, deferred: a short-lived JWS
+`x-oam-actor` header signed by the BFF's key, verified by the BSS services and written into their
+`audit_record.actor` -- needs a verification step in every BSS service, a separate increment.
+
+**Tier-1 scale.** Indexes for per-shop and per-user queries on grants, ownership, approvals,
+sessions and audit; monthly audit partitions; per-instance chains avoid a global lock. Each BFF
+replica MUST get its own `audit_chain_key` (env `OAM_GUI_BFF_AUDIT_CHAIN_KEY`, e.g. the pod name):
+replicas sharing a key still produce a valid chain but contend on its lock.
+
+**Rejected.** *Home-grown passwords/MFA* (ADR-0424). *Roles hardcoded in C++* (every role change
+would be a release). *One global audit chain* (serialises every instance). *Relying on REVOKE alone*
+(lab/CI connect as superuser; triggers + verification cover that). *A shop column added to the
+provisioning API* (changes a service contract to serve the GUI; the registry keeps it in the GUI's
+domain -- revisit when TMF622 channel/shop lands in orchestration).
+
+**Deferred (disclosed):** role-grant / user-lifecycle API and screens (DDL + permissions + DB
+checks exist; SoD is checked at grant time, which is exactly that API -- a seed can still create a
+violating user, and the four-eyes rule is proven to hold even then); terminal-to-shop binding
+enforcement (`terminal` table exists, sessions record the CN); `x-oam-actor` propagation; audit
+partition rotation/retention job and WORM export of chain heads; balance-adjustment thresholds
+(`approval_policy.threshold_*` exists, no balance screen yet); CI wiring -- the security tests read
+`TEST_POSTGRES_URL` (CI's postgres-chf) and are labelled `needs-postgres`; whether ci.yml exposes
+that variable on the ctest step is for the integrator to confirm.
+
+## ADR-0424: Operator authentication -- OIDC (authorization code + PKCE) to a self-hosted IdP, Keycloak recommended
+
+**Date:** 2026-09-26. **Status:** accepted; BFF side implemented and tested against a fake IdP;
+a live Keycloak realm is deferred.
+
+**Decision.** The BFF is an OIDC confidential client (`OidcAuthenticator` behind an `Authenticator`
+interface): /auth/login stores state + nonce + PKCE verifier (single use, browser-bound) and
+redirects; /auth/callback exchanges the code (client_secret_post + code_verifier), verifies the ID
+token itself (JWKS fetched and refreshed on unknown kid; RS256 or ES256 only; iss, aud, azp, exp
+with leeway, nonce), maps (iss, sub) to `operator_user`, refuses non-ACTIVE and dormant users, and
+for `mfa_required` users demands MFA evidence (`amr` or `acr` values from config). Session cookie
+`__Host-oam_session` (Secure, HttpOnly, SameSite=Strict; the callback answers 200 + meta refresh
+because a Strict cookie set on a redirect chain that began at the IdP would not be sent). All
+endpoints, client id, secret FILE and IdP CA are config (`config/oam-gui-bff.json`).
+**Recommended IdP: Keycloak** (Apache-2.0, self-hosted, OIDC + TOTP/WebAuthn MFA, LDAP/AD
+federation, brokering to an operator's existing IdP). Tests use a fake IdP that signs real ES256
+tokens and enforces PKCE: success, no-MFA refusal, nonce mismatch, foreign browser, replayed state,
+dormant account, unknown subject -- each audited.
+
+**Rejected.** *Home-grown passwords + TOTP in the BFF* -- credential storage, reset flows and MFA
+enrolment are an IdP's job and a liability here. *SAML* -- heavier, XML-DSig; can be brokered by
+Keycloak if an operator needs it. *Authelia / Dex* -- Dex has no MFA of its own; Authelia is
+forward-auth-oriented; either can sit behind the same interface. *Operator client certificate as
+the only login* -- kept as the terminal/device factor (layer 1), not the person.
+**Deferred:** Keycloak realm export + compose/Helm entry (a live IdP was not run on the shared
+16 GB machine); back-channel logout; step-up (acr) per sensitive action.
+
+## ADR-0425: NF configuration through the GUI -- derived schemas for every component, versioned four-eyes changes, no fake live reload
+
+**Date:** 2026-09-26. **Status:** accepted; generic viewer/editor implemented end to end for
+`product-catalog`; all 31 schemas derived.
+
+**Three kinds of configuration, kept apart.** (a) *Static process config* -- `config/<nf>.json`
+read once at start-up via `libs/nf-config`. (b) *Runtime-changeable config via an existing API* --
+**none today**: no component re-reads its file (grep for reload/SIGHUP finds nothing), so an applied
+change is written to the file and the version is marked `restart_required`; the GUI never claims a
+live reload. A live path needs a new management endpoint per NF, designed per NF when needed.
+(c) *Subscriber / policy / product data* managed through the component's own SBI/TMF API with its
+real schema: TMF620 catalog (product-catalog; also CHF rating/tariffs, which are catalog data),
+TMF654 balances, TMF632 parties, TMF651 agreements, UDR subscription data via Nudr (R19 YAML) and
+the OAM provisioning API. For EIR equipment lists and NSSF slice configuration no management
+surface was found in this repository -- listed for review, not invented.
+
+**Derivation.** `gui/schema-gen/derive_nf_config_schemas.py` emits one schema per config file
+(`gui/web/src/schemas/nf-config/`): properties only from keys present in the file, types from values,
+`required` = keys read with `nf_config::require<>` (process exits without them), `x-env-override`
+and `x-cpp-type` from the `require<T>(config, "key", "ENV")` call, `x-sensitivity: credential` for
+secret-looking keys or URLs with userinfo, and `x-review` listing what could not be established
+(keys no source line visibly reads; nested objects whose map-vs-struct meaning is unverified --
+closed until reviewed; empty arrays). ctest `gui_nf_config_schemas_up_to_date` fails on drift (it
+caught `chf.json`'s new `rating_db_pool_size` during this very merge).
+
+**Change path.** GET shows the content (credentials masked) and version history (the file on disk is
+imported as version 1 on first view); POST proposes a new content or a rollback to a prior version
+-> validated against the derived schema in C++ (`NfConfigManager::validate`; an invented key is
+refused) -> maker-checker request -> on approval: `nf_config_version` row (who/when/approval/
+comment, sha256) + atomic file replace + audit with before/after (credentials masked). Editable
+components are an allow-list in config (`nf_config.editable`: `product-catalog` only in this
+increment); every other component is viewable read-only.
+
+**Coverage matrix** (generated by `derive_nf_config_schemas.py --matrix`; the last column is
+hand-maintained knowledge in that script, marked "not assessed" where nobody has looked yet):
+
+| Component | Config source | Schema derived | Keys / required / credentials | Review items | Apply | GUI (static config) | Data managed via API (c) |
+|---|---|---|---|---|---|---|---|
+| adrf | config/adrf.json + nfs/adrf | yes | 15 / 12 / 1 | 15 | restart (no live reload) | view only | not assessed |
+| amf | config/amf.json + nfs/amf | yes | 15 / 14 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| ausf | config/ausf.json + nfs/ausf | yes | 5 / 5 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| balance-management | config/balance-management.json + bss/balance-management | yes | 5 / 5 / 1 | 0 | restart (no live reload) | view only | TMF654 buckets |
+| bsf | config/bsf.json + nfs/bsf | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| chf | config/chf.json + nfs/chf | yes | 25 / 20 / 2 | 5 | restart (no live reload) | view only | tariffs/rating = TMF620 catalog data (product-catalog) |
+| dccf | config/dccf.json + nfs/dccf | yes | 11 / 11 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| eir | config/eir.json + nfs/eir | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | none found -- review (equipment lists) |
+| gmlc | config/gmlc.json + nfs/gmlc | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| hello-nf | config/hello-nf.json + nfs/hello-nf | yes | 1 / 1 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| li-mdf | config/li-mdf.json + nfs/li-mdf | yes | 12 / 5 / 0 | 4 | restart (no live reload) | view only | not assessed |
+| lmf | config/lmf.json + nfs/lmf | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| mcp-server | config/mcp-server.json + tools/mcp-server | yes | 13 / 7 / 3 | 9 | restart (no live reload) | view only | not assessed |
+| mfaf | config/mfaf.json + nfs/mfaf | yes | 12 / 12 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| nef | config/nef.json + nfs/nef | yes | 7 / 7 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| nrf | config/nrf.json + nfs/nrf | yes | 2 / 2 / 0 | 0 | restart (no live reload) | view only | Nnrf_NFManagement registrations (runtime, by NFs) |
+| nsacf | config/nsacf.json + nfs/nsacf | yes | 6 / 6 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| nssf | config/nssf.json + nfs/nssf | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | none found -- review (slice configuration) |
+| nwdaf | config/nwdaf.json + nfs/nwdaf | yes | 34 / 27 / 1 | 34 | restart (no live reload) | view only | not assessed |
+| oam-gui-bff | config/oam-gui-bff.json + gui/bff | yes | 17 / 17 / 1 | 3 | restart (no live reload) | view only | not assessed |
+| pcf | config/pcf.json + nfs/pcf | yes | 7 / 6 / 0 | 5 | restart (no live reload) | view only | not assessed |
+| product-catalog | config/product-catalog.json + bss/product-catalog | yes | 5 / 5 / 1 | 0 | restart (no live reload) | view + four-eyes edit + rollback | TMF620 (ProductOffering/Price/Specification) |
+| provisioning | config/provisioning.json + bss/provisioning | yes | 10 / 5 / 2 | 6 | restart (no live reload) | view only | OAM customerOrder API (ADR-0382) |
+| roaming-interconnect | config/roaming-interconnect.json + bss/roaming-interconnect | yes | 4 / 4 / 1 | 0 | restart (no live reload) | view only | TMF651 agreements |
+| scp | config/scp.json + nfs/scp | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| smf | config/smf.json + nfs/smf | yes | 11 / 10 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| smsf | config/smsf.json + nfs/smsf | yes | 4 / 3 / 0 | 1 | restart (no live reload) | view only | not assessed |
+| subscriber-management | config/subscriber-management.json + bss/subscriber-management | yes | 4 / 4 / 1 | 0 | restart (no live reload) | view only | TMF632 parties |
+| udm | config/udm.json + nfs/udm | yes | 8 / 8 / 0 | 0 | restart (no live reload) | view only | not assessed |
+| udr | config/udr.json + nfs/udr | yes | 5 / 4 / 1 | 1 | restart (no live reload) | view only | Nudr_DataRepository (R19 YAML) + OAM provisioning API (ADR-0382) |
+| upf | config/upf.json + nfs/upf | yes | 4 / 4 / 0 | 0 | restart (no live reload) | view only | not assessed |
+
+GUI status: `product-catalog` -- view + four-eyes change + rollback, tested; all others -- schema
+derived, view-only, "restart" apply; data surfaces (c) other than the TMF620 catalog and customer
+onboarding -- no screen yet. Observed while deriving, flagged not fixed: `config/nssf.json` and
+`config/product-catalog.json` both declare port 7785 and metrics 9473.
+
+**Where "apply" reaches (disclosed).** The BFF writes its own `nf_config.config_dir`. That is the
+NF's config only when both share a filesystem -- the single-host lab, where an approved change
+rewrites the git-tracked `config/product-catalog.json` itself. In compose/Helm an NF's config lives
+in its image or ConfigMap, so applying there (render the approved version into the ConfigMap and
+roll the pod) is deferred; until then the GUI's version store is the record and the deploy pipeline
+the applier.
+
+**Rejected.** *Hand-written per-NF forms* (drift, invention risk). *Editing through each NF's API*
+(none exists for static config; inventing one per NF is out of scope). *Applying by sending a signal*
+(no NF handles one; would be a fake reload).
+
+## ADR-0391: resolve three port collisions in config/*.json
+
+**Date:** 2026-09-26. Found while merging the GUI's derived NF-config schemas (ADR-0425), which
+read every `config/*.json`: `nssf` and `product-catalog` both used SBI port 7785 and metrics 9473;
+`nef` and `provisioning` both used 7790; `adrf` and `provisioning` both used metrics 9490. Any
+deployment running those pairs on one host would fail to bind. Fixed by moving the NF with fewer
+references: **NSSF -> 7801 / metrics 9486** (compose ports updated; no test hardcodes NSSF's port),
+**provisioning -> 7802 / metrics 9492** (and the GUI BFF's `provisioning_base_url`). NEF (7790,
+referenced by ~60 test URLs) and product-catalog (7785, the CHF's catalog base) keep theirs. No
+remaining duplicate SBI or metrics port across config/*.json. Follow-up: a CI check that fails on
+duplicate ports, so this cannot recur silently.
 ## ADR-0400: The UDSF -- Nudsf_DataRepository and Nudsf_Timer on Valkey, stateless replicas
 
 **Status:** Accepted (2026-09-26). Tier 2 NF (parallel-agent range ADR-0400..0419).

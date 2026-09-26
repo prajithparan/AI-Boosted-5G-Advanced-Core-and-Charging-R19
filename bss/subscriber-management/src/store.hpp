@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <pqxx/pqxx>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,23 @@
 // owns that).
 
 namespace subscriber_management {
+
+// ADR-0386: the relational model rejects what the JSONB rows accepted silently. Surfaced to the
+// API:
+//   InvalidRequest -> 400: missing mandatory field (Subscriber.accountId / chargingMode are NOT
+//   NULL
+//                          in subscriber_mgmt), a reference to a party/account/organization that
+//                          does not exist, a CHECK-constrained enum value out of range, a bad
+//                          date-time.
+//   Conflict       -> 409: the SUPI/MSISDN is already an active resource of another subscriber.
+class InvalidRequest : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+class Conflict : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 class PartyIndividualStore {
 public:

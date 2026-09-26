@@ -1,0 +1,43 @@
+{
+  "port": 8710,
+  "bind_address": "127.0.0.1",
+  "metrics_bind_address": "127.0.0.1:9510",
+  "product_catalog_base_url": "https://127.0.0.1:7785",
+  "provisioning_base_url": "https://127.0.0.1:7802",
+  "static_dir": "gui/web/dist",
+  "server_cert_path": "certs/oam-gui-bff/cert.pem",
+  "server_key_path": "certs/oam-gui-bff/key.pem",
+  "operator_ca_path": "certs/oam-operator-ca/ca.crt",
+  "client_cert_path": "certs/oam-gui-bff/cert.pem",
+  "client_key_path": "certs/oam-gui-bff/key.pem",
+  "service_ca_path": "certs/ca/ca.crt",
+  "iam_database_url": "postgresql://oam_gui_bff@127.0.0.1:5434/operator_iam",
+  "iam_db_pool_size": 8,
+  "audit_chain_key": "oam-gui-bff-1",
+  "oidc": {
+    "issuer": "https://127.0.0.1:8443/realms/5gc-r19-operators",
+    "authorization_endpoint": "https://127.0.0.1:8443/realms/5gc-r19-operators/protocol/openid-connect/auth",
+    "token_endpoint": "https://127.0.0.1:8443/realms/5gc-r19-operators/protocol/openid-connect/token",
+    "jwks_uri": "https://127.0.0.1:8443/realms/5gc-r19-operators/protocol/openid-connect/certs",
+    "end_session_endpoint": "https://127.0.0.1:8443/realms/5gc-r19-operators/protocol/openid-connect/logout",
+    "client_id": "oam-gui",
+    "client_secret_file": "certs/oam-gui-bff/oidc-client-secret",
+    "redirect_uri": "https://127.0.0.1:8710/auth/callback",
+    "post_logout_redirect_uri": "https://127.0.0.1:8710/",
+    "idp_ca_path": "certs/ca/ca.crt",
+    "acr_values": "",
+    "mfa_amr": [
+      "otp",
+      "mfa",
+      "hwk"
+    ],
+    "mfa_acr": []
+  },
+  "nf_config": {
+    "config_dir": "config",
+    "schema_dir": "gui/web/src/schemas/nf-config",
+    "editable": [
+      "product-catalog"
+    ]
+  }
+}

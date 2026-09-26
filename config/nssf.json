@@ -1,6 +1,6 @@
 {
-  "port": 7785,
-  "metrics_bind_address": "0.0.0.0:9473",
+  "port": 7801,
+  "metrics_bind_address": "0.0.0.0:9486",
   "nrf_base_url": "https://127.0.0.1:7777",
-  "self_base_url": "https://127.0.0.1:7785"
+  "self_base_url": "https://127.0.0.1:7801"
 }

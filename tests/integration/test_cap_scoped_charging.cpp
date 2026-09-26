@@ -76,7 +76,7 @@ std::string rating_conninfo() {
     if (const char* env = std::getenv("CHF_RATING_DATABASE_URL")) {
         return env;
     }
-    return "postgresql://postgres@127.0.0.1:5434/chf_rating";
+    return "postgresql://postgres@127.0.0.1:5434/charging";
 }
 
 std::string log_file(const std::string& tag) {
@@ -221,7 +221,7 @@ int decisions_for_price(const std::string& price_name, const std::string& since)
         pqxx::connection conn(rating_conninfo());
         pqxx::work tx(conn);
         const auto row = tx.exec_params1(
-            "SELECT COUNT(*) FROM rating_decision "
+            "SELECT COUNT(*) FROM chf_rating.rating_decision "
             "WHERE input_snapshot->>'priceName' = $1 AND decided_at >= $2::timestamptz",
             price_name,
             since);

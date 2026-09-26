@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "aka_crypto/kdf.hpp"
+#include "li_location.hpp"
+#include "li_poi.hpp"
 #include "ngap_core/ngap_codec.hpp"
 
 extern "C" {
@@ -1187,6 +1189,19 @@ void handle_handover_notify(ngap_core::SctpSocket& target_assoc,
         "after HandoverNotify",
         ctx->supi,
         new_ran_ue_id_value);
+
+    // LI IRI-POI hook, TS 33.128 6.2.2.2.4 (ADR-0440): AMFLocationUpdate on "the N2 Handover
+    // Notify (Inter NG-RAN node N2 based handover procedure described in TS 23.502 [4] clause
+    // 4.9.1.3)". The location is the notification's mandatory UserLocationInformation (the target
+    // cell the UE has arrived in). No-op unless LI is enabled and this SUPI is a target.
+    if (LiPoi* poi = li_poi(); poi != nullptr && poi->is_target(ctx->supi)) {
+        if (const auto location = user_location_from_ies(container)) {
+            poi->report_location_update(ctx->supi, *location);
+        } else {
+            spdlog::warn("amf-li-poi: HandoverNotify UserLocationInformation is an unmodelled "
+                         "branch -- AMFLocationUpdate not emitted");
+        }
+    }
 
     ASN_STRUCT_FREE(asn_DEF_AMF_UE_NGAP_ID, amf_ue_id);
     ASN_STRUCT_FREE(asn_DEF_RAN_UE_NGAP_ID, ran_ue_id);

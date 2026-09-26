@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "nf_config/pg_pool.hpp"
+
 // Private to nfs/chf -- not shared with any other NF, per CLAUDE.md's "no NF includes another NF's
 // private headers" rule.
 //
@@ -22,6 +24,9 @@
 namespace chf {
 
 struct RatingDecisionRecord {
+    // ADR-0388: first-class columns in chf_rating.rating_decision (per-customer inquiry).
+    std::string chargingDataRef;
+    std::string subscriberIdentifier; // SUPI
     std::string tariffId;
     std::optional<std::string> tariffVersion;
     std::optional<std::int64_t> ratingGroup;
@@ -45,7 +50,9 @@ public:
     // credentials -- same precedent as bss/product-catalog's PRODUCT_CATALOG_DATABASE_URL,
     // ADR-0054). Does not throw on connection failure -- catches it internally and degrades to a
     // logged no-op state, same real-bug-driven design as CdrWriter (ADR-0058).
-    explicit RatingDecisionStore(const std::string& conninfo);
+    // ADR-0389: a connection pool (was one connection behind a mutex, on the per-decision hot
+    // path). nf_config::PgPool exits the process if it cannot connect at startup (fail closed).
+    explicit RatingDecisionStore(const std::string& conninfo, std::size_t pool_size = 1);
 
     // Real INSERT into `rating_decision` (best-effort -- a write failure is logged and swallowed,
     // never propagated to the caller, same "does not block the real charging response" discipline
@@ -65,11 +72,10 @@ public:
     // exist (see schema.postgres.sql's own note), so keying on it would find nothing.
     std::vector<nlohmann::json> find_by_charging_data_ref(const std::string& charging_data_ref);
 
-    bool is_connected() const { return client_ != nullptr; }
+    bool is_connected() const { return pool_ != nullptr; }
 
 private:
-    std::mutex mutex_;
-    std::unique_ptr<pqxx::connection> client_;
+    std::unique_ptr<nf_config::PgPool> pool_;
 };
 
 } // namespace chf

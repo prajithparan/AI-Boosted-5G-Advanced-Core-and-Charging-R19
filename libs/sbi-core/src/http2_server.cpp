@@ -210,6 +210,11 @@ private:
     // Reads the verified peer certificate once per connection (every stream on it shares the same
     // TLS identity). verify_fail_if_no_peer_cert means a completed handshake always has one.
     void capture_peer_identity() {
+        boost::system::error_code ep_ec;
+        const auto ep = socket_.lowest_layer().remote_endpoint(ep_ec);
+        if (!ep_ec) {
+            peer_address_ = ep.address().to_string();
+        }
         X509* cert = SSL_get1_peer_certificate(socket_.native_handle());
         if (cert == nullptr) {
             return;
@@ -388,6 +393,7 @@ private:
         req->body = ctx.body;
         req->query_params = parse_query_string(ctx.path);
         req->peer_cert_cn = peer_cert_cn_;
+        req->peer_address = peer_address_;
         req->peer_cert_dns_names = peer_cert_dns_names_;
 
         const auto path_only = ctx.path.substr(0, ctx.path.find('?'));
@@ -632,6 +638,7 @@ private:
     bool write_pending_ = false;
     // Set once in capture_peer_identity() on the strand before any stream exists; read-only after.
     std::string peer_cert_cn_;
+    std::string peer_address_;
     std::vector<std::string> peer_cert_dns_names_;
     std::unordered_map<std::int32_t, StreamContext> streams_;
 };
