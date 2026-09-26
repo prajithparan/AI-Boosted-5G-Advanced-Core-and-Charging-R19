@@ -564,14 +564,36 @@ services:
       - "7786:7786"   # TMF654 Prepay Balance Management (TLS 1.3 + mTLS)
       - "9474:9474"   # Prometheus /metrics
 
-  # Real PostgreSQL for CHF's RatingDecision audit table (ADR-0060 E5) -- own dedicated instance,
-  # matching CHF's own real default conninfo (postgresql://postgres@.../chf_rating, no password --
-  # POSTGRES_HOST_AUTH_METHOD=trust matches that real, disclosed lab-only credential shape).
+  # Real PostgreSQL hosting the consolidated `charging` + `orchestration` + `operator_iam` domain
+  # DBs (ADR-0384/0423) -- POSTGRES_HOST_AUTH_METHOD=trust matches CHF's own real default conninfo
+  # (postgresql://postgres@.../charging, no password -- a real, disclosed lab-only credential
+  # shape). Custom image (ADR-0392): postgres:16 + the real PGDG `postgresql-16-partman` package,
+  # for automatic partition maintenance on the charging DB's Tier-1-scale event tables.
   postgres-chf:
-    image: postgres:16-alpine
+    build:
+      context: ../..
+      dockerfile: deploy/docker/postgres-chf.Dockerfile
+    # shared_preload_libraries can only be set at server start, not via ALTER SYSTEM + reload, so
+    # the BGW's own scheduling (ADR-0392) is enabled here rather than left to a manual maintenance
+    # call. pg_partman_bgw.dbname names every database this instance's part_config rows live in.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=postgres
+      - -c
+      - pg_partman_bgw.dbname=charging
+      - -c
+      - pg_partman_bgw.analyze=false
+      - -c
+      - pg_partman_bgw.jobmon=false
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_DB: chf_rating
+      # ADR-0390/0392: no POSTGRES_DB -- the per-service `chf_rating` database this used to
+      # auto-create at first start is unused since ADR-0388 moved it to a SCHEMA inside `charging`.
     volumes:
       - postgres_chf_data:/var/lib/postgresql/data
       # ADR-0384: the consolidated domain DBs (charging, orchestration) on this same instance.

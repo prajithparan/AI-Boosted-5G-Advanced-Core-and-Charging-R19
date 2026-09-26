@@ -142,6 +142,7 @@ that need a word are marked.
 | CDR analytics / feature store | Apache Doris | 4.1.3 | Apache-2.0 |
 | Event bus | Apache Kafka (KRaft) | 3.9.0 | Apache-2.0 |
 | Relational | PostgreSQL | 16 | PostgreSQL License |
+| Partition automation (`charging` event tables) | pg_partman | 5.5.0 | PostgreSQL License (ADR-0392) |
 | Session cache | **Valkey** | 8 | BSD-3-Clause — replaces Redis 7.4 (RSALv2/SSPL, not OSI), per ADR-0044 |
 | Inference | ONNX Runtime | 1.23.2 | MIT |
 | Model tracking | MLflow | sidecar | Apache-2.0 |

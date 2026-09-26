@@ -83,11 +83,14 @@ jobs:
       # deploy/docker/docker-compose.yml's own already-established real postgres-chf service
       # exactly (same real conninfo CHF_RATING_DATABASE_URL below points at), not a new
       # convention invented for CI.
+      # ADR-0392: postgres:16 (Debian), not -alpine -- the real PGDG postgresql-16-partman .deb
+      # this job installs below has no Alpine (.apk) build.
       postgres-chf:
-        image: postgres:16-alpine
+        image: postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: chf_rating
+          # ADR-0390/0392: no POSTGRES_DB -- the per-service `chf_rating` database this used to
+          # auto-create is unused since ADR-0388 moved it to a SCHEMA inside `charging`.
         ports:
           - 15434:5432
         options: >-
@@ -303,9 +306,29 @@ jobs:
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
+      - name: Install pg_partman into postgres-chf (ADR-0392)
+        # GitHub Actions service containers accept only a pre-built `image:`, not a custom
+        # Dockerfile -- deploy/docker/postgres-chf.Dockerfile (compose/production) can't apply here,
+        # so the same real, pinned PGDG package it installs is installed directly into the already-
+        # running service container instead. Same exact version pin as the Dockerfile, so CI
+        # exercises the identical pg_partman behaviour 70-partition-management.sql's own header
+        # documents having verified.
+        run: |
+          docker exec -e DEBIAN_FRONTEND=noninteractive ${{ job.services['postgres-chf'].id }} \
+            bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-16-partman=5.5.0-1.pgdg13+1'
+
       - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
         # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
-        # deploy/db/charging/ applied in file order) + orchestration. product-catalog persists here.
+        # deploy/db/charging/ applied in file order, including 70-partition-management.sql,
+        # ADR-0392) + orchestration. product-catalog persists here.
+        #
+        # Disclosed (ADR-0392): this validates pg_partman's SQL wiring (create_parent(),
+        # run_maintenance_proc(), the partition-count assertion) exactly as production runs it --
+        # it does NOT exercise pg_partman_bgw, the background scheduler compose/production enables
+        # via shared_preload_libraries. That GUC can only take effect at server start, and this
+        # service container is already running by the time this step executes; restarting a
+        # GitHub-Actions-managed service container mid-job is unsupported and would risk exactly the
+        # kind of self-hosted-runner instability project_ci_runner_shutdown_flakiness already tracks.
         run: |
           docker cp deploy/db ${{ job.services['postgres-chf'].id }}:/domain-ddl
           docker exec -e POSTGRES_USER=postgres ${{ job.services['postgres-chf'].id }} bash /domain-ddl/init-domain-dbs.sh
@@ -456,11 +479,14 @@ jobs:
       # deploy/docker/docker-compose.yml's own already-established real postgres-chf service
       # exactly (same real conninfo CHF_RATING_DATABASE_URL below points at), not a new
       # convention invented for CI.
+      # ADR-0392: postgres:16 (Debian), not -alpine -- the real PGDG postgresql-16-partman .deb
+      # this job installs below has no Alpine (.apk) build.
       postgres-chf:
-        image: postgres:16-alpine
+        image: postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: chf_rating
+          # ADR-0390/0392: no POSTGRES_DB -- the per-service `chf_rating` database this used to
+          # auto-create is unused since ADR-0388 moved it to a SCHEMA inside `charging`.
         ports:
           - 15434:5432
         options: >-
@@ -695,9 +721,29 @@ jobs:
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
 
+      - name: Install pg_partman into postgres-chf (ADR-0392)
+        # GitHub Actions service containers accept only a pre-built `image:`, not a custom
+        # Dockerfile -- deploy/docker/postgres-chf.Dockerfile (compose/production) can't apply here,
+        # so the same real, pinned PGDG package it installs is installed directly into the already-
+        # running service container instead. Same exact version pin as the Dockerfile, so CI
+        # exercises the identical pg_partman behaviour 70-partition-management.sql's own header
+        # documents having verified.
+        run: |
+          docker exec -e DEBIAN_FRONTEND=noninteractive ${{ job.services['postgres-chf'].id }} \
+            bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-16-partman=5.5.0-1.pgdg13+1'
+
       - name: Create the consolidated domain DBs (ADR-0384 -- charging, orchestration)
         # Same script compose runs at postgres-chf init: charging (one schema per NF, DDL in
-        # deploy/db/charging/ applied in file order) + orchestration. product-catalog persists here.
+        # deploy/db/charging/ applied in file order, including 70-partition-management.sql,
+        # ADR-0392) + orchestration. product-catalog persists here.
+        #
+        # Disclosed (ADR-0392): this validates pg_partman's SQL wiring (create_parent(),
+        # run_maintenance_proc(), the partition-count assertion) exactly as production runs it --
+        # it does NOT exercise pg_partman_bgw, the background scheduler compose/production enables
+        # via shared_preload_libraries. That GUC can only take effect at server start, and this
+        # service container is already running by the time this step executes; restarting a
+        # GitHub-Actions-managed service container mid-job is unsupported and would risk exactly the
+        # kind of self-hosted-runner instability project_ci_runner_shutdown_flakiness already tracks.
         run: |
           docker cp deploy/db ${{ job.services['postgres-chf'].id }}:/domain-ddl
           docker exec -e POSTGRES_USER=postgres ${{ job.services['postgres-chf'].id }} bash /domain-ddl/init-domain-dbs.sh
