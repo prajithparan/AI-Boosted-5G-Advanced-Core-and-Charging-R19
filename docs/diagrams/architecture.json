@@ -770,7 +770,7 @@
    "area": "ds",
    "col": 2,
    "row": 0,
-   "acronym": "PostgreSQL \u00d77",
+   "acronym": "PostgreSQL \u00d73",
    "name": [
     "relational state"
    ],
@@ -778,13 +778,13 @@
     "16 \u00b7 PostgreSQL License"
    ],
    "svc": [
-    "UDR \u00b7 ADRF \u00b7 catalog",
-    "subscriber \u00b7 roaming",
-    "CHF rating audit \u00b7 MCP audit"
+    "charging \u00b7 orchestration",
+    "operator_iam (schema per NF)",
+    "UDR \u00b7 ADRF"
    ],
    "glyph": "db",
    "color": "#336791",
-   "source": "compose:postgres"
+   "source": "compose:postgres-chf"
   },
   {
    "id": "valkey",
