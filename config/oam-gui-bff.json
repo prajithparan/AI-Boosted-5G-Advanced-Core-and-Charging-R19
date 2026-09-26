@@ -3,7 +3,7 @@
   "bind_address": "127.0.0.1",
   "metrics_bind_address": "127.0.0.1:9510",
   "product_catalog_base_url": "https://127.0.0.1:7785",
-  "provisioning_base_url": "https://127.0.0.1:7790",
+  "provisioning_base_url": "https://127.0.0.1:7802",
   "static_dir": "gui/web/dist",
   "server_cert_path": "certs/oam-gui-bff/cert.pem",
   "server_key_path": "certs/oam-gui-bff/key.pem",
@@ -26,12 +26,18 @@
     "post_logout_redirect_uri": "https://127.0.0.1:8710/",
     "idp_ca_path": "certs/ca/ca.crt",
     "acr_values": "",
-    "mfa_amr": ["otp", "mfa", "hwk"],
+    "mfa_amr": [
+      "otp",
+      "mfa",
+      "hwk"
+    ],
     "mfa_acr": []
   },
   "nf_config": {
     "config_dir": "config",
     "schema_dir": "gui/web/src/schemas/nf-config",
-    "editable": ["product-catalog"]
+    "editable": [
+      "product-catalog"
+    ]
   }
 }

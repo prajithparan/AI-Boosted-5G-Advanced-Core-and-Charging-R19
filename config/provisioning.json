@@ -1,6 +1,6 @@
 {
-  "port": 7790,
-  "metrics_bind_address": "0.0.0.0:9490",
+  "port": 7802,
+  "metrics_bind_address": "0.0.0.0:9492",
   "advertised_ipv4": "127.0.0.1",
   "orchestration_database_url": "postgresql://postgres@127.0.0.1:5434/orchestration",
   "charging_database_url": "postgresql://postgres@127.0.0.1:5434/charging",
