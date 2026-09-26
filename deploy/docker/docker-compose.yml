@@ -713,7 +713,8 @@ services:
       CHF_DORIS_PORT: "9030"
       CHF_DORIS_USER: root
       CHF_DORIS_DATABASE: chf_cdr
-      CHF_RATING_DATABASE_URL: postgresql://postgres@postgres-chf:5432/chf_rating
+      # ADR-0388: the consolidated charging DB, schema chf_rating.
+      CHF_RATING_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
       # ADR-0077 retrofit: same real cross-container bug AMF/UDR's own *_NRF_BASE_URL already fixed
       # (127.0.0.1 inside this container is chf's own loopback, not nrf's).
       CHF_NRF_BASE_URL: https://nrf:7777

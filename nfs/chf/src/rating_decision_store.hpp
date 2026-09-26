@@ -22,6 +22,9 @@
 namespace chf {
 
 struct RatingDecisionRecord {
+    // ADR-0388: first-class columns in chf_rating.rating_decision (per-customer inquiry).
+    std::string chargingDataRef;
+    std::string subscriberIdentifier; // SUPI
     std::string tariffId;
     std::optional<std::string> tariffVersion;
     std::optional<std::int64_t> ratingGroup;

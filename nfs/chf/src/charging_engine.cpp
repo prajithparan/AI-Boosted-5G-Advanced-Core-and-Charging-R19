@@ -649,6 +649,7 @@ void write_converged_charging_cdr(chf::CdrWriter& cdr_writer,
 
 void write_rating_decision(chf::RatingDecisionStore& rating_decision_store,
                            const std::string& ref,
+                           const std::string& supi,
                            const sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging& usage,
                            const RatingResult& rating,
                            bool reserved) {
@@ -656,6 +657,8 @@ void write_rating_decision(chf::RatingDecisionStore& rating_decision_store,
         return;
     }
     chf::RatingDecisionRecord decision{};
+    decision.chargingDataRef = ref;
+    decision.subscriberIdentifier = supi;
     decision.tariffId = *rating.tariffId;
     decision.tariffVersion = rating.tariffVersion;
     decision.ratingGroup = static_cast<std::int64_t>(usage.ratingGroup);
@@ -764,7 +767,7 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                                  result.reserved,
                                  invocation_time_stamp,
                                  attributes); // ADR-0311: persist servingCNPlmnId / roaming
-    write_rating_decision(rating_decision_store, ref, usage, result.rating, result.reserved);
+    write_rating_decision(rating_decision_store, ref, supi, usage, result.rating, result.reserved);
 
     // P4.8 (ADR-0074): record this request's own real reported usage as history for the NEXT
     // prediction -- only when usage was actually reported (Create has none yet, real TS 32.291

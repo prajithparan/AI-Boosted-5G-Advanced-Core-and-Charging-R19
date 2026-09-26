@@ -41,14 +41,14 @@ APPLY=0
 # on doris-schema-init swallows an ad-hoc command via its entrypoint, so exec the live doris).
 doris() { "${DC[@]}" exec -T doris mysql -h127.0.0.1 -P9030 -uroot -N -B -e "$1"; }
 redis() { "${DC[@]}" exec -T valkey redis-cli "$@"; }
-pg()    { "${DC[@]}" exec -T postgres-chf psql -U postgres -d chf_rating -At -c "$1"; }
+pg()    { "${DC[@]}" exec -T postgres-chf psql -U postgres -d charging -At -c "$1"; }
 
 echo "== current corpus size =="
 echo "  doris chf_cdr.cdr rows:                    $(doris 'SELECT COUNT(*) FROM chf_cdr.cdr'                          2>/dev/null || echo '?')"
 echo "  doris chf_features.subscriber_features:    $(doris 'SELECT COUNT(*) FROM chf_features.subscriber_features'    2>/dev/null || echo '?')"
 echo "  redis chf:* keys:                          $(redis --scan --pattern 'chf:*' 2>/dev/null | wc -l | tr -d ' ')"
-echo "  pg chf_rating.rating_decision rows:        $(pg 'SELECT COUNT(*) FROM rating_decision'                        2>/dev/null || echo '?')"
-echo "  pg chf_rating.audit_record rows:           $(pg 'SELECT COUNT(*) FROM audit_record'                          2>/dev/null || echo '?')"
+echo "  pg chf_rating.rating_decision rows:        $(pg 'SELECT COUNT(*) FROM chf_rating.rating_decision'                        2>/dev/null || echo '?')"
+echo "  pg chf_rating.audit_record rows:           $(pg 'SELECT COUNT(*) FROM chf_rating.audit_record'                        2>/dev/null || echo '?')"
 
 if [[ $APPLY -eq 0 ]]; then
   echo
@@ -70,8 +70,8 @@ redis --scan --pattern 'chf:*' | while read -r k; do [[ -n "$k" ]] && redis DEL 
 echo "  deleted $n redis chf:* keys"
 
 # CHF rating store.
-pg 'TRUNCATE TABLE rating_decision' && echo "  truncated rating_decision"
-pg 'TRUNCATE TABLE audit_record'    && echo "  truncated audit_record"
+pg 'TRUNCATE TABLE chf_rating.rating_decision, chf_rating.applied_customer_billing_rate' && echo "  truncated rating_decision + applied_customer_billing_rate"
+pg 'TRUNCATE TABLE chf_rating.audit_record'    && echo "  truncated audit_record"
 
 echo
 echo "== after =="
