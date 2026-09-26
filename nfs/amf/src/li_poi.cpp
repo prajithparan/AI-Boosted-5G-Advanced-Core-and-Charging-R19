@@ -85,7 +85,78 @@ std::optional<std::array<std::uint8_t, 16>> uuid_to_bytes(const std::string& uui
     return out;
 }
 
+IdentifierAssociationGating gating_of(const li_core::x1::TaskDetails& details) {
+    if (!details.identifier_association_events) {
+        return IdentifierAssociationGating::Absent;
+    }
+    switch (*details.identifier_association_events) {
+        case li_core::x1::IdentifierAssociationEventsGenerated::IdentifierAssociation:
+            return IdentifierAssociationGating::IdentifierAssociation;
+        case li_core::x1::IdentifierAssociationEventsGenerated::All:
+            return IdentifierAssociationGating::All;
+    }
+    return IdentifierAssociationGating::Absent;
+}
+
+const char* record_name(AmfXiriRecord record) {
+    switch (record) {
+        case AmfXiriRecord::Registration:
+            return "AMFRegistration";
+        case AmfXiriRecord::LocationUpdate:
+            return "AMFLocationUpdate";
+        case AmfXiriRecord::IdentifierAssociation:
+            return "AMFIdentifierAssociation";
+        case AmfXiriRecord::IdentifierDeassociation:
+            return "AMFIdentifierDeassociation";
+    }
+    return "AMF xIRI";
+}
+
+li_core::xiri::FiveGGuti to_xiri_guti(const GutiParts& guti) {
+    li_core::xiri::FiveGGuti g;
+    g.mcc = guti.mcc;
+    g.mnc = guti.mnc;
+    g.amf_region_id = guti.amf_region_id;
+    g.amf_set_id = guti.amf_set_id;
+    g.amf_pointer = guti.amf_pointer;
+    g.five_g_tmsi = guti.five_g_tmsi;
+    return g;
+}
+
+// Location.locationInfo.userLocation -- the form TS 33.128 tables 6.2.2.2.4-1 (form 1, NGAP
+// source) and 6.2.2.2.7-1 prescribe.
+li_core::xiri::Location to_xiri_location(const li_core::xiri::UserLocation& user_location) {
+    li_core::xiri::Location loc;
+    loc.user_location = user_location;
+    return loc;
+}
+
+// The xIRI's SUPI: TS 33.128 NOTE 1 of tables 6.2.2.2.7-1/-2 -- "SUPI shall always be provided".
+// This POI matches only SUPI/IMSI/NAI target kinds, so the matched identity IS the SUPI.
+li_core::xiri::Supi xiri_supi(const li_core::x1::TargetIdentifier& target,
+                              const std::string& bare) {
+    if (target.kind == li_core::x1::TargetIdentifierKind::SupiNai ||
+        target.kind == li_core::x1::TargetIdentifierKind::Nai) {
+        return li_core::xiri::Nai{bare};
+    }
+    return li_core::xiri::Imsi{bare};
+}
+
 } // namespace
+
+bool xiri_record_enabled(IdentifierAssociationGating gating, AmfXiriRecord record) {
+    const bool identifier_record = record == AmfXiriRecord::IdentifierAssociation ||
+                                   record == AmfXiriRecord::IdentifierDeassociation;
+    switch (gating) {
+        case IdentifierAssociationGating::Absent:
+            return !identifier_record;
+        case IdentifierAssociationGating::IdentifierAssociation:
+            return identifier_record || record == AmfXiriRecord::LocationUpdate;
+        case IdentifierAssociationGating::All:
+            return true;
+    }
+    return false;
+}
 
 struct LiPoi::Impl {
     explicit Impl(Config cfg)
@@ -124,7 +195,7 @@ struct LiPoi::Impl {
         if (tasks.count(details.xid) != 0) {
             return li_core::x1::ErrorCode::XidAlreadyExists; // table 6.7-3: 2010
         }
-        tasks.emplace(details.xid, details.targets);
+        tasks.emplace(details.xid, Task{details.targets, gating_of(details)});
         return std::nullopt;
     }
 
@@ -133,7 +204,9 @@ struct LiPoi::Impl {
             return li_core::x1::ErrorCode::GenericError;
         }
         const std::lock_guard<std::mutex> lock(store_mutex);
-        tasks[details.xid] = details.targets;
+        // A ModifyTask carries a full TaskDetails, so it replaces the gating too: adding,
+        // changing or (by omitting the extension) removing IdentifierAssociationExtensions.
+        tasks[details.xid] = Task{details.targets, gating_of(details)};
         return std::nullopt;
     }
 
@@ -156,18 +229,71 @@ struct LiPoi::Impl {
     struct Match {
         std::string xid;
         li_core::x1::TargetIdentifier target;
+        IdentifierAssociationGating gating = IdentifierAssociationGating::Absent;
     };
-    std::optional<Match> match(const std::string& supi) const {
+    // EVERY task that targets this SUPI (one match per task): two warrants on the same UE may
+    // carry different gating, and each is reported under its own XID -- a first-hit lookup over
+    // an unordered_map would make which gating applies nondeterministic.
+    std::vector<Match> matches(const std::string& supi) const {
         const std::string bare = bare_identity(supi);
+        std::vector<Match> out;
         const std::lock_guard<std::mutex> lock(store_mutex);
-        for (const auto& [xid, targets] : tasks) {
-            for (const auto& target : targets) {
+        for (const auto& [xid, task] : tasks) {
+            for (const auto& target : task.targets) {
                 if (is_subscriber_kind(target.kind) && bare_identity(target.value) == bare) {
-                    return Match{xid, target};
+                    out.push_back(Match{xid, target, task.gating});
+                    break;
                 }
             }
         }
-        return std::nullopt;
+        return out;
+    }
+
+    // Build and send one xIRI for one matched task. Best-effort: failures are logged, never
+    // propagated into the UE procedure.
+    void emit(const Match& matched,
+              const li_core::xiri::Event& event,
+              li_core::PayloadDirection direction,
+              AmfXiriRecord record) {
+        const auto xid_bytes = uuid_to_bytes(matched.xid);
+        if (!xid_bytes) {
+            spdlog::warn("amf-li-poi: task XID {} is not a UUID -- cannot build the X2 PDU",
+                         matched.xid);
+            return;
+        }
+        const auto payload = li_core::xiri::encode_xiri_payload(event);
+        if (!payload) {
+            spdlog::error("amf-li-poi: could not encode {} xIRI for a target: {}",
+                          record_name(record),
+                          payload.error());
+            return;
+        }
+        li_core::Pdu pdu;
+        pdu.type = li_core::PduType::X2;
+        pdu.payload_format = li_core::PayloadFormat::Tgpp33128Payload;
+        pdu.payload_direction = direction;
+        pdu.xid = *xid_bytes;
+        const auto now = static_cast<std::uint32_t>(std::time(nullptr));
+        pdu.attributes.push_back(li_core::attr_sequence_number(next_sequence(matched.xid)));
+        pdu.attributes.push_back(li_core::attr_network_function_id(config.network_function_id));
+        pdu.attributes.push_back(
+            li_core::attr_interception_point_id(config.interception_point_id));
+        pdu.attributes.push_back(li_core::attr_timestamp(now, 0));
+        pdu.attributes.push_back(li_core::attr_matched_target_identifier(
+            "<" + matched.target.element + ">" + matched.target.value + "</" +
+            matched.target.element + ">"));
+        pdu.payload = *payload;
+
+        if (const auto sent = x2_client.send(pdu); !sent) {
+            // Best-effort: an intercept delivery failure is logged, never allowed to break the
+            // UE's procedure on the network side.
+            spdlog::error("amf-li-poi: LI_X2 delivery of an {} xIRI to the MDF2 failed: {}",
+                          record_name(record),
+                          sent.error());
+            return;
+        }
+        spdlog::info(
+            "amf-li-poi: delivered {} xIRI for target XID {}", record_name(record), matched.xid);
     }
 
     std::uint32_t next_sequence(const std::string& xid) {
@@ -198,8 +324,12 @@ struct LiPoi::Impl {
     Config config;
     li_core::X2X3Client x2_client;
 
+    struct Task {
+        std::vector<li_core::x1::TargetIdentifier> targets;
+        IdentifierAssociationGating gating = IdentifierAssociationGating::Absent;
+    };
     mutable std::mutex store_mutex;
-    std::unordered_map<std::string, std::vector<li_core::x1::TargetIdentifier>> tasks;
+    std::unordered_map<std::string, Task> tasks;
     std::unordered_map<std::string, std::uint32_t> sequence;
 
     // LI_X1 listener: its own io_context on its own thread (the AMF's main io_context and NGAP
@@ -303,74 +433,72 @@ void LiPoi::stop() {
 }
 
 bool LiPoi::is_target(const std::string& supi) const {
-    return impl_->match(supi).has_value();
+    return !impl_->matches(supi).empty();
 }
 
 void LiPoi::report_registration(const std::string& supi, const GutiParts& guti) {
-    const auto matched = impl_->match(supi);
-    if (!matched) {
-        return; // not a target
-    }
-    const auto xid_bytes = uuid_to_bytes(matched->xid);
-    if (!xid_bytes) {
-        spdlog::warn("amf-li-poi: task XID {} is not a UUID -- cannot build the X2 PDU",
-                     matched->xid);
-        return;
-    }
-
     const std::string bare = bare_identity(supi);
-    li_core::xiri::AmfRegistration reg;
-    // TS 33.128 6.2.2.2.2 marks registrationType/Result M. The exact type (initial/mobility/...)
-    // comes from the UE's RegistrationRequest; wiring that through the AMF's Stage-2 parse is a
-    // refinement, so this slice reports the lab's case: a successful initial 3GPP-access
-    // registration. Disclosed (ADR-0377 / docs/TRACEABILITY.md).
-    reg.registration_type = li_core::xiri::AmfRegistrationType::Initial;
-    reg.registration_result = li_core::xiri::AmfRegistrationResult::ThreeGppAccess;
-    if (matched->target.kind == li_core::x1::TargetIdentifierKind::SupiNai ||
-        matched->target.kind == li_core::x1::TargetIdentifierKind::Nai) {
-        reg.supi = li_core::xiri::Nai{bare};
-    } else {
-        reg.supi = li_core::xiri::Imsi{bare};
+    for (const auto& matched : impl_->matches(supi)) {
+        if (!xiri_record_enabled(matched.gating, AmfXiriRecord::Registration)) {
+            continue; // IdentifierAssociation-only target: 6.2.2.2.1, "No other record types"
+        }
+        li_core::xiri::AmfRegistration reg;
+        // TS 33.128 6.2.2.2.2 marks registrationType/Result M. The exact type
+        // (initial/mobility/...) comes from the UE's RegistrationRequest; wiring that through the
+        // AMF's Stage-2 parse is a refinement, so this reports the lab's case: a successful
+        // initial 3GPP-access registration. Disclosed (ADR-0378 / docs/TRACEABILITY.md).
+        reg.registration_type = li_core::xiri::AmfRegistrationType::Initial;
+        reg.registration_result = li_core::xiri::AmfRegistrationResult::ThreeGppAccess;
+        reg.supi = xiri_supi(matched.target, bare);
+        reg.guti = to_xiri_guti(guti);
+        // UE-initiated procedure: table 5.3.2-1 sets the direction from the initiator.
+        impl_->emit(
+            matched, reg, li_core::PayloadDirection::FromTarget, AmfXiriRecord::Registration);
     }
-    reg.guti.mcc = guti.mcc;
-    reg.guti.mnc = guti.mnc;
-    reg.guti.amf_region_id = guti.amf_region_id;
-    reg.guti.amf_set_id = guti.amf_set_id;
-    reg.guti.amf_pointer = guti.amf_pointer;
-    reg.guti.five_g_tmsi = guti.five_g_tmsi;
+}
 
-    const auto payload = li_core::xiri::encode_xiri_payload(reg);
-    if (!payload) {
-        spdlog::error("amf-li-poi: could not encode AMFRegistration xIRI for a target: {}",
-                      payload.error());
-        return;
+void LiPoi::report_identifier_association(const std::string& supi,
+                                          const GutiParts& guti,
+                                          const li_core::xiri::UserLocation& location) {
+    const std::string bare = bare_identity(supi);
+    for (const auto& matched : impl_->matches(supi)) {
+        if (!xiri_record_enabled(matched.gating, AmfXiriRecord::IdentifierAssociation)) {
+            continue; // table 6.2.2.1.1-1: extension absent -> never generated
+        }
+        li_core::xiri::AmfIdentifierAssociation assoc;
+        assoc.supi = xiri_supi(matched.target, bare);
+        assoc.guti = to_xiri_guti(guti);
+        assoc.location = to_xiri_location(location);
+        // 6.2.2.2.7: "shall set the Payload Direction field ... to not applicable (Direction
+        // Value 5)".
+        impl_->emit(matched,
+                    assoc,
+                    li_core::PayloadDirection::NotApplicable,
+                    AmfXiriRecord::IdentifierAssociation);
     }
+}
 
-    li_core::Pdu pdu;
-    pdu.type = li_core::PduType::X2;
-    pdu.payload_format = li_core::PayloadFormat::Tgpp33128Payload;
-    pdu.payload_direction = li_core::PayloadDirection::FromTarget;
-    pdu.xid = *xid_bytes;
-    const auto now = static_cast<std::uint32_t>(std::time(nullptr));
-    pdu.attributes.push_back(li_core::attr_sequence_number(impl_->next_sequence(matched->xid)));
-    pdu.attributes.push_back(li_core::attr_network_function_id(impl_->config.network_function_id));
-    pdu.attributes.push_back(
-        li_core::attr_interception_point_id(impl_->config.interception_point_id));
-    pdu.attributes.push_back(li_core::attr_timestamp(now, 0));
-    pdu.attributes.push_back(li_core::attr_matched_target_identifier(
-        "<" + matched->target.element + ">" + matched->target.value + "</" +
-        matched->target.element + ">"));
-    pdu.payload = *payload;
-
-    if (const auto sent = impl_->x2_client.send(pdu); !sent) {
-        // Best-effort: an intercept delivery failure is logged and counted, never allowed to
-        // break the UE's registration on the network side.
-        spdlog::error(
-            "amf-li-poi: LI_X2 delivery of an AMFRegistration xIRI to the MDF2 failed: {}",
-            sent.error());
-        return;
+void LiPoi::report_location_update(const std::string& supi,
+                                   const li_core::xiri::UserLocation& location) {
+    const std::string bare = bare_identity(supi);
+    for (const auto& matched : impl_->matches(supi)) {
+        if (!xiri_record_enabled(matched.gating, AmfXiriRecord::LocationUpdate)) {
+            continue;
+        }
+        li_core::xiri::AmfLocationUpdate update;
+        update.supi = xiri_supi(matched.target, bare);
+        update.location = to_xiri_location(location);
+        // Clause 6.2.2.2.4 names no direction. Table 5.3.2-1 sets it from the procedure's
+        // initiator; the N2 handover procedures that trigger this record are initiated by the
+        // NG-RAN, not by the target UE and not as a message to it, so neither 2 (to target) nor
+        // 3 (from target) describes it. Value 5 (not applicable) is used -- an interpretation,
+        // disclosed in ADR-0440, consistent with 6.2.2.2.7's value for the other network-detected
+        // AMF records.
+        impl_->emit(matched,
+                    update,
+                    li_core::PayloadDirection::NotApplicable,
+                    AmfXiriRecord::LocationUpdate);
     }
-    spdlog::info("amf-li-poi: delivered AMFRegistration xIRI for target XID {}", matched->xid);
 }
 
 } // namespace amf

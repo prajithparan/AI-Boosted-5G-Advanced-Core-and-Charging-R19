@@ -3,7 +3,16 @@
      namespace; the normative TS_103_221_01.xsd imports the 103280 common namespace (and the X1
      HashedID/DestinationSet sub-schemas) without one. This wrapper supplies those locations and
      imports the normative schema unchanged, so xmlSchemaParse resolves the whole set. The
-     authoritative schema is still TS_103_221_01.xsd; this only wires the imports. -->
+     authoritative schema is still TS_103_221_01.xsd; this only wires the imports.
+
+     ADR-0440: the X1 Extension type (TaskDetailsExtensions and friends) is
+     <xs:any namespace="##other"/> with the default processContents="strict", so any 3GPP
+     extension element (e.g. TS 33.128 table 6.2.2.1.1-1's IdentifierAssociationExtensions) fails
+     validation unless its schema is in the set. The 3GPP X1 extension schema that accompanies
+     TS 33.128 V19.7.0 (specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd,
+     namespace r19:v4) is imported here, AFTER the X1 namespace it itself imports without a
+     schemaLocation. It lives outside specs/etsi (it is 3GPP material, not ETSI), so every image
+     that ships specs/etsi must also ship that file (amf.Dockerfile, li-mdf.Dockerfile). -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:x1="http://uri.etsi.org/03221/X1/2017/10"
            xmlns:c="http://uri.etsi.org/03280/common/2017/07"
@@ -15,4 +24,6 @@
              schemaLocation="TS_103_221_01_HashedID.xsd"/>
   <xs:import namespace="http://uri.etsi.org/03221/X1/2017/10"
              schemaLocation="TS_103_221_01.xsd"/>
+  <xs:import namespace="urn:3GPP:ns:li:3GPPX1Extensions:r19:v4"
+             schemaLocation="../../3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd"/>
 </xs:schema>

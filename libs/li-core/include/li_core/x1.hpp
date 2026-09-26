@@ -109,6 +109,24 @@ struct MediationDetails {
     std::vector<std::string> dids;
 };
 
+// TS 33.128 V19.7.0 table 6.2.2.1.1-2 / clause 6.2.2.2.1: the per-task gating parameter that decides
+// whether the IRI-POI in the AMF generates AMFIdentifierAssociation / AMFIdentifierDeassociation
+// records (and, in IdentifierAssociation mode, restricts the target to those plus
+// AMFLocationUpdate). Carried in a TaskDetails taskDetailsExtensions (an ETSI Extension: Owner +
+// <xs:any namespace="##other"/>) as the 3GPP X1 extension schema's
+//   <IdentifierAssociationExtensions><IdentifierAssociationEventsGenerated>
+// or, through the schema's X1Extension choice, as
+//   <X1Extensions><IdentifierAssociation><IdentifierAssociationEventsGenerated>
+// -- both are global elements of specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd
+// (namespace urn:3GPP:ns:li:3GPPX1Extensions:r19:v4) of the same IdentifierAssociationExtensions
+// type, so both are parsed. The TS table names the sub-field "EventsGenerated"; the XSD, which is
+// authoritative for element names, names it IdentifierAssociationEventsGenerated (ADR-0440).
+// The enumerators are the XSD's IdentifierAssociationEventsGenerated enumeration, exactly.
+enum class IdentifierAssociationEventsGenerated : std::uint8_t {
+    IdentifierAssociation, // IdAssoc + IdDeassoc + LocationUpdate only, no other record types
+    All,                   // all AMF record types
+};
+
 // TS 103 221-1 6.2.1.2 TaskDetails, the members the NE side reads (the optional
 // mediation/policy/service lists are preserved verbatim as raw XML fragments in `extra` so a
 // ModifyTask round-trips what it was given without this codec having to model every branch).
@@ -123,6 +141,11 @@ struct TaskDetails {
     std::vector<MediationDetails> mediation_details;
     std::optional<std::uint64_t> correlation_id;
     std::optional<bool> implicit_deactivation_allowed;
+    // From taskDetailsExtensions (see IdentifierAssociationEventsGenerated). nullopt when the task
+    // carries no IdentifierAssociationExtensions -- TS 33.128 table 6.2.2.1.1-1: "If the field is
+    // absent, AMFIdentifierAssociation and AMFIdentifierDeassociation records shall not be
+    // generated." Other taskDetailsExtensions content is schema-validated and otherwise ignored.
+    std::optional<IdentifierAssociationEventsGenerated> identifier_association_events;
 };
 
 // TS 103 221-1 6.3.1.2 DeliveryAddress oneOf.

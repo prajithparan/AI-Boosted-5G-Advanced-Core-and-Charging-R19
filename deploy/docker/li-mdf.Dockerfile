@@ -49,6 +49,11 @@ WORKDIR /build
 COPY --from=builder /build/build/nfs/li-mdf/li-mdf /build/li-mdf
 COPY --from=builder /build/build/libs/li-core/libli_core.so /build/build/libs/li-core/
 COPY --from=builder /build/specs/etsi /build/specs/etsi
+# ADR-0440: x1-validation.xsd imports the 3GPP X1 extension schema (TS 33.128 attachment,
+# namespace r19:v4) from ../../3gpp/33128-attachments -- without it the schema set does not load
+# and every X1 request fails closed.
+COPY --from=builder /build/specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd \
+     /build/specs/3gpp/33128-attachments/
 COPY --from=builder /build/config /build/config
 
 EXPOSE 7805/tcp 7806/tcp 9491/tcp

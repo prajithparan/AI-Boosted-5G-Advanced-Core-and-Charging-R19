@@ -122,4 +122,9 @@ void run_ngap_lifecycle(const std::string& bind_address,
                         std::uint8_t amf_pointer,
                         LiPoi* li_poi);
 
+// The process's LI IRI-POI as published by run_ngap_lifecycle (nullptr when LI is disabled), for
+// the NGAP handlers outside ngap_task.cpp that host an LI hook (ngap_handover.cpp's
+// HandoverNotify, ADR-0440). Read-only after run_ngap_lifecycle entry.
+LiPoi* li_poi();
+
 } // namespace amf::ngap

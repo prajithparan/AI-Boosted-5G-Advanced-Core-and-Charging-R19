@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -97,7 +98,25 @@ sbi_core::http2::Client make_admf_client() {
     return sbi_core::http2::Client(std::move(tls));
 }
 
-std::string x1_activate(const std::string& xid, const std::string& imsi) {
+// TS 33.128 table 6.2.2.1.1-1: TaskDetailsExtensions/IdentifierAssociationExtensions, element
+// names from the vendored 3GPP X1 extension XSD (namespace r19:v4). Empty value -> absent.
+std::string gating_extension(const std::string& events_generated) {
+    if (events_generated.empty()) {
+        return "";
+    }
+    return R"(
+      <taskDetailsExtensions>
+        <Owner>3GPP</Owner>
+        <tgpp:IdentifierAssociationExtensions xmlns:tgpp="urn:3GPP:ns:li:3GPPX1Extensions:r19:v4">
+          <tgpp:IdentifierAssociationEventsGenerated>)" +
+           events_generated + R"(</tgpp:IdentifierAssociationEventsGenerated>
+        </tgpp:IdentifierAssociationExtensions>
+      </taskDetailsExtensions>)";
+}
+
+std::string x1_activate(const std::string& xid,
+                        const std::string& imsi,
+                        const std::string& events_generated = "") {
     return std::string(
                R"(<?xml version="1.0" encoding="UTF-8"?>
 <X1Request xmlns="http://uri.etsi.org/03221/X1/2017/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://uri.etsi.org/03280/common/2017/07">
@@ -115,7 +134,8 @@ std::string x1_activate(const std::string& xid, const std::string& imsi) {
            imsi + R"(</supiimsi></targetIdentifier>
       </targetIdentifiers>
       <deliveryType>X2Only</deliveryType>
-      <listOfDIDs><dId>22222222-2222-4222-8222-222222222222</dId></listOfDIDs>
+      <listOfDIDs><dId>22222222-2222-4222-8222-222222222222</dId></listOfDIDs>)" +
+           gating_extension(events_generated) + R"(
     </taskDetails>
   </x1RequestMessage>
 </X1Request>)";
@@ -231,4 +251,157 @@ TEST(LiAmfPoi, ProvisionsOverX1AndEmitsRegistrationXiriForATarget) {
 
     poi.stop();
     mdf2_server.stop();
+}
+
+namespace {
+
+// An NR user location, as parse_user_location would hand it to the POI from an NGAP ULI.
+li_core::xiri::UserLocation sample_location() {
+    li_core::xiri::NrLocation nr;
+    nr.tai.plmn = {"999", "70"};
+    nr.tai.tac = {0x00, 0x00, 0x01};
+    nr.ncgi.plmn = {"999", "70"};
+    nr.ncgi.nr_cell_id = 0x000000ABCULL;
+    li_core::xiri::UserLocation ul;
+    ul.nr = nr;
+    return ul;
+}
+
+// Drive every wired record type for the target, then return what reached the MDF2 (after a quiet
+// period long enough for any stray PDU to land).
+std::vector<li_core::Pdu> drive_all_events(amf::LiPoi& poi, Collector& mdf2, std::size_t expect) {
+    const std::string supi = std::string("imsi-") + kTargetImsi;
+    poi.report_registration(supi, sample_guti());
+    poi.report_identifier_association(supi, sample_guti(), sample_location());
+    poi.report_location_update(supi, sample_location());
+    if (expect > 0) {
+        EXPECT_TRUE(mdf2.wait_for(expect, 5s)) << "expected " << expect << " xIRIs";
+    }
+    std::this_thread::sleep_for(300ms);
+    return mdf2.take();
+}
+
+std::vector<std::size_t> event_indices(const std::vector<li_core::Pdu>& pdus) {
+    std::vector<std::size_t> out;
+    for (const auto& pdu : pdus) {
+        const auto decoded = li_core::xiri::decode_xiri_payload(pdu.payload);
+        EXPECT_TRUE(decoded.has_value()) << (decoded.has_value() ? "" : decoded.error());
+        out.push_back(decoded.has_value() ? decoded->event.index() : 99);
+    }
+    return out;
+}
+
+constexpr std::size_t kRegistrationIdx = 0;   // xiri::Event alternative indices
+constexpr std::size_t kLocationUpdateIdx = 3;
+constexpr std::size_t kIdentifierAssociationIdx = 4;
+
+struct PoiHarness {
+    Collector mdf2;
+    li_core::X2X3Server server{fake_mdf2_config(), std::ref(mdf2)};
+    std::unique_ptr<amf::LiPoi> poi;
+    PoiHarness() {
+        EXPECT_TRUE(server.start().has_value());
+        poi = std::make_unique<amf::LiPoi>(poi_config(server.bound_port()));
+        poi->start();
+    }
+    ~PoiHarness() {
+        poi->stop();
+        server.stop();
+    }
+};
+
+} // namespace
+
+// TS 33.128 clause 6.2.2.2.1 as a pure decision table.
+TEST(LiAmfPoiGating, RecordMatrix) {
+    using G = amf::IdentifierAssociationGating;
+    using R = amf::AmfXiriRecord;
+    // Absent: everything except Identifier(De)Association.
+    EXPECT_TRUE(amf::xiri_record_enabled(G::Absent, R::Registration));
+    EXPECT_TRUE(amf::xiri_record_enabled(G::Absent, R::LocationUpdate));
+    EXPECT_FALSE(amf::xiri_record_enabled(G::Absent, R::IdentifierAssociation));
+    EXPECT_FALSE(amf::xiri_record_enabled(G::Absent, R::IdentifierDeassociation));
+    // IdentifierAssociation: only IdAssoc/IdDeassoc/LocationUpdate.
+    EXPECT_FALSE(amf::xiri_record_enabled(G::IdentifierAssociation, R::Registration));
+    EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::LocationUpdate));
+    EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierAssociation));
+    EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierDeassociation));
+    // All: everything.
+    for (auto r : {R::Registration, R::LocationUpdate, R::IdentifierAssociation,
+                   R::IdentifierDeassociation}) {
+        EXPECT_TRUE(amf::xiri_record_enabled(G::All, r));
+    }
+}
+
+// Gating absent: Registration + LocationUpdate reach the MDF2, IdentifierAssociation does not.
+TEST(LiAmfPoiGating, AbsentExtensionSuppressesIdentifierAssociation) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    const auto act = post_x1(client, x1_activate(kXid, kTargetImsi));
+    ASSERT_EQ(act.body.find("ErrorResponse"), std::string::npos) << act.body;
+
+    const auto pdus = drive_all_events(*h.poi, h.mdf2, 2);
+    const auto idx = event_indices(pdus);
+    ASSERT_EQ(idx.size(), 2u);
+    EXPECT_EQ(idx[0], kRegistrationIdx);
+    EXPECT_EQ(idx[1], kLocationUpdateIdx);
+}
+
+// IdentifierAssociation: IdentifierAssociation + LocationUpdate only, no Registration; the
+// IdentifierAssociation xIRI carries its M members (sUPI, gUTI, location) and direction 5.
+TEST(LiAmfPoiGating, IdentifierAssociationModeEmitsOnlyItsRecords) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    const auto act = post_x1(client, x1_activate(kXid, kTargetImsi, "IdentifierAssociation"));
+    ASSERT_EQ(act.body.find("ErrorResponse"), std::string::npos) << act.body;
+
+    const auto pdus = drive_all_events(*h.poi, h.mdf2, 2);
+    const auto idx = event_indices(pdus);
+    ASSERT_EQ(idx.size(), 2u);
+    EXPECT_EQ(idx[0], kIdentifierAssociationIdx);
+    EXPECT_EQ(idx[1], kLocationUpdateIdx);
+
+    EXPECT_EQ(pdus[0].payload_direction, li_core::PayloadDirection::NotApplicable);
+    const auto decoded = li_core::xiri::decode_xiri_payload(pdus[0].payload);
+    ASSERT_TRUE(decoded.has_value());
+    const auto& assoc = std::get<li_core::xiri::AmfIdentifierAssociation>(decoded->event);
+    ASSERT_TRUE(std::holds_alternative<li_core::xiri::Imsi>(assoc.supi));
+    EXPECT_EQ(std::get<li_core::xiri::Imsi>(assoc.supi).digits, kTargetImsi);
+    EXPECT_EQ(assoc.guti.five_g_tmsi, 0x0A0B0C0Du);
+    EXPECT_EQ(assoc.guti.amf_set_id, 2);
+    ASSERT_TRUE(assoc.location.user_location.has_value());
+    EXPECT_EQ(*assoc.location.user_location, sample_location());
+
+    const auto upd = li_core::xiri::decode_xiri_payload(pdus[1].payload);
+    ASSERT_TRUE(upd.has_value());
+    const auto& lu = std::get<li_core::xiri::AmfLocationUpdate>(upd->event);
+    EXPECT_EQ(std::get<li_core::xiri::Imsi>(lu.supi).digits, kTargetImsi);
+    ASSERT_TRUE(lu.location.user_location.has_value());
+    EXPECT_EQ(*lu.location.user_location, sample_location());
+}
+
+// All: every wired record type.
+TEST(LiAmfPoiGating, AllModeEmitsEverything) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    const auto act = post_x1(client, x1_activate(kXid, kTargetImsi, "All"));
+    ASSERT_EQ(act.body.find("ErrorResponse"), std::string::npos) << act.body;
+
+    const auto idx = event_indices(drive_all_events(*h.poi, h.mdf2, 3));
+    ASSERT_EQ(idx.size(), 3u);
+    EXPECT_EQ(idx[0], kRegistrationIdx);
+    EXPECT_EQ(idx[1], kIdentifierAssociationIdx);
+    EXPECT_EQ(idx[2], kLocationUpdateIdx);
+}
+
+// A non-target never produces a location-bearing xIRI, whatever the gating.
+TEST(LiAmfPoiGating, NonTargetEmitsNothing) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    post_x1(client, x1_activate(kXid, kTargetImsi, "All"));
+    const std::string other = std::string("imsi-") + kOtherImsi;
+    h.poi->report_identifier_association(other, sample_guti(), sample_location());
+    h.poi->report_location_update(other, sample_location());
+    std::this_thread::sleep_for(300ms);
+    EXPECT_EQ(h.mdf2.size(), 0u);
 }
