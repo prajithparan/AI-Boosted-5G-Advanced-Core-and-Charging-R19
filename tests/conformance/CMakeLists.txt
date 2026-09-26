@@ -64,7 +64,7 @@ gtest_discover_tests(test_li_ngap_coexistence)
 add_executable(test_li_amf_location test_li_amf_location.cpp
     ${CMAKE_SOURCE_DIR}/nfs/amf/src/li_location.cpp)
 target_include_directories(test_li_amf_location PRIVATE ${CMAKE_SOURCE_DIR}/nfs/amf/src)
-target_link_libraries(test_li_amf_location PRIVATE li_core ngap_generated GTest::gtest GTest::gtest_main)
+target_link_libraries(test_li_amf_location PRIVATE li_core ngap_core ngap_generated GTest::gtest GTest::gtest_main)
 target_compile_features(test_li_amf_location PRIVATE cxx_std_23)
 gtest_discover_tests(test_li_amf_location)
 

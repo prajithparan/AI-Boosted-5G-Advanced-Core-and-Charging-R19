@@ -1,5 +1,7 @@
 #include "li_location.hpp"
 
+#include <ngap_core/ngap_codec.hpp>
+
 #include <EUTRA-CGI.h>
 #include <NR-CGI.h>
 #include <TAI.h>
@@ -98,6 +100,22 @@ std::optional<li_core::xiri::UserLocation> parse_user_location(const UserLocatio
             // location rather than a fabricated one.
             return std::nullopt;
     }
+}
+
+std::optional<li_core::xiri::UserLocation>
+user_location_from_ies(const ConcreteProtocolIE_Container& container) {
+    const auto* ie = ::ngap::find_ie(container, 121 /* id-UserLocationInformation */);
+    if (ie == nullptr) {
+        return std::nullopt;
+    }
+    auto* uli = static_cast<UserLocationInformation_t*>(
+        ::ngap::decode_ie_value(&asn_DEF_UserLocationInformation, *ie));
+    if (uli == nullptr) {
+        return std::nullopt;
+    }
+    auto out = parse_user_location(*uli);
+    ASN_STRUCT_FREE(asn_DEF_UserLocationInformation, uli);
+    return out;
 }
 
 } // namespace amf
