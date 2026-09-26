@@ -4,24 +4,15 @@
 
 namespace chf {
 
-RatingDecisionStore::RatingDecisionStore(const std::string& conninfo) {
-    try {
-        client_ = std::make_unique<pqxx::connection>(conninfo);
-    } catch (const std::exception& e) {
-        spdlog::warn("chf: could not connect to PostgreSQL (RatingDecision audit disabled): {}",
-                     e.what());
-        client_.reset();
-    }
-}
+RatingDecisionStore::RatingDecisionStore(const std::string& conninfo, std::size_t pool_size)
+    : pool_(std::make_unique<nf_config::PgPool>(conninfo, pool_size)) {}
 
 std::vector<nlohmann::json>
 RatingDecisionStore::find_by_charging_data_ref(const std::string& charging_data_ref) {
     std::vector<nlohmann::json> out;
-    if (client_ == nullptr) {
-        return out;
-    }
     try {
-        pqxx::work txn(*client_);
+        auto lease = pool_->acquire();
+        pqxx::work txn(lease.conn());
         // ai_advisory is returned as-is: when a model influenced the grant, the explanation must
         // say so and show which bound applied. Hiding it would make an AI-adjusted charge
         // indistinguishable from a purely deterministic one.
@@ -63,16 +54,9 @@ RatingDecisionStore::find_by_charging_data_ref(const std::string& charging_data_
 }
 
 void RatingDecisionStore::record(const RatingDecisionRecord& decision) {
-    if (!client_) {
-        spdlog::warn(
-            "chf: RatingDecision write skipped for tariffId={} -- PostgreSQL not connected",
-            decision.tariffId);
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
     try {
-        pqxx::work txn(*client_);
+        auto lease = pool_->acquire();
+        pqxx::work txn(lease.conn());
         const auto id = txn.exec("SELECT nextval('chf_rating.rating_decision_id_seq')::text AS id")
                             .one_row()["id"]
                             .as<std::string>();

@@ -22,5 +22,6 @@
   "quota_model_path": "",
   "ai_quota_latency_budget_us": 50000,
   "diameter_port": 3868,
-  "cap_port": 2905
+  "cap_port": 2905,
+  "rating_db_pool_size": 8
 }
