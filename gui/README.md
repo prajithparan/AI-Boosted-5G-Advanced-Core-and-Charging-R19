@@ -33,13 +33,25 @@ ports 28741-28744 only.
 
 1. `scripts/gen-lab-pki.sh` (if not done), then `gui/scripts/gen-operator-pki.sh terminal-lab-1`;
    import `certs/oam-operator-ca/terminal-lab-1.p12` into the browser and trust `certs/ca/ca.crt`.
-2. Create the `operator_iam` DB on postgres-chf if the volume predates it:
-   `docker cp deploy/db <pg-chf>:/domain-ddl && docker exec <pg-chf> bash /domain-ddl/init-domain-dbs.sh`
-   (idempotent per database), then insert your org units, users (IdP issuer + subject) and role
-   assignments -- see the test seed in `bff/tests/test_bff_security.cpp` for the shape.
+2. Create the `operator_iam` DB on postgres-chf if the volume predates it. Do NOT re-run
+   `init-domain-dbs.sh` on an existing volume (it re-applies the charging DDL, which assumes a fresh
+   database, and stops). Apply only this domain, in order:
+   ```sh
+   docker exec docker-postgres-chf-1 psql -U postgres -c 'CREATE DATABASE operator_iam'
+   for f in deploy/db/operator_iam/*.sql; do
+     docker exec -i docker-postgres-chf-1 psql -U postgres -v ON_ERROR_STOP=1 -d operator_iam < "$f"
+   done
+   ```
+   then insert your org units, users (IdP issuer + subject) and role assignments -- the test seed
+   in `bff/tests/test_bff_security.cpp` shows the shape.
 3. An OIDC IdP (Keycloak recommended) with a confidential client `oam-gui`, redirect URI
    `https://127.0.0.1:8710/auth/callback`, MFA required; put its endpoints in
    `config/oam-gui-bff.json` and its client secret in `certs/oam-gui-bff/oidc-client-secret`.
    **Not provided yet** (ADR-0424 deferral): without an IdP the BFF starts but nobody can sign in.
 4. `gui/web && npm run build`, then run `build/gui/bff/oam-gui-bff` and open
    `https://127.0.0.1:8710/`. `npm run watch` rebuilds `dist/`; restart the BFF to reload it.
+   Another config file: `env 'OAM-GUI-BFF_CONFIG_FILE=/abs/path.json' build/gui/bff/oam-gui-bff`
+   (the variable name keeps the hyphens -- `nf_config::load` upper-cases the service name only).
+
+Note: in the lab an approved NF configuration change rewrites the git-tracked `config/<nf>.json`
+(ADR-0425); the NF picks it up on its next restart.

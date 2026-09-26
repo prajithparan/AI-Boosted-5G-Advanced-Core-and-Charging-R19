@@ -410,7 +410,8 @@ void register_routes(sbi_core::http2::Server& server, Deps& d, StaticFiles stati
                 }
                 const auto body = parse_body(c.req);
                 if (!body) return c.deny(col.create_perm, 400, "body is not a JSON object");
-                const std::string reason = header(c.req, "x-oam-reason");
+                // Percent-encoded by the GUI: HTTP header values are Latin-1 only, reasons are not.
+                const std::string reason = url_decode(header(c.req, "x-oam-reason"));
                 if (reason.empty()) {
                     return c.deny(col.create_perm, 400, "a change reason (x-oam-reason) is required");
                 }
@@ -556,7 +557,7 @@ void register_routes(sbi_core::http2::Server& server, Deps& d, StaticFiles stati
                                                 : "order not created through the GUI",
                               "customerOrder/" + id, owner ? owner->second : std::string());
             }
-            const std::string unmask_reason = header(c.req, "x-oam-unmask-reason");
+            const std::string unmask_reason = url_decode(header(c.req, "x-oam-unmask-reason"));
             if (!unmask_reason.empty() && !c.can("pii:unmask", owner->first)) {
                 return c.deny("pii:unmask", 403, "missing permission", "customerOrder/" + id,
                               owner->second);

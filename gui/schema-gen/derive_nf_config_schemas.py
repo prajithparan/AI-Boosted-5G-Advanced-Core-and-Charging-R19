@@ -40,6 +40,23 @@ SHARED_SOURCES = ["libs/sbi-core/src/rate_limit.cpp", "libs/sbi-core/include/sbi
 REQUIRE_RE = re.compile(
     r'require<\s*([^>]+?)\s*>\(\s*\w+\s*,\s*"([A-Za-z0-9_]+)"\s*(?:,\s*"([A-Z0-9_]+)")?')
 READ_RE = re.compile(r'\.(?:value|at|contains|find|count)\(\s*"([A-Za-z0-9_]+)"|\[\s*"([A-Za-z0-9_]+)"\s*\]')
+# Category (c) of ADR-0425: where a component's subscriber / policy / product DATA is managed.
+# Hand-maintained knowledge, NOT derived -- each entry names an API that exists in this repository
+# today; "none found -- review" means we looked and found no management surface; "not assessed"
+# means nobody has looked yet. Never fill a gap by guessing.
+DATA_SURFACES = {
+    "product-catalog": "TMF620 (ProductOffering/Price/Specification)",
+    "chf": "tariffs/rating = TMF620 catalog data (product-catalog)",
+    "balance-management": "TMF654 buckets",
+    "subscriber-management": "TMF632 parties",
+    "roaming-interconnect": "TMF651 agreements",
+    "provisioning": "OAM customerOrder API (ADR-0382)",
+    "udr": "Nudr_DataRepository (R19 YAML) + OAM provisioning API (ADR-0382)",
+    "nrf": "Nnrf_NFManagement registrations (runtime, by NFs)",
+    "eir": "none found -- review (equipment lists)",
+    "nssf": "none found -- review (slice configuration)",
+}
+
 CRED_NAME_RE = re.compile(r"(password|passwd|secret|token|database_url|_dsn)$|^(password|secret)")
 
 
@@ -155,11 +172,17 @@ def main(argv: list[str]) -> int:
     mode = argv[3] if len(argv) > 3 else ""
     results = [derive_one(repo, c) for c in sorted((repo / "config").glob("*.json"))]
     if mode == "--matrix":
-        print("| Component | Config file | Keys | Required (require<>) | Credentials | Review items | Source |")
-        print("|---|---|---|---|---|---|---|")
-        for _, i in results:
-            print(f"| {i['name']} | config/{i['name']}.json | {i['keys']} | {i['required']} | "
-                  f"{i['credentials']} | {i['review']} | {', '.join(i['sources']) or '(none found)'} |")
+        bff = json.loads((repo / "config" / "oam-gui-bff.json").read_text())
+        editable = set(bff.get("nf_config", {}).get("editable", []))
+        print("| Component | Config source | Schema derived | Keys / required / credentials | "
+              "Review items | Apply | GUI (static config) | Data managed via API (c) |")
+        print("|---|---|---|---|---|---|---|---|")
+        for schema, i in results:
+            gui = "view + four-eyes edit + rollback" if i["name"] in editable else "view only"
+            print(f"| {i['name']} | config/{i['name']}.json + {', '.join(i['sources']) or '(no source dir)'} "
+                  f"| yes | {i['keys']} / {i['required']} / {i['credentials']} | {i['review']} | "
+                  f"{schema['x-apply']} (no live reload) | {gui} | "
+                  f"{DATA_SURFACES.get(i['name'], 'not assessed')} |")
         return 0
     stale = []
     for schema, info in results:

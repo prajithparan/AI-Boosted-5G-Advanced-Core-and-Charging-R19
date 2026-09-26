@@ -22,6 +22,8 @@ std::string pkce_challenge(const std::string& verifier);
 
 // application/x-www-form-urlencoded / query component encoding (RFC 3986 unreserved kept).
 std::string url_encode(const std::string& s);
+// Inverse of url_encode; a malformed escape is kept literally.
+std::string url_decode(const std::string& s);
 std::string form_encode(const std::map<std::string, std::string>& fields);
 
 // A cookie's value from every `cookie` header (HTTP/2 may split cookies across several).

@@ -121,7 +121,7 @@ export function CatalogScreen({ canPropose }: { canPropose: boolean }) {
     if (!reason.trim()) errs.push('a change reason is required (four-eyes review)');
     setErrors(errs);
     if (errs.length) return;
-    setResult(await call('POST', `/api/tmf620/${res}`, body, { 'x-oam-reason': reason }));
+    setResult(await call('POST', `/api/tmf620/${res}`, body, { 'x-oam-reason': encodeURIComponent(reason) }));
   };
   const rows = Array.isArray(list?.body) ? (list?.body as Record<string, unknown>[]) : [];
   return (

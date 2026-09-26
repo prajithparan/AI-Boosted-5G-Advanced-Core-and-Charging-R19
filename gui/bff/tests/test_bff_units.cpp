@@ -75,6 +75,13 @@ TEST(Util, CookieIsFoundAcrossSplitHeaders) {
     EXPECT_FALSE(cookie(req, "missing").has_value());
 }
 
+TEST(Util, UrlDecodeRoundTripsNonLatinReasons) {
+    const std::string reason = "Tarif \xC3\xA9t\xC3\xA9 -- ticket #42";
+    EXPECT_EQ(url_decode(url_encode(reason)), reason);
+    EXPECT_EQ(url_decode("100%"), "100%");
+    EXPECT_EQ(url_decode("%zz"), "%zz");
+}
+
 TEST(Util, SafeIds) {
     EXPECT_TRUE(is_safe_id("ord-shop-a.999700000000001"));
     for (const std::string bad : {"", ".", "..", "a/b", "a%2Fb", "a?b", "a b", "a:b"}) {
