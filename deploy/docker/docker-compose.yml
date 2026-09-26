@@ -813,10 +813,11 @@ services:
     depends_on:
       pki-init:
         condition: service_completed_successfully
-      postgres-roaming:
+      postgres-chf:
         condition: service_healthy
     environment:
-      ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@postgres-roaming:5432/roaming_interconnect
+      # ADR-0387: the consolidated charging DB, schemas subscriber_mgmt (TMF651) + roaming.
+      ROAMING_INTERCONNECT_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
       # ADR-0077 retrofit: same class of self-referential-URL fix as balance-management's own.
       ROAMING_INTERCONNECT_SELF_BASE_URL: https://roaming-interconnect:7788
     volumes:
