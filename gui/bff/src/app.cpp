@@ -364,6 +364,7 @@ void register_routes(sbi_core::http2::Server& server, Deps& d, StaticFiles stati
                      }));
 
     server.add_route("GET", "/api/me", api(d, "/api/me", "auth.whoami", [](Ctx& c) {
+                         c.audit("auth.whoami", "ALLOWED", 200);
                          return json_resp(200, json{{"userId", c.who.user_id},
                                                     {"username", c.who.username},
                                                     {"displayName", c.who.display_name},

@@ -116,6 +116,11 @@
       "type": "integer",
       "x-env-override": "CHF_CAP_PORT",
       "x-cpp-type": "unsigned short"
+    },
+    "rating_db_pool_size": {
+      "type": "integer",
+      "x-env-override": "CHF_RATING_DB_POOL_SIZE",
+      "x-cpp-type": "int"
     }
   },
   "required": [
@@ -137,6 +142,7 @@
     "port",
     "quota_model_path",
     "rating_database_url",
+    "rating_db_pool_size",
     "redis_url"
   ],
   "x-config-file": "config/chf.json",

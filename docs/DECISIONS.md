@@ -30400,3 +30400,284 @@ as 2 has a defensible case.
   content.
 - *Taking location from the stored InitialUEMessage*: the UplinkNASTransport's own mandatory ULI
   is the more recent of the two, and it is already in scope.
+
+## ADR-0420: Phase 7 operator GUI stack -- React + JSON Forms (web), Dear ImGui + ImPlot (local engineering console, later)
+
+**Date:** 2026-09-26. **Status:** accepted (project owner's decision, recorded here). Resolves the
+open Phase 7 stack question (CLAUDE.md "GUI" line; README Phase 7 row).
+
+**Decision.** Two tracks, two audiences:
+1. **React + JSON Forms** (`gui/web`) for the operator / provisioning / configuration GUI:
+   remote-capable, schema-driven (every form is rendered from a JSON Schema DERIVED from the real
+   API or DTO definitions, ADR-0421), validating input before it leaves the browser. Served by a
+   C++ backend-for-frontend (`gui/bff`, ADR-0422), never directly by an NF.
+2. **Dear ImGui + ImPlot** for a separate LOCAL engineering console (live NF metrics, NWDAF analytics
+   plots, message/trace inspectors). **Not in this increment** -- the second, later track.
+
+**Toolchain (minimal, all OSI):** React 19.3 (MIT), @jsonforms/core + react + vanilla-renderers
+3.8.0 (MIT), TypeScript 5.9 (Apache-2.0, build only), Vite 8.3 (MIT, build only; pulls rolldown
+MIT, lightningcss MPL-2.0, postcss MIT). AJV (MIT) arrives transitively via JSON Forms but is not
+executed (ADR-0421). `@vitejs/plugin-react` is deliberately NOT used: Vite's built-in TSX transform
+suffices, and the plugin's babel/browserslist chain would bring `caniuse-lite` (CC-BY-4.0, not an
+OSI licence). `gui/web/scripts/check_licenses.py` gates the WHOLE lockfile (58 packages today: MIT
+41, MPL-2.0 12, Apache-2.0 2, BSD-3-Clause 2, ISC 1) and is a ctest (`gui_npm_licenses_osi_only`).
+TypeScript is the one sanctioned exception to the C/C++/Python-only rule (the GUI exception).
+
+**Rejected.** *Material renderers (@jsonforms/material-renderers)* -- better nested-array UX but pulls
+MUI + emotion for a first increment that needs three small custom renderers instead
+(`gui/web/src/forms/renderers.tsx`). *Server-side rendered forms in C++* -- would re-implement a
+schema-form engine. *Dear ImGui for the operator GUI* -- a native binary is not remote-capable for
+shop agents; kept for the engineering console where it fits.
+
+## ADR-0421: GUI schemas are derived, never re-typed -- TMF620 from the bss_sid DTOs, provisioning cross-checked against its source
+
+**Date:** 2026-09-26. **Status:** accepted.
+
+**TMF620 (ProductOffering, ProductOfferingPrice).** `gui/schema-gen/derive_tmf620_schema.py` parses
+`libs/bss-sid/include/bss_sid/product.hpp` (the structs product-catalog deserializes every request
+into; themselves transcribed from the real TMF620 v4.1.0 swagger) and emits
+`gui/web/src/schemas/tmf620.derived.json`: `std::string` -> required string (from_json uses
+`at()`), `optional<T>` -> optional, `vector<T>` -> array, nested structs inlined, `nlohmann::json`
+-> untyped. A small overlay (`overlay-tmf620.json`) adds only SERVICE-side create rules, each with a
+source citation (e.g. `name` required on ProductOffering create, `store.cpp`; `id`/`href`
+server-assigned; which date-times `ts_in` validates) -- and the generator refuses any overlay rule
+naming a field the DTO does not have, so the overlay can constrain but never invent.
+Independent check: `test_tmf620_schema_roundtrip.cpp` builds a maximal instance from the emitted
+schema (every property, one-element arrays, non-integral numbers) and round-trips it through the
+REAL `bss_sid::from_json`/`to_json` -- equality proves every key and type; a second test removes
+each property in turn and checks `from_json` throws exactly for the schema's `required`.
+ProductOfferingPrice has **no** required top-level field (true of the DTO, the DB and the TMF620
+swagger) -- stated, not "fixed".
+
+**Provisioning customer order.** A project-owned OAM API with no DTO to derive from, so the schema is
+hand-transcribed from `provisioning_store.hpp`'s documented request shape -- and
+`check_provisioning_schema.py` re-derives from the running code: every key the service reads
+(`jval`/`.value`, per nested object, including `initialBalance.usageType`, which the header comment
+omits), every validation regex and which fields it guards unconditionally (= required: `supi`,
+`sim.k`, `sim.opc`), and the `segment`/`chargingMode` enums from the charging DB CHECK
+constraints. `usageType`'s documented values come from a column comment only, so they are shown as
+a description, not enforced as an enum. `sim.k`/`sim.opc` are `writeOnly` (drives the masked input).
+`test_schema_checks.py` proves both checks REJECT realistic drift (10 mutations).
+
+**Rendering / validation.** The UI schema is generated from the schema (`uischema.ts`) because JSON
+Forms' default generator drops untyped properties silently and the vanilla set has no nested-object
+renderer; three small renderers fill the gaps (nested object, writeOnly secret -- a CSS-masked
+text input, deliberately not `type=password` so no browser offers to SAVE a SIM key -- and raw JSON
+for untyped fields). **AJV is not executed**: it compiles schemas with `new Function`, which the
+console's CSP (`script-src 'self'`, no `unsafe-eval`) forbids, and weakening the CSP is the wrong
+trade. `validate.ts` interprets the closed keyword set the derived schemas use; the BFF and the
+service validate again. Cost, disclosed: errors are listed at submit, not inline per field.
+`scripts/render_smoke.py` loads the built bundle in headless Chromium under the production CSP with
+canned /api responses and fails on any page/console error or "No applicable renderer".
+
+## ADR-0422: Browser-to-NF transport -- a C++ backend-for-frontend, NF mTLS untouched
+
+**Date:** 2026-09-26. **Status:** accepted (amended by ADR-0423: the BFF now parses bodies).
+
+**Decision.** `gui/bff` (`oam-gui-bff`, C++ on `libs/sbi-core`): the browser talks TLS 1.3 + mTLS +
+HTTP/2 to the BFF; the BFF calls product-catalog / provisioning with its OWN lab-CA identity
+(CN `oam-gui-bff`) via `sbi_core::http2::Client`. Two separate trust anchors: the browser-facing
+listener verifies clients against a separate **operator CA** (terminal certificates), so an NF's
+lab-CA certificate cannot even open the GUI (tested), and no NF gains a new trust anchor, port or
+exception. Only allow-listed routes exist (no generic proxy); only content-type/accept go upstream;
+upstream headers are allow-listed back (Location rewritten). CSRF: every write needs
+`x-requested-by: oam-gui` + `content-type: application/json`, which force a CORS preflight the BFF
+never answers. Static app served from memory with a strict CSP. Ports config-driven
+(`config/oam-gui-bff.json`, 8710 -- outside the NF/CI 7700-7899/9400-9499 ranges).
+`libs/sbi-core` gained one additive field, `Request::peer_address` (audit "from where").
+
+**Rejected.** *Browser straight to NFs with an operator client cert* -- every NF would have to
+trust operator certs and serve CORS; weakens NF mTLS. *Vite dev-server proxy / Node BFF* -- a
+second runtime, and http-proxy speaks HTTP/1.1 to h2-only services. *Python BFF* -- no reason
+beyond convenience; sbi-core already has the TLS/h2 stack. *Envoy/nginx in front* -- would terminate
+mTLS and still need an authorization service; the BFF is where authorization lives (ADR-0423).
+**Disclosed:** `sbi_core::http2::Client` sets no timeout, so a hung service holds a BFF worker.
+
+## ADR-0423: Operator identity, access, maker-checker and audit -- the `operator_iam` domain
+
+**Date:** 2026-09-26. **Status:** accepted; implemented for login, onboarding, catalog proposals,
+approvals and NF config; deferrals listed. Owner requirement: Tier-1 security governance for shop
+agents and back office.
+
+**Where.** Its own domain DB `operator_iam` (schema `iam`) on the postgres-chf instance, DDL in
+`deploy/db/operator_iam/` (00-schema, 10-roles), applied by `deploy/db/init-domain-dbs.sh`
+(DB-per-domain rule). The BFF connects as the least-privileged `oam_gui_bff` role (created by the
+DDL, credentials set by deployment): INSERT/SELECT on the audit trail, never UPDATE/DELETE.
+
+**Model.**
+- *Organisation:* `org_unit` (HQ, CHANNEL, DEALER, SHOP, BACK_OFFICE, NOC) with a closure table,
+  so "is shop S inside a grant anchored at U" is one indexed lookup at any depth. Re-parenting is
+  refused (mover = close + recreate) so the closure cannot go stale. `terminal` registers shop PCs
+  by their operator-CA certificate CN.
+- *Users:* `operator_user` holds the IdP issuer+subject, never a credential; status ACTIVE / LOCKED
+  / DORMANT / LEFT (joiner/leaver), `operator_user_move` (mover history, mover != moved), dormancy
+  from `auth_policy.dormant_after_days` enforced at login (the account is locked and the attempt
+  audited), `mfa_required` per user.
+- *Authorization, data-driven:* `permission` (resource, action) rows; `role` rows (seeded: shop
+  agent, shop supervisor, back-office agent, product/tariff manager, catalog approver, network
+  config engineer/approver, security admin/approver, read-only auditor -- editable data, never named
+  in C++); `role_permission` with scope OWN_SUBTREE or GLOBAL; `role_assignment` anchored at an org
+  unit with validity window, revocation, and a CHECK that the grantor is not the grantee.
+  `sod_rule` pairs (catalog maker vs checker, config maker vs checker, grant maker vs checker).
+- *Field-level:* `field_policy` -- SECRET_WRITE_ONLY (SIM K/OPc: accepted, forwarded once, never
+  returned/stored/audited; also scrubbed from any upstream response that echoed them, either case),
+  PII (masked in every response unless `pii:unmask` in scope AND a stated reason, the unmask itself
+  audited), CREDENTIAL (config secrets, masked; "unchanged" when the mask is sent back).
+- *Maker-checker:* `approval_policy` says which permissions need four eyes and which permission
+  approves; `approval_request` stores the (secret-free) payload + sha256, and a DB CHECK
+  `decided_by <> requested_by` plus a trigger refusing a grantee deciding their own role grant --
+  the BFF refuses first, the DB refuses even if the BFF is bypassed (both tested). Execution happens
+  under the checker's session; result stored on the request.
+- *Scope registry:* the provisioning API carries no shop, so the BFF CLAIMS the SUPI for the
+  caller's unit (`customer_ownership`, insert-or-read, race-free) before forwarding and records
+  `order_ownership` from the response. Idempotency keys are rewritten to `<unit>.<key>`, so a key
+  typed in shop B can never resume (and so read) shop A's order. Out-of-scope reads answer 404,
+  identical to unknown (no cross-shop existence oracle).
+- *Sessions:* `operator_session` stores only sha256(cookie); bound to the terminal certificate it
+  was opened on -- the cookie replayed from another terminal is refused and the session ended
+  (tested); idle and absolute timeouts from `auth_policy`. `login_state` holds OIDC state/nonce/PKCE,
+  single use, bound to the browser by a Lax login cookie.
+- *Audit:* `audit_event`, partitioned by month (+ DEFAULT partition, `ensure_audit_partition` run at
+  BFF start-up), who / session / unit / terminal CN / IP / action / resource / customer (SUPI) /
+  outcome (ALLOWED, DENIED, ERROR, PENDING_APPROVAL, APPROVED, REJECTED) / status / reason /
+  before-after (secrets stripped). Hash-chained per `chain_key` (one chain per BFF instance, so
+  instances never contend): a BEFORE INSERT trigger takes a per-chain advisory lock, assigns
+  `chain_seq`, links `prev_hash`, computes `row_hash` = sha256 over a deterministic canonical text.
+  UPDATE/DELETE/TRUNCATE are not granted AND refused by triggers; `audit_verify_chain()` finds an
+  edited or truncated chain (tested by a superuser disabling triggers and editing a row).
+  **Tamper-evident, not tamper-proof:** a superuser could rewrite a whole chain consistently; the
+  remedy (periodic export of chain heads to WORM/external storage) is deferred, below.
+  `audit_export` is the reviewer/export view.
+- *Order of operations in every handler:* session -> CSRF -> permission+scope -> AUDIT the decision
+  -> act -> audit the result. If the decision's audit write fails, the action is refused (503): no
+  change without a prior audit row. Denied and unauthenticated attempts are audited too (tested).
+  Handler exceptions are logged generically (pqxx/json texts can quote values).
+
+**Identity propagation to BSS/NF calls.** Implemented now: the BFF writes the attributed audit
+itself (real operator, unit, terminal, approval id) for every call it makes; the services' own
+`audit_record.actor` still says the service name. Designed, deferred: a short-lived JWS
+`x-oam-actor` header signed by the BFF's key, verified by the BSS services and written into their
+`audit_record.actor` -- needs a verification step in every BSS service, a separate increment.
+
+**Tier-1 scale.** Indexes for per-shop and per-user queries on grants, ownership, approvals,
+sessions and audit; monthly audit partitions; per-instance chains avoid a global lock.
+
+**Rejected.** *Home-grown passwords/MFA* (ADR-0424). *Roles hardcoded in C++* (every role change
+would be a release). *One global audit chain* (serialises every instance). *Relying on REVOKE alone*
+(lab/CI connect as superuser; triggers + verification cover that). *A shop column added to the
+provisioning API* (changes a service contract to serve the GUI; the registry keeps it in the GUI's
+domain -- revisit when TMF622 channel/shop lands in orchestration).
+
+**Deferred (disclosed):** role-grant / user-lifecycle API and screens (DDL + permissions + DB
+checks exist; SoD is checked at grant time, which is exactly that API -- a seed can still create a
+violating user, and the four-eyes rule is proven to hold even then); terminal-to-shop binding
+enforcement (`terminal` table exists, sessions record the CN); `x-oam-actor` propagation; audit
+partition rotation/retention job and WORM export of chain heads; balance-adjustment thresholds
+(`approval_policy.threshold_*` exists, no balance screen yet); CI wiring -- the security tests read
+`TEST_POSTGRES_URL` (CI's postgres-chf) and are labelled `needs-postgres`; whether ci.yml exposes
+that variable on the ctest step is for the integrator to confirm.
+
+## ADR-0424: Operator authentication -- OIDC (authorization code + PKCE) to a self-hosted IdP, Keycloak recommended
+
+**Date:** 2026-09-26. **Status:** accepted; BFF side implemented and tested against a fake IdP;
+a live Keycloak realm is deferred.
+
+**Decision.** The BFF is an OIDC confidential client (`OidcAuthenticator` behind an `Authenticator`
+interface): /auth/login stores state + nonce + PKCE verifier (single use, browser-bound) and
+redirects; /auth/callback exchanges the code (client_secret_post + code_verifier), verifies the ID
+token itself (JWKS fetched and refreshed on unknown kid; RS256 or ES256 only; iss, aud, azp, exp
+with leeway, nonce), maps (iss, sub) to `operator_user`, refuses non-ACTIVE and dormant users, and
+for `mfa_required` users demands MFA evidence (`amr` or `acr` values from config). Session cookie
+`__Host-oam_session` (Secure, HttpOnly, SameSite=Strict; the callback answers 200 + meta refresh
+because a Strict cookie set on a redirect chain that began at the IdP would not be sent). All
+endpoints, client id, secret FILE and IdP CA are config (`config/oam-gui-bff.json`).
+**Recommended IdP: Keycloak** (Apache-2.0, self-hosted, OIDC + TOTP/WebAuthn MFA, LDAP/AD
+federation, brokering to an operator's existing IdP). Tests use a fake IdP that signs real ES256
+tokens and enforces PKCE: success, no-MFA refusal, nonce mismatch, foreign browser, replayed state,
+dormant account, unknown subject -- each audited.
+
+**Rejected.** *Home-grown passwords + TOTP in the BFF* -- credential storage, reset flows and MFA
+enrolment are an IdP's job and a liability here. *SAML* -- heavier, XML-DSig; can be brokered by
+Keycloak if an operator needs it. *Authelia / Dex* -- Dex has no MFA of its own; Authelia is
+forward-auth-oriented; either can sit behind the same interface. *Operator client certificate as
+the only login* -- kept as the terminal/device factor (layer 1), not the person.
+**Deferred:** Keycloak realm export + compose/Helm entry (a live IdP was not run on the shared
+16 GB machine); back-channel logout; step-up (acr) per sensitive action.
+
+## ADR-0425: NF configuration through the GUI -- derived schemas for every component, versioned four-eyes changes, no fake live reload
+
+**Date:** 2026-09-26. **Status:** accepted; generic viewer/editor implemented end to end for
+`product-catalog`; all 31 schemas derived.
+
+**Three kinds of configuration, kept apart.** (a) *Static process config* -- `config/<nf>.json`
+read once at start-up via `libs/nf-config`. (b) *Runtime-changeable config via an existing API* --
+**none today**: no component re-reads its file (grep for reload/SIGHUP finds nothing), so an applied
+change is written to the file and the version is marked `restart_required`; the GUI never claims a
+live reload. A live path needs a new management endpoint per NF, designed per NF when needed.
+(c) *Subscriber / policy / product data* managed through the component's own SBI/TMF API with its
+real schema: TMF620 catalog (product-catalog; also CHF rating/tariffs, which are catalog data),
+TMF654 balances, TMF632 parties, TMF651 agreements, UDR subscription data via Nudr (R19 YAML) and
+the OAM provisioning API. For EIR equipment lists and NSSF slice configuration no management
+surface was found in this repository -- listed for review, not invented.
+
+**Derivation.** `gui/schema-gen/derive_nf_config_schemas.py` emits one schema per config file
+(`gui/web/src/schemas/nf-config/`): properties only from keys present in the file, types from values,
+`required` = keys read with `nf_config::require<>` (process exits without them), `x-env-override`
+and `x-cpp-type` from the `require<T>(config, "key", "ENV")` call, `x-sensitivity: credential` for
+secret-looking keys or URLs with userinfo, and `x-review` listing what could not be established
+(keys no source line visibly reads; nested objects whose map-vs-struct meaning is unverified --
+closed until reviewed; empty arrays). ctest `gui_nf_config_schemas_up_to_date` fails on drift (it
+caught `chf.json`'s new `rating_db_pool_size` during this very merge).
+
+**Change path.** GET shows the content (credentials masked) and version history (the file on disk is
+imported as version 1 on first view); POST proposes a new content or a rollback to a prior version
+-> validated against the derived schema in C++ (`NfConfigManager::validate`; an invented key is
+refused) -> maker-checker request -> on approval: `nf_config_version` row (who/when/approval/
+comment, sha256) + atomic file replace + audit with before/after (credentials masked). Editable
+components are an allow-list in config (`nf_config.editable`: `product-catalog` only in this
+increment); every other component is viewable read-only.
+
+**Coverage matrix (generated by `derive_nf_config_schemas.py --matrix`; GUI column added):**
+
+| Component | Config file | Keys | Required (require<>) | Credentials | Review items | Source |
+|---|---|---|---|---|---|---|
+| adrf | config/adrf.json | 15 | 12 | 1 | 15 | nfs/adrf |
+| amf | config/amf.json | 15 | 14 | 0 | 1 | nfs/amf |
+| ausf | config/ausf.json | 5 | 5 | 0 | 0 | nfs/ausf |
+| balance-management | config/balance-management.json | 5 | 5 | 1 | 0 | bss/balance-management |
+| bsf | config/bsf.json | 4 | 3 | 0 | 1 | nfs/bsf |
+| chf | config/chf.json | 25 | 20 | 2 | 5 | nfs/chf |
+| dccf | config/dccf.json | 11 | 11 | 0 | 0 | nfs/dccf |
+| eir | config/eir.json | 4 | 3 | 0 | 1 | nfs/eir |
+| gmlc | config/gmlc.json | 4 | 3 | 0 | 1 | nfs/gmlc |
+| hello-nf | config/hello-nf.json | 1 | 1 | 0 | 0 | nfs/hello-nf |
+| li-mdf | config/li-mdf.json | 12 | 5 | 0 | 4 | nfs/li-mdf |
+| lmf | config/lmf.json | 4 | 3 | 0 | 1 | nfs/lmf |
+| mcp-server | config/mcp-server.json | 13 | 7 | 3 | 9 | tools/mcp-server |
+| mfaf | config/mfaf.json | 12 | 12 | 0 | 0 | nfs/mfaf |
+| nef | config/nef.json | 7 | 7 | 0 | 0 | nfs/nef |
+| nrf | config/nrf.json | 2 | 2 | 0 | 0 | nfs/nrf |
+| nsacf | config/nsacf.json | 6 | 6 | 0 | 1 | nfs/nsacf |
+| nssf | config/nssf.json | 4 | 3 | 0 | 1 | nfs/nssf |
+| nwdaf | config/nwdaf.json | 34 | 27 | 1 | 34 | nfs/nwdaf |
+| oam-gui-bff | config/oam-gui-bff.json | 17 | 17 | 1 | 3 | gui/bff |
+| pcf | config/pcf.json | 7 | 6 | 0 | 5 | nfs/pcf |
+| product-catalog | config/product-catalog.json | 5 | 5 | 1 | 0 | bss/product-catalog |
+| provisioning | config/provisioning.json | 10 | 5 | 2 | 6 | bss/provisioning |
+| roaming-interconnect | config/roaming-interconnect.json | 4 | 4 | 1 | 0 | bss/roaming-interconnect |
+| scp | config/scp.json | 4 | 3 | 0 | 1 | nfs/scp |
+| smf | config/smf.json | 11 | 10 | 0 | 1 | nfs/smf |
+| smsf | config/smsf.json | 4 | 3 | 0 | 1 | nfs/smsf |
+| subscriber-management | config/subscriber-management.json | 4 | 4 | 1 | 0 | bss/subscriber-management |
+| udm | config/udm.json | 8 | 8 | 0 | 0 | nfs/udm |
+| udr | config/udr.json | 5 | 4 | 1 | 1 | nfs/udr |
+| upf | config/upf.json | 4 | 4 | 0 | 0 | nfs/upf |
+
+GUI status: `product-catalog` -- view + four-eyes change + rollback, tested; all others -- schema
+derived, view-only, "restart" apply; data surfaces (c) other than the TMF620 catalog and customer
+onboarding -- no screen yet. Observed while deriving, flagged not fixed: `config/nssf.json` and
+`config/product-catalog.json` both declare port 7785 and metrics 9473.
+
+**Rejected.** *Hand-written per-NF forms* (drift, invention risk). *Editing through each NF's API*
+(none exists for static config; inventing one per NF is out of scope). *Applying by sending a signal*
+(no NF handles one; would be a fake reload).

@@ -842,6 +842,7 @@ TEST_F(BffSecurity, TheAuditTrailIsAppendOnlyForTheBffAndTamperingIsDetected) {
     // A superuser can switch the triggers off -- and verification then exposes the edit.
     pqxx::connection c(db.admin_url());
     pqxx::nontransaction t(c);
+    ASSERT_GE(count_audit("chain_key = 'test-chain'"), 1u) << "nothing to tamper with";
     t.exec("ALTER TABLE iam.audit_event DISABLE TRIGGER USER");
     t.exec("UPDATE iam.audit_event SET reason = 'nothing to see' WHERE chain_seq = 1");
     t.exec("ALTER TABLE iam.audit_event ENABLE TRIGGER USER");
