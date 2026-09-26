@@ -81,7 +81,7 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
 | 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); next roaming / HFL (ADR-0359 step 6) |
 | 6 | R19 feature NFs (Tier 2/3) | In progress — 9 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF); Tier 3 not started |
-| 7 | GUI / operations console | Not started — stack decision (React + JSON Forms vs Dear ImGui) still open. Scope is fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
+| 7 | GUI / operations console | **Started** — React + JSON Forms operator GUI behind a C++ backend-for-frontend (`gui/`, ADR-0420..0425): OIDC login (IdP-side MFA; a live Keycloak realm not yet provided), shop-scoped RBAC + maker-checker + hash-chained audit in the `operator_iam` DB, customer onboarding, TMF620 catalog proposals, approvals, and NF configuration (schemas derived for all 31 components; four-eyes editing live for `product-catalog` only). Dear ImGui engineering console: later track. Scope still fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial — Docker + Compose for all 22 NF/BSS components; Helm for 7 of 18 NFs; no `make lab-up` yet |
 | P4.12 | Telco-grade hardening (TPS governance, chaos, business alarming, retention, autoscaling) | Done except P11, which is deferred — see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) |
 
@@ -155,6 +155,8 @@ that need a word are marked.
 | Auth | jwt-cpp | 0.7.2 | MIT |
 | Errors | tl-expected | 1.3.1 | CC0-1.0 — a public-domain dedication OSI declined to list (2012). Permissive; **flagged for P1 review**, not hidden |
 | Tests | GoogleTest · libFuzzer | 1.17 | BSD-3-Clause · Apache-2.0 WITH LLVM-exception |
+| Operator GUI (`gui/web`) | React · JSON Forms (core/react/vanilla) | 19.3 · 3.8.0 | MIT · MIT |
+| GUI build only | TypeScript · Vite (rolldown, lightningcss) | 5.9 · 8.3 | Apache-2.0 · MIT (MIT, MPL-2.0) — whole npm lockfile gated OSI-only by ctest (ADR-0420) |
 
 <h2 align="center">Commercial products the CHF/BSS model supports today</h2>
 
