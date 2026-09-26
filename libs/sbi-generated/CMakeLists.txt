@@ -184,6 +184,10 @@ set(SBI_CODEGEN_PILOT_FILES
     # from its complete YAML surface rather than half of it.
     TS29536_Nnsacf_NSAC.yaml
     TS29536_Nnsacf_SliceEventExposure.yaml
+    # ADR-0400: UDSF (TS 29.598) -- both of its R19 API files, Nudsf_DataRepository and
+    # Nudsf_Timer (the Timer YAML references the DataRepository's SearchExpression/SchemaId).
+    TS29598_Nudsf_DataRepository.yaml
+    TS29598_Nudsf_Timer.yaml
 )
 set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29510_Nnrf_NFManagement.yaml
@@ -347,6 +351,8 @@ set(SBI_CODEGEN_PILOT_PATHS
     # rather than half of it.
     ${SBI_CODEGEN_SPECS_DIR}/TS29536_Nnsacf_NSAC.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29536_Nnsacf_SliceEventExposure.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29598_Nudsf_DataRepository.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29598_Nudsf_Timer.yaml
 )
 
 file(GLOB_RECURSE SBI_CODEGEN_TOOL_SOURCES

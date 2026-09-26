@@ -1,0 +1,17 @@
+{
+  "port": 7830,
+  "advertised_ipv4": "127.0.0.1",
+  "metrics_bind_address": "0.0.0.0:9530",
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "nrf_heartbeat_seconds": 30,
+  "redis_url": "tcp://127.0.0.1:6379",
+  "redis_pool_size": 16,
+  "storages": {
+    "Realm01": ["Storage01", "Storage02"]
+  },
+  "expiry_sweep_interval_ms": 250,
+  "max_record_ttl_seconds": 0,
+  "max_subscription_seconds": 86400,
+  "cache_max_age_seconds": 60,
+  "oauth2_required": false
+}

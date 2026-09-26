@@ -211,3 +211,15 @@ target_link_libraries(li_amf_poi_integration_tests PRIVATE
 target_compile_definitions(li_amf_poi_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_amf_poi_integration_tests)
+
+# ADR-0400: the UDSF suite -- its own binary (depends only on nrf + udsf, like the MTLF suite), so
+# it builds without the whole NF estate. Also carries the UDSF logic unit tests (no processes).
+add_executable(udsf_integration_tests test_udsf.cpp)
+target_link_libraries(udsf_integration_tests PRIVATE udsf_core sbi_core sbi_generated redis++::redis++_static GTest::gtest GTest::gtest_main)
+add_dependencies(udsf_integration_tests nrf udsf)
+target_compile_definitions(udsf_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDSF_PATH="$<TARGET_FILE:udsf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+)
+gtest_discover_tests(udsf_integration_tests PROPERTIES TIMEOUT 300)

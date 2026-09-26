@@ -60,23 +60,20 @@ std::optional<std::string> extract_boundary(const std::string& content_type_head
     return std::nullopt;
 }
 
-} // namespace
-
-bool is_multipart_related(const std::string& content_type_header) {
+std::string media_type_of(const std::string& content_type_header) {
     const auto semi = content_type_header.find(';');
-    const std::string media_type =
-        trim(semi == std::string::npos ? content_type_header : content_type_header.substr(0, semi));
-    return to_lower(media_type) == "multipart/related";
+    return to_lower(
+        trim(semi == std::string::npos ? content_type_header : content_type_header.substr(0, semi)));
 }
 
-tl::expected<std::vector<Part>, std::string> parse(const std::string& content_type_header,
-                                                   const std::string& body) {
-    if (!is_multipart_related(content_type_header)) {
-        return tl::unexpected("not a multipart/related content type: " + content_type_header);
-    }
+// The RFC 2046 framing shared by every multipart subtype. `what` only names the subtype in error
+// text; the caller has already checked the media type.
+tl::expected<std::vector<Part>, std::string> parse_framing(const std::string& content_type_header,
+                                                           const std::string& body,
+                                                           const std::string& what) {
     const auto boundary = extract_boundary(content_type_header);
     if (!boundary.has_value() || boundary->empty()) {
-        return tl::unexpected("multipart/related content type missing boundary parameter");
+        return tl::unexpected(what + " content type missing boundary parameter");
     }
 
     // Wrapped in try/catch: this parses network-supplied, potentially-malformed input. Any
@@ -132,14 +129,21 @@ tl::expected<std::vector<Part>, std::string> parse(const std::string& content_ty
                     part.content_type = value;
                 } else if (key == "content-id") {
                     part.content_id = strip_angle_brackets(value);
+                } else if (key == "content-transfer-encoding") {
+                    part.content_transfer_encoding = value;
                 }
             }
 
-            const auto next = body.find("\n" + delimiter, pos);
+            // A zero-length part body (RFC 2046 allows one): the delimiter starts right where the
+            // body would, and the '\n' that precedes it is the blank line's own. Searching from
+            // `pos` would skip it and swallow the next part.
+            const auto next = (pos > 0 && body.compare(pos, delimiter.size(), delimiter) == 0)
+                                  ? pos - 1
+                                  : body.find("\n" + delimiter, pos);
             if (next == std::string::npos) {
                 return tl::unexpected("unterminated multipart body part (no closing delimiter)");
             }
-            std::string part_body = body.substr(pos, next - pos);
+            std::string part_body = next < pos ? std::string() : body.substr(pos, next - pos);
             // `next` is the index of the '\n' that precedes the delimiter, deliberately excluded
             // from part_body by substr's exclusive end -- only a lone trailing '\r' (present with
             // CRLF line endings) can be left over, never '\n' itself.
@@ -161,9 +165,7 @@ tl::expected<std::vector<Part>, std::string> parse(const std::string& content_ty
     }
 }
 
-Encoded encode(const std::vector<Part>& parts) {
-    const std::string boundary = "5gc-r19-" + generate_uuid_v4();
-
+std::string encode_parts(const std::vector<Part>& parts, const std::string& boundary) {
     std::string body;
     for (const auto& part : parts) {
         body += "--" + boundary + "\r\n";
@@ -171,11 +173,54 @@ Encoded encode(const std::vector<Part>& parts) {
         if (part.content_id.has_value()) {
             body += "Content-Id: " + *part.content_id + "\r\n";
         }
+        if (part.content_transfer_encoding.has_value()) {
+            body += "Content-Transfer-Encoding: " + *part.content_transfer_encoding + "\r\n";
+        }
         body += "\r\n";
         body += part.body;
         body += "\r\n";
     }
     body += "--" + boundary + "--\r\n";
+    return body;
+}
+
+} // namespace
+
+bool is_multipart_related(const std::string& content_type_header) {
+    return media_type_of(content_type_header) == "multipart/related";
+}
+
+bool is_multipart(const std::string& content_type_header) {
+    return media_type_of(content_type_header).rfind("multipart/", 0) == 0;
+}
+
+tl::expected<std::vector<Part>, std::string> parse(const std::string& content_type_header,
+                                                   const std::string& body) {
+    if (!is_multipart_related(content_type_header)) {
+        return tl::unexpected("not a multipart/related content type: " + content_type_header);
+    }
+    return parse_framing(content_type_header, body, "multipart/related");
+}
+
+tl::expected<std::vector<Part>, std::string> parse_any(const std::string& content_type_header,
+                                                       const std::string& body) {
+    if (!is_multipart(content_type_header)) {
+        return tl::unexpected("not a multipart content type: " + content_type_header);
+    }
+    return parse_framing(content_type_header, body, media_type_of(content_type_header));
+}
+
+Encoded encode_subtype(const std::string& subtype, const std::vector<Part>& parts) {
+    const std::string boundary = "5gc-r19-" + generate_uuid_v4();
+    Encoded result;
+    result.content_type_header = "multipart/" + subtype + "; boundary=\"" + boundary + "\"";
+    result.body = encode_parts(parts, boundary);
+    return result;
+}
+
+Encoded encode(const std::vector<Part>& parts) {
+    const std::string boundary = "5gc-r19-" + generate_uuid_v4();
+    std::string body = encode_parts(parts, boundary);
 
     const std::string root_type = parts.empty() ? "application/json" : parts.front().content_type;
     Encoded result;
