@@ -22,7 +22,7 @@ import {
   withJsonFormsCellProps,
   withJsonFormsDetailProps,
 } from '@jsonforms/react';
-import { ArrayControlRenderer, vanillaCells, vanillaRenderers } from '@jsonforms/vanilla-renderers';
+import { ArrayControl, vanillaCells, vanillaRenderers } from '@jsonforms/vanilla-renderers';
 import { useState } from 'react';
 
 import { isUntyped, layoutFor, type Schema } from './uischema';
@@ -121,7 +121,7 @@ const isUntypedControl = and(isControl, schemaMatches((s) => isUntyped(s as Sche
 export const renderers: JsonFormsRendererRegistryEntry[] = [
   ...vanillaRenderers,
   { tester: rankWith(5, isObjectControl), renderer: withJsonFormsDetailProps(ObjectControl) },
-  { tester: rankWith(5, isObjectArrayControl), renderer: ArrayControlRenderer },
+  { tester: rankWith(5, isObjectArrayControl), renderer: ArrayControl },
 ];
 
 export const cells: JsonFormsCellRendererRegistryEntry[] = [

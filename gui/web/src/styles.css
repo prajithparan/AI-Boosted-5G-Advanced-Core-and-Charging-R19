@@ -1,0 +1,23 @@
+:root { font-family: system-ui, sans-serif; color: #1b1f24; background: #f6f7f9; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+header.top { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 1.3rem; margin: 0; flex: 1; }
+nav { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+nav button.active { background: #1f4e8c; color: #fff; }
+button, a.button { padding: 6px 12px; border: 1px solid #1f4e8c; border-radius: 4px; background: #fff; color: #1f4e8c; cursor: pointer; text-decoration: none; margin: 4px 4px 4px 0; display: inline-block; }
+input, select, textarea { padding: 4px 6px; border: 1px solid #b8c0cc; border-radius: 3px; max-width: 100%; }
+fieldset.object-control { border: 1px solid #d5dae1; margin: 8px 0; padding: 8px; }
+.control { display: flex; flex-direction: column; margin: 6px 0; }
+.validation { color: #a4262c; font-size: 0.85rem; }
+input.secret { -webkit-text-security: disc; font-family: monospace; }
+textarea.json { font-family: monospace; min-height: 3em; }
+textarea.json.invalid { border-color: #a4262c; }
+.note, .legend { color: #4a5563; font-size: 0.9rem; }
+.errors { color: #a4262c; }
+.result pre { background: #fff; border: 1px solid #d5dae1; padding: 8px; overflow: auto; max-height: 320px; }
+.result.err strong { color: #a4262c; }
+table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+th, td { border-bottom: 1px solid #d5dae1; padding: 4px 8px; text-align: left; font-size: 0.9rem; }
+article.approval { background: #fff; border: 1px solid #d5dae1; padding: 8px; margin: 8px 0; }
+main.login { text-align: center; margin-top: 15vh; }
+@media (max-width: 600px) { main { padding: 8px; } }
