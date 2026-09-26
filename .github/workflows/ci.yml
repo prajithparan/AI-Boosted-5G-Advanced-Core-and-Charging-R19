@@ -358,7 +358,7 @@ jobs:
         # "failed to load TLS material .../certs/balance-management/cert.pem") plus every other
         # service whose main.cpp names a CERTS_DIR subdirectory, so the next spawned-NF test does not
         # rediscover this: grep -rhoE 'CERTS_DIR "/[a-z0-9-]+/' nfs bss is the list.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning udsf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         # docker exec into the service container: no psql on the host, and the same command on
@@ -448,6 +448,8 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
+          UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
           ADRF_DATA_STORE_PORT: "19030"
           ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf
@@ -817,7 +819,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning udsf
 
       - name: Apply product-catalog PostgreSQL schema (ADR-0054)
         # docker exec into the service container: no psql on the host, and the same command on
@@ -903,6 +905,8 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
+          UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
           ADRF_DATA_STORE_PORT: "19030"
           ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf

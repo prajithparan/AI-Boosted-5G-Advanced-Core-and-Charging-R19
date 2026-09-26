@@ -5364,3 +5364,32 @@ surface -- TS 23.288 6.16 is OAM/TS 28.552-sourced), not fabricated.
 | SERVICE_EXPERIENCE analytic: aggregate the collected QOS_MON per-slice latency into a per-S-NSSAI ServiceExperienceInfo (svcExprc MOS, variance, SUPIs, confidence); honours the snssais filter; verbatim S-NSSAI; served over Nnwdaf_AnalyticsInfo and Nnwdaf_EventsSubscription; advertised in NwdafInfo eventIds | TS 23.288 6.4; TS 29.520 (ServiceExperienceInfo, AnalyticsData.svcExps, NwdafEvent SERVICE_EXPERIENCE) | `nfs/nwdaf/src/analytics.cpp` `service_experience`, `nfs/nwdaf/src/main.cpp` compute() dispatch + eventIds | `test_nwdaf_analytics.cpp` NwdafServiceExperience.* (2) |
 | VFL hook: Nnwdaf_VFLTraining / Nnwdaf_VFLInference subscription CRUD (POST/GET/PUT/PATCH-merge/DELETE), bearer-checked; coordination Phase D (disclosed) | TS 29.520 (Nnwdaf_VFLTraining, Nnwdaf_VFLInference) | `nfs/nwdaf/src/vfl_subscription_store.{hpp,cpp}`, `nfs/nwdaf/src/main.cpp` `register_vfl_crud` | `test_nwdaf_vfl.cpp` NwdafVflStore.* |
 | Energy-efficiency analytic | TS 23.288 6.16 (OAM / TS 28.552 sourced) | -- | **not built** / **disclosed** (ADR-0380): no R19 Nnwdaf SBI eventId/DTO exists; would require inventing an API -- flagged, not fabricated |
+
+## UDSF (ADR-0400..ADR-0402)
+
+Source: `specs/5G_APIs-REL-19/TS29598_Nudsf_DataRepository.yaml` (API 1.3.0) and
+`TS29598_Nudsf_Timer.yaml`, commit `bca84b60a37773133bcae97e5c6c0d10a93b47b6`. Stage 3 behaviour:
+TS 29.598 V19.5.0 (`specs/3gpp/TS_29.598_j50.txt`). Stage 2: TS 23.501 V19.8.0 §6.2.12. Tests are
+in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `Udsf` unless noted.
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Record Create / Retrieval / Update / Delete (`PUT/GET/DELETE .../records/{recordId}`), multipart/mixed Record, get-previous, If-Match / If-None-Match / 304 / 412 with current ETag | 5.2.2.3.2, 5.2.2.2.2, 5.2.2.4.2, 5.2.2.5.2; 6.1.2.2, 6.1.2.4.2, 6.1.3.3 | `nfs/udsf/src/dr_routes.cpp`, `store.cpp` | RecordCreateRetrieveUpdateDelete |
+| REALM_NOT_FOUND / STORAGE_NOT_FOUND, 415 for a non-multipart Record, RecordMeta tag-map validation | 6.1.7.3; YAML RecordMeta | `service.cpp` `resolve_storage`, `validate_record_meta` | RealmAndStorageNotFoundAndBadBodies |
+| Meta Retrieval / Meta Update (JSON Patch, 200 PatchResult on discarded items) | 5.2.2.2.3, 5.2.2.4.4; 6.1.3.4 | `dr_routes.cpp`, `patch.cpp` | MetaRetrievalAndUpdate; UdsfLogic.JsonPatchItemwiseAndAtomic |
+| Blocks Retrieval (multipart/parallel, 204 when none), Block Retrieval / Create / Update / Delete, default application/octet-stream | 5.2.2.2.4, 5.2.2.2.5, 5.2.2.3.3, 5.2.2.4.3, 5.2.2.5.3; 6.1.2.4.3, 6.1.3.5, 6.1.3.6 | `dr_routes.cpp` | BlockLifecycle |
+| Record Partial Update (PartialRecordUpdate): patch part + block parts by Content-Id, all-or-nothing, 422 PatchResult | 5.2.2.4.8; 6.1.2.4.5, 6.1.3.3.3.4 | `dr_routes.cpp` PatchRecord | RecordPartialUpdate |
+| Search: SearchExpression (EQ/NEQ/GT/GTE/LT/LTE, AND/OR/NOT cardinality, RecordIdList), limit-range, count-indicator, CombinedSearchRetrieve (RecordCollection multipart, max-payload-size), 204 | 5.2.2.2.6; 6.1.2.4.6, 6.1.3.2.3.1, 6.1.6.2.8-9, 6.1.6.3.3-4, 6.1.6.4.1 | `search.cpp`, `store.cpp` (SET + ZRANGEBYLEX indexes), `dr_routes.cpp` | SearchAndBulkDelete; UdsfLogic.SearchComparisonAndConditions, SearchCardinalityAndShapeAreEnforced |
+| Bulk Records Delete (filter, GTE "" = all, RecordDeleteResponse, 204) | 5.2.2.5.5; 6.1.3.2.3.2 | `dr_routes.cpp` | SearchAndBulkDelete |
+| Subscribe / Subscription Update (PUT, PATCH) / Retrieval / Unsubscribe; 409 with missing monitoredResourceUris; 403 SUBSCRIPTION_EXISTS; client-id as form-exploded ClientId | 5.2.2.7.2, 5.2.2.4.5, 5.2.2.4.6, 5.2.2.2.7, 5.2.2.2.8, 5.2.2.8.2; 6.1.3.7, 6.1.3.8 | `dr_routes.cpp` | SubscriptionsAndDataChangeNotification |
+| Notification due to Data Change (RecordNotification multipart: descriptor, meta, blocks), subFilter operations / monitoredResourceUris | 5.2.2.6.3; 6.1.2.4.4, 6.1.5.3, 6.1.6.2.13 | `store.cpp` `data_change_notifications`, `worker.cpp` | SubscriptionsAndDataChangeNotification |
+| Record Expiry Notify (ttl, Content-Location, RecordBody), exactly once across 2 replicas | 5.2.2.6.2; 6.1.2.2.10, 6.1.5.2 | `worker.cpp` | RecordAndSubscriptionExpiry |
+| Subscription Expiry Notification (NotificationInfo; expiryNotification 0 / >0), operator expiry ceiling | 5.2.2.6.4; 6.1.5.4, table 6.1.6.2.10-1 | `worker.cpp`, `dr_routes.cpp` `apply_expiry_policy` | RecordAndSubscriptionExpiry |
+| Meta Schema Retrieval / Create / Update / Delete, SCHEMA_IN_USE (timers) | 5.2.2.2.9, 5.2.2.3.4, 5.2.2.4.7, 5.2.2.5.4; 6.1.3.9 | `dr_routes.cpp` | MetaSchemaLifecycle |
+| Timer Start / Update / Single + Multiple Stop / Expired + Tagged Search / Get; EXPIRES_VALUE_NOT_ALLOWED; TIMER_NOT_FOUND | 5.3.2.2.2, 5.3.2.3.2, 5.3.2.4.2, 5.3.2.4.3, 5.3.2.5.2, 5.3.2.5.3; 6.2.3 | `timer_routes.cpp` | TimerService |
+| Timer Expiry Notify with PeriodicTimer (repetitionCount) and deleteAfter; timerId present, callbackReference absent in the notification | 5.3.2.6.2; 6.2.5.2, table 6.2.6.2.2-1 | `worker.cpp` | TimerService |
+| OAuth2: invalid token 401 + WWW-Authenticate invalid_token; missing service scope 403 insufficient_scope | TS 29.500 6.7.3; TS 29.598 6.1.9, 6.2.9 | `service.cpp` `authorize` | OAuth2Enforcement |
+| NRF registration (nfType UDSF, nudsf-dr + nudsf-timer with supportedFeatures, UdsfInfo.storageIdRanges), heartbeat, discoverable | TS 29.510 | `main.cpp` | RegisteredAndDiscoverable |
+| API roots equal each YAML's servers[0].url | ADR-0325 | `service.hpp` `kDrRoot`, `kTimerRoot` | conformance `api_root_conformance` |
+| multipart/mixed + multipart/parallel codec with Content-Transfer-Encoding and zero-length parts | RFC 2046; TS 29.598 6.1.2.4 | `libs/sbi-core/src/multipart.cpp` | UdsfLogic.MultipartMixedAndParallelRoundTrip; conformance `Multipart.*` |
+| AdvancedCounting (tag-count-filter) | 6.1.3.2.3.1, 6.1.6.2.19-21 | -- | **not built** (ADR-0401): YAML encoding contradicts the TS; feature not advertised, parameter answered 400 |

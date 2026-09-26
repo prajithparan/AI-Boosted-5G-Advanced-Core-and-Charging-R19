@@ -30082,3 +30082,105 @@ dangling ref -> 400, delete in-use price -> 409; and an order through `bss/provi
 offering created via the TMF620 API completed, its `product_subscription` FK-joined to that offering
 in `charging`. The full DDL chain applies to a fresh PostgreSQL. `CapScopedCharging` (needs Doris)
 is left to CI.
+
+## ADR-0400: The UDSF -- Nudsf_DataRepository and Nudsf_Timer on Valkey, stateless replicas
+
+**Status:** Accepted (2026-09-26). Tier 2 NF (parallel-agent range ADR-0400..0419).
+
+**Context.** CLAUDE.md scopes the UDSF (Tier 2) and names Valkey as its store. TS 29.598 defines two
+services, each with its own R19 YAML: `TS29598_Nudsf_DataRepository.yaml` (API 1.3.0, root
+`/nudsf-dr/v1`, 21 operations) and `TS29598_Nudsf_Timer.yaml` (root `/nudsf-timer/v1`, 6
+operations). The TS text (V19.5.0, fetched with `tools/specs/fetch_3gpp_specs.py` into
+`specs/3gpp/`) defines the behaviour; the YAML the shapes (ADR-0250). TS 23.502 has no UDSF call
+flow; the procedures are TS 29.598 clauses 5.2.2 / 5.3.2.
+
+**Decision.**
+1. **Both services, one NF, every operation**: all 27 operations and the four UDSF-originated
+   notifications (`recordExpired`, `onDataChange`, `subscriptionExpiryNotification`,
+   `timerExpiry`). Both YAMLs joined the codegen list; every DTO used is generated. Two generated
+   types cannot carry their content and are handled around, not re-declared: `SearchExpression`
+   (object + oneOf -> empty struct; the raw JSON is walked and each leaf decoded with the generated
+   `SearchComparison` / `RecordIdList` / `SearchCondition`) and `Block` (opaque json alias -- block
+   bytes never pass through JSON).
+2. **Valkey only, per-storage hash tag.** Keys are `udsf:{<realm>/<storage>}:...` (layout in
+   `nfs/udsf/src/store.hpp`), so a storage is the Cluster shard unit and every transaction stays in
+   one slot (Tier-1 scale mandate). Writes are optimistic WATCH/MULTI/EXEC with retry. Search: a SET
+   per (tag, value) for EQ, a ZSET per tag (`value\0id`, ZRANGEBYLEX) for GT/GTE/LT/LTE -- no search
+   scans the record set. Expiry schedules are ZSETs claimed with ZREM (one replica wins each entry);
+   outbound notifications are a Valkey list. No in-process state: `--scale udsf=N` is safe (the test
+   runs two replicas and sees one expiry notification).
+3. **Realms and storages are configuration** (`storages` in `config/udsf.json`): TS 29.598 has no
+   API to create them yet defines REALM_NOT_FOUND / STORAGE_NOT_FOUND. Advertised as
+   `UdsfInfo.storageIdRanges` (exact-match patterns).
+4. **Conditional requests throughout** (6.1.2.2): strong ETags per record, block, subscription,
+   schema; Last-Modified; If-Match / If-None-Match (incl. `*`) / If-Modified-Since -> 304 / 412 with
+   the current ETag (CR 0086); Cache-Control max-age from config; get-previous wherever the TS has it.
+5. **OAuth2 per TS 29.500 6.7.3**: no token accepted per local config (`oauth2_required`, default
+   false as elsewhere); invalid token -> 401 `WWW-Authenticate: Bearer ... error="invalid_token"`;
+   valid token without the service-name scope (`nudsf-dr` / `nudsf-timer`) -> 403
+   `insufficient_scope`. The finer per-resource scopes are optional in both YAMLs and not required.
+6. **sbi-core multipart made subtype-generic, additively**: `parse_any` / `encode_subtype` (no RFC
+   2387 `type=`), `Part::content_transfer_encoding`; a zero-length part body used to swallow the next
+   part -- fixed. `parse`/`encode` keep their multipart/related contract (`Multipart.*` pass).
+7. **Ports** chosen unused by every `config/*.json` after the merge with main (see config/udsf.json).
+
+**Rejected.** One JSON document per record with base64 blocks (every block write rewrites the
+record); scan-and-filter search (O(records) per query, Tier-1 mandate); Lua scripts for conditional
+writes (WATCH/MULTI gives the same atomicity with tested C++ logic; revisit under contention); an
+in-process timer wheel (lost on restart, fires once per replica); treating any realm/storage as
+existing (makes the TS's 404 causes unreachable); a Helm chart now (the Tier-2 NFs MFAF/DCCF/ADRF
+have none; Docker image + Compose service follow that pattern -- Helm stays Phase 8 debt).
+
+**Tests.** `tests/integration/test_udsf.cpp`, own binary `udsf_integration_tests` (depends on nrf +
+udsf only): 5 logic tests + 12 wire tests against a real NRF, two UDSF replicas over TLS 1.3 + mTLS
+and real Valkey, each run in a realm unique to the run, cleaned by exact key pattern (never FLUSH).
+`api_root_conformance` covers both roots.
+
+## ADR-0401: TS 29.598 R19 YAML defects and ambiguities -- what the UDSF does with each
+
+**Status:** Accepted, with **open questions for the owner** (none resolved by inventing a field).
+
+1. **RecordMeta.schemaId is absent from the parsed YAML**: its lines sit inside RecordMeta's
+   `example: >-` folded scalar (verified with PyYAML); TS table 6.1.6.2.3-1 lists it. The meta is
+   stored verbatim (a sent schemaId is kept and returned) but not interpreted: SearchCondition.schemaId
+   on records -> 400 (never silently ignored), SCHEMA_IN_USE is checked against timers only
+   (Timer.schemaId is in the YAML), TagType `presence` / `UNIQUE_KEY` not enforced on records.
+   **Question:** a documented codegen overlay from the TS for this field, or wait for a fixed YAML?
+2. **GetMetaSchema 200 references the multipart `RecordBody` response**; TS table 6.1.3.9.3.1-3 says
+   MetaSchema. The UDSF returns `application/json` MetaSchema (the TS). **Question:** confirm.
+3. **tag-count-filter (AdvancedCounting)**: YAML `schema: CountExpression` (form-exploded single
+   object) vs TS `map(CountExpression)`; Annex B.2 output contradicts the YAML's TagCount. Not built;
+   feature 5 not advertised (consumers shall then not send it); the parameter is answered 400.
+   **Question:** which encoding for a future implementation?
+4. **DeleteNotificationSubscription 200** is an array in the YAML, one object in the TS table: the
+   YAML shape is followed.
+5. **client-id** (`schema: ClientId`, no `content:`) is parsed form-exploded (`?nfId=` / `?nfSetId=`)
+   per OpenAPI defaults; a JSON-encoded `client-id=` is also accepted, leniently.
+6. **ttl above the operator ceiling** (`max_record_ttl_seconds`, 0 = none): create -> 201 with the
+   applied ttl; update with get-previous -> 403 TTL_VALUE_NOT_ALLOWED; update without -> 200 with the
+   stored record.
+7. **SearchComparison GTE with tag ""** selects everything (6.1.3.2.3.2), for search, bulk delete
+   and timer filters alike.
+
+## ADR-0402: UDSF expiry, notifications and feature advertisement
+
+**Status:** Accepted (2026-09-26).
+
+**Decision.** One worker thread per replica sweeps each configured storage every
+`expiry_sweep_interval_ms`: record ttl expiry (delete, then POST the RecordBody to the meta's
+callbackReference with `Content-Location`); subscription expiry and advance notice (NotificationInfo
+to expiryCallbackReference); timer expiry (Timer with timerId, without callbackReference;
+PeriodicTimer repeats `repetitionCount` times; `deleteAfter` keeps an expired timer until then, else
+it is deleted at its last expiry). Data-change notifications are queued in the same transaction as
+the write. `3gpp-Sbi-Callback` values follow the TS 29.500 Annex B pattern with the YAML callback
+names (`Nudsf_DataRepository_recordExpired`, `..._onDataChange`,
+`..._subscriptionExpiryNotification`, `Nudsf_Timer_timerExpiry`) -- Annex B lists no UDSF value.
+Features advertised: DR `6D` = AdvancedQuery, CombinedSearchRetrieve, BulkOperations,
+PartialRecordUpdate, RecordDeletePartialSuccess; Timer `5` = PeriodicTimer,
+TimerDeletePartialSuccess. Not advertised: Meta Schema (ADR-0401 #1), AdvancedCounting (#3).
+
+**Disclosed.** Delivery is at most once (failed POSTs are logged and counted, not retried; a crash
+between pop and POST loses the notification). Expiry resolution is the sweep interval. Bulk deletes
+are best effort per record; partial failure is reported only when the PartialSuccess feature is
+negotiated, else 500. No LI POI (TS 33.127 defines none for the UDSF). No NF consumes the UDSF yet
+(AMF/SMF keep state in Valkey directly, P11) -- wiring a consumer is the follow-up.

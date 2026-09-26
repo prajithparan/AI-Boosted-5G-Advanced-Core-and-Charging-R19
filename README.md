@@ -80,7 +80,7 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 3 | User plane: N4/PFCP, UPF datapath (including a real eBPF/XDP fast path) | Done |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
 | 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); next roaming / HFL (ADR-0359 step 6) |
-| 6 | R19 feature NFs (Tier 2/3) | In progress — 9 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF); Tier 3 not started |
+| 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF); Tier 3 not started |
 | 7 | GUI / operations console | Not started — stack decision (React + JSON Forms vs Dear ImGui) still open. Scope is fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
 | 8 | Lab packaging (`make lab-up`) | Partial — Docker + Compose for all 22 NF/BSS components; Helm for 7 of 18 NFs; no `make lab-up` yet |
 | P4.12 | Telco-grade hardening (TPS governance, chaos, business alarming, retention, autoscaling) | Done except P11, which is deferred — see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) |
@@ -327,6 +327,13 @@ positioning or PRU/NRPPa measurement data this project doesn't have, so they hon
 `Nlmf_DataExposure`'s own notification path shares that same disclosed gap. Building LMF also
 found and fixed 2 real defects — a vendored-spec transcription typo and a real
 `tools/sbi-codegen` allOf-merge field-deduplication bug (ADR-0190).
+And **UDSF** (`Nudsf_DataRepository` + `Nudsf_Timer`, all 27 real operations of TS 29.598's two
+R19 YAMLs plus the 4 notifications the UDSF originates, ADR-0400..0402) — records as
+`multipart/mixed` with opaque blocks, tag search (EQ/NEQ/GT/GTE/LT/LTE, AND/OR/NOT, record-id
+lists), conditional requests, record/subscription/timer expiry; all state in Valkey, so replicas
+are stateless. Disclosed rather than guessed: two R19 YAML defects (RecordMeta's `schemaId` is
+swallowed by a folded `example:` scalar; `GetMetaSchema`'s 200 names the multipart Record body) and
+the features not advertised (Meta Schema, AdvancedCounting).
 
 A separate, project-wide audit (ADR-0193) checked every real `N<nf>_*` YAML against every NF's
 actual wiring — whole files never added to the sbi-codegen pilot set ("Tier-A" gaps) and, for

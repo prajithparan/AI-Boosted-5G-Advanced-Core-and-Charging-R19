@@ -520,6 +520,28 @@
    "source": "nfs/nef"
   },
   {
+   "id": "udsf",
+   "area": "cp",
+   "col": 6,
+   "row": 2,
+   "acronym": "UDSF",
+   "name": [
+    "Unstructured Data Storage"
+   ],
+   "ts": [
+    "TS 29.598"
+   ],
+   "svc": [
+    "Nudsf_DataRepository",
+    "Nudsf_Timer",
+    "state Valkey \u00b7 stateless replicas"
+   ],
+   "glyph": "db",
+   "color": "#4338ca",
+   "chip": "2 svc",
+   "source": "nfs/udsf"
+  },
+  {
    "id": "nrf",
    "area": "sbi",
    "col": 0,
@@ -779,7 +801,8 @@
    "svc": [
     "AMF UE security ctx \u00b7 AUSF",
     "CHF refs \u00b7 idempotency keys",
-    "NWDAF subscriptions"
+    "NWDAF subscriptions",
+    "UDSF records \u00b7 timers"
    ],
    "glyph": "bolt",
    "color": "#7c3aed",
@@ -1370,18 +1393,23 @@
    "to": "udr",
    "via": [
     [
+     1062,
+     306
+    ],
+    [
      1196,
-     498
+     306
     ]
    ],
-   "from_side": "right",
+   "from_side": "top",
    "to_side": "bottom",
    "label": [
     "N37 \u00b7 Nudr_DataRepository",
     "application data \u00b7 TS 29.519"
    ],
-   "label_at": 0.15,
-   "label_dy": -5
+   "label_at": 0.74,
+   "label_dy": -5,
+   "from_off": 14
   },
   {
    "from": "nef",
