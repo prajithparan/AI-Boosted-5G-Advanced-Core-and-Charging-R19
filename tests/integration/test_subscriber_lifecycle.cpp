@@ -46,6 +46,12 @@ TEST(SubscriberLifecycle, TransitionRecordsBothSidesAtomically) {
     const auto unique = std::to_string(static_cast<long long>(std::time(nullptr))) + "-" +
                         std::to_string(static_cast<long long>(::getpid()));
     s.supi = "imsi-test-" + unique;
+    // ADR-0386: an account and a charging mode are mandatory in subscriber_mgmt.
+    subscriber_management::AccountStore accounts("https://example.com/acc", url);
+    subscriber_management::Account account{};
+    account.accountKind = "CONSUMER";
+    s.accountId = accounts.create(account);
+    s.chargingMode = "PREPAID";
     const auto id = store.create(s);
     ASSERT_FALSE(id.empty());
 
@@ -58,6 +64,20 @@ TEST(SubscriberLifecycle, TransitionRecordsBothSidesAtomically) {
 
     const auto after = store.get(id);
     ASSERT_TRUE(after.has_value());
+
+    // Both sides of each transition were recorded, in order.
+    pqxx::connection c(url);
+    pqxx::work t(c);
+    const auto events =
+        t.exec("SELECT from_status, to_status FROM "
+               "subscriber_mgmt.subscriber_lifecycle_event WHERE subscriber_id = $1 "
+               "ORDER BY id",
+               pqxx::params{id});
+    ASSERT_EQ(events.size(), 2);
+    EXPECT_EQ(events[0][0].as<std::string>(), "active");
+    EXPECT_EQ(events[0][1].as<std::string>(), "suspended");
+    EXPECT_EQ(events[1][0].as<std::string>(), "suspended");
+    EXPECT_EQ(events[1][1].as<std::string>(), "terminated");
 }
 
 TEST(SubscriberLifecycle, AnUnknownSubscriberIsRejectedNotInvented) {

@@ -5,7 +5,7 @@
 find_package(libpqxx CONFIG REQUIRED)
 
 add_library(subscriber_management_store STATIC src/store.cpp)
-target_link_libraries(subscriber_management_store PUBLIC bss_sid libpqxx::pqxx)
+target_link_libraries(subscriber_management_store PUBLIC bss_sid libpqxx::pqxx sbi_core)
 target_include_directories(subscriber_management_store PUBLIC src)
 
 add_executable(subscriber-management src/main.cpp)

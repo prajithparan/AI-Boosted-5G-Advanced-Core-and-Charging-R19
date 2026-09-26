@@ -27,7 +27,7 @@ std::string test_conninfo() {
     if (const char* env = std::getenv("TEST_BALANCE_POSTGRES_URL")) {
         return env;
     }
-    return "postgresql://balance_management:balance_management@localhost:5432/balance_management";
+    return "postgresql://postgres@127.0.0.1:5434/charging";
 }
 
 bool postgres_reachable(const std::string& conninfo) {
@@ -49,7 +49,7 @@ protected:
         }
         conn_ = std::make_unique<pqxx::connection>(test_conninfo());
         pqxx::work txn(*conn_);
-        txn.exec("DELETE FROM bucket WHERE id LIKE 'test-shared-%'");
+        txn.exec("DELETE FROM balance_mgmt.bucket WHERE id LIKE 'test-shared-%'");
         txn.commit();
     }
 
@@ -57,10 +57,17 @@ protected:
                        bool is_shared,
                        const std::string& related_party_json,
                        const std::string& status) {
+        // ADR-0385: a bucket's relatedParty list is the normalized bucket_related_party table.
         pqxx::work txn(*conn_);
-        txn.exec("INSERT INTO bucket (id, is_shared, related_party, status, usage_type) "
-                 "VALUES ($1, $2, $3::jsonb, $4, 'monetary')",
-                 pqxx::params{id, is_shared, related_party_json, status});
+        txn.exec("INSERT INTO balance_mgmt.bucket (id, is_shared, status, usage_type) "
+                 "VALUES ($1, $2, $3, 'monetary')",
+                 pqxx::params{id, is_shared, status});
+        int ordinal = 0;
+        for (const auto& party : nlohmann::json::parse(related_party_json)) {
+            txn.exec("INSERT INTO balance_mgmt.bucket_related_party (bucket_id, party_id, ordinal) "
+                     "VALUES ($1, $2, $3)",
+                     pqxx::params{id, party.at("id").get<std::string>(), ordinal++});
+        }
         txn.commit();
     }
 

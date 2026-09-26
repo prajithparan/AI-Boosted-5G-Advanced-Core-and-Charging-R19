@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <pqxx/pqxx>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,12 @@
 // (unlike sw::redis::Redis, confirmed when nfs/chf's stores were given real Redis persistence).
 
 namespace balance_management {
+
+// ADR-0385: a malformed date-time from the API is a client error (400), not a 500.
+class InvalidRequest : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 // Result of a mutation attempt: whether it succeeded (real business outcome -- e.g. insufficient
 // balance -- not an error), and the resulting resource record (real ActionStatusType status:

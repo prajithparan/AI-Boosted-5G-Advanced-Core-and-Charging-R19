@@ -81,6 +81,18 @@ sbi_core::http2::Response not_found(const std::string& resource, const std::stri
 
 } // namespace
 
+// ADR-0385: a malformed date-time is a client error, not a 500.
+template <typename Handler> auto guarded(Handler handler) {
+    return [handler = std::move(handler)](
+               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
+        try {
+            return handler(req);
+        } catch (const balance_management::InvalidRequest& e) {
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+        }
+    };
+}
+
 int main() {
     const auto config = nf_config::load("balance-management", CONFIG_DIR);
     const auto port = nf_config::require<unsigned short>(config, "port");
@@ -137,40 +149,43 @@ int main() {
 
     // --- Bucket (GET only -- see file header) ---
 
-    server.add_route(
-        "GET", std::string(kApiRoot) + "/bucket", [&store](const sbi_core::http2::Request& req) {
-            // ADR-0307: `?relatedParty.id=` is TM Forum's own standard dot-path collection filter,
-            // not a bespoke query parameter -- which is why C1 needed no new resource. It returns
-            // the SHARED buckets that party belongs to, so CHF can ask "does this subscriber draw
-            // from a family bucket?" in one call.
-            const auto filter = req.query_params.find("relatedParty.id");
-            if (filter != req.query_params.end() && !filter->second.empty()) {
-                const auto shared = store.find_shared_bucket_for(filter->second);
-                json out = json::array();
-                if (shared.has_value()) {
-                    out.push_back(*shared);
-                }
-                return sbi_core::http2::Response::json(200, out.dump());
-            }
-            return sbi_core::http2::Response::json(200, json(store.list_buckets()).dump());
-        });
+    server.add_route("GET",
+                     std::string(kApiRoot) + "/bucket",
+                     guarded([&store](const sbi_core::http2::Request& req) {
+                         // ADR-0307: `?relatedParty.id=` is TM Forum's own standard dot-path
+                         // collection filter, not a bespoke query parameter -- which is why C1
+                         // needed no new resource. It returns the SHARED buckets that party belongs
+                         // to, so CHF can ask "does this subscriber draw from a family bucket?" in
+                         // one call.
+                         const auto filter = req.query_params.find("relatedParty.id");
+                         if (filter != req.query_params.end() && !filter->second.empty()) {
+                             const auto shared = store.find_shared_bucket_for(filter->second);
+                             json out = json::array();
+                             if (shared.has_value()) {
+                                 out.push_back(*shared);
+                             }
+                             return sbi_core::http2::Response::json(200, out.dump());
+                         }
+                         return sbi_core::http2::Response::json(200,
+                                                                json(store.list_buckets()).dump());
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/bucket/{id}",
-                     [&store](const sbi_core::http2::Request& req) {
+                     guarded([&store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto bucket = store.get_bucket(id);
                          if (!bucket.has_value()) {
                              return not_found("Bucket", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*bucket).dump());
-                     });
+                     }));
 
     // --- AccumulatedBalance (GET, real query filter -- see file header's disclosure) ---
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/accumulatedBalance",
-                     [&store](const sbi_core::http2::Request& req) {
+                     guarded([&store](const sbi_core::http2::Request& req) {
                          const auto it = req.query_params.find("partyAccount.id");
                          if (it == req.query_params.end()) {
                              return sbi_core::http2::problem_response(
@@ -178,13 +193,13 @@ int main() {
                          }
                          const auto accumulated = store.get_accumulated_balance(it->second);
                          return sbi_core::http2::Response::json(200, json(accumulated).dump());
-                     });
+                     }));
 
     // --- TopupBalance ---
 
     server.add_route("POST",
                      std::string(kApiRoot) + "/topupBalance",
-                     [&store, &topup_counter](const sbi_core::http2::Request& req) {
+                     guarded([&store, &topup_counter](const sbi_core::http2::Request& req) {
                          sbi_core::http2::Response err;
                          auto body =
                              sbi_core::http2::parse_json_body<bss_sid::TopupBalance>(req, err);
@@ -204,102 +219,105 @@ int main() {
                          resp.headers.emplace("location", *result.record.href);
                          resp.body = json(result.record).dump();
                          return resp;
-                     });
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/topupBalance/{id}",
-                     [&store](const sbi_core::http2::Request& req) {
+                     guarded([&store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto record = store.get_topup(id);
                          if (!record.has_value()) {
                              return not_found("TopupBalance", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*record).dump());
-                     });
+                     }));
 
     // --- AdjustBalance (real signed debit/credit -- the strong-consistency-under-concurrency
     // mutation P4.3 asks to be proven) ---
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/adjustBalance",
-        [&store, &adjust_counter, &adjust_rejected_counter](const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::AdjustBalance>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            if (!body->bucket.has_value() || body->bucket->id.empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "bucket.id is required");
-            }
-            const auto result = store.adjust(*body);
-            adjust_counter->Add(1);
-            if (!result.succeeded) {
-                adjust_rejected_counter->Add(1);
-            }
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/adjustBalance",
+                     guarded([&store, &adjust_counter, &adjust_rejected_counter](
+                                 const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<bss_sid::AdjustBalance>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         if (!body->bucket.has_value() || body->bucket->id.empty()) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Bad Request", "bucket.id is required");
+                         }
+                         const auto result = store.adjust(*body);
+                         adjust_counter->Add(1);
+                         if (!result.succeeded) {
+                             adjust_rejected_counter->Add(1);
+                         }
 
-            // Real TMF654 semantics: an insufficient-balance rejection is a real business
-            // outcome (ActionStatusType "failed"), not an HTTP error -- the resource is still
-            // created (an audit record of the attempt), same as a declined real-world charge.
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", *result.record.href);
-            resp.body = json(result.record).dump();
-            return resp;
-        });
+                         // Real TMF654 semantics: an insufficient-balance rejection is a real
+                         // business outcome (ActionStatusType "failed"), not an HTTP error -- the
+                         // resource is still created (an audit record of the attempt), same as a
+                         // declined real-world charge.
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location", *result.record.href);
+                         resp.body = json(result.record).dump();
+                         return resp;
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/adjustBalance/{id}",
-                     [&store](const sbi_core::http2::Request& req) {
+                     guarded([&store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto record = store.get_adjust(id);
                          if (!record.has_value()) {
                              return not_found("AdjustBalance", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*record).dump());
-                     });
+                     }));
 
     // --- ReserveBalance (real signed reserve/unreserve) ---
 
-    server.add_route(
-        "POST",
-        std::string(kApiRoot) + "/reserveBalance",
-        [&store, &reserve_counter, &reserve_rejected_counter](const sbi_core::http2::Request& req) {
-            sbi_core::http2::Response err;
-            auto body = sbi_core::http2::parse_json_body<bss_sid::ReserveBalance>(req, err);
-            if (!body.has_value()) {
-                return err;
-            }
-            if (!body->bucket.has_value() || body->bucket->id.empty()) {
-                return sbi_core::http2::problem_response(
-                    400, "Bad Request", "bucket.id is required");
-            }
-            const auto result = store.reserve(*body);
-            reserve_counter->Add(1);
-            if (!result.succeeded) {
-                reserve_rejected_counter->Add(1);
-            }
+    server.add_route("POST",
+                     std::string(kApiRoot) + "/reserveBalance",
+                     guarded([&store, &reserve_counter, &reserve_rejected_counter](
+                                 const sbi_core::http2::Request& req) {
+                         sbi_core::http2::Response err;
+                         auto body =
+                             sbi_core::http2::parse_json_body<bss_sid::ReserveBalance>(req, err);
+                         if (!body.has_value()) {
+                             return err;
+                         }
+                         if (!body->bucket.has_value() || body->bucket->id.empty()) {
+                             return sbi_core::http2::problem_response(
+                                 400, "Bad Request", "bucket.id is required");
+                         }
+                         const auto result = store.reserve(*body);
+                         reserve_counter->Add(1);
+                         if (!result.succeeded) {
+                             reserve_rejected_counter->Add(1);
+                         }
 
-            sbi_core::http2::Response resp;
-            resp.status = 201;
-            resp.headers.emplace("content-type", "application/json");
-            resp.headers.emplace("location", *result.record.href);
-            resp.body = json(result.record).dump();
-            return resp;
-        });
+                         sbi_core::http2::Response resp;
+                         resp.status = 201;
+                         resp.headers.emplace("content-type", "application/json");
+                         resp.headers.emplace("location", *result.record.href);
+                         resp.body = json(result.record).dump();
+                         return resp;
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/reserveBalance/{id}",
-                     [&store](const sbi_core::http2::Request& req) {
+                     guarded([&store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto record = store.get_reserve(id);
                          if (!record.has_value()) {
                              return not_found("ReserveBalance", id);
                          }
                          return sbi_core::http2::Response::json(200, json(*record).dump());
-                     });
+                     }));
 
     server.start();
     spdlog::info("balance-management: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

@@ -433,12 +433,16 @@ jobs:
         # chf_rating_postgres_conninfo/chf_redis_conninfo/chf_doris_options comments).
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
-          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
-          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0386: was never set in CI, so test_subscriber_lifecycle.cpp always skipped.
+          SUBSCRIBER_MANAGEMENT_TEST_URL: postgresql://postgres@localhost:15434/charging
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
+          TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
           AMF_REDIS_URL: tcp://127.0.0.1:16379
@@ -455,8 +459,8 @@ jobs:
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1
           NWDAF_FEATURE_STORE_PORT: "19030"
-          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
-          MCP_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
+          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          MCP_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           CHF_REDIS_URL: tcp://127.0.0.1:16379
           CHF_CDR_EVENT_BUS_BROKERS: 127.0.0.1:19092
           CHF_DORIS_HOST: 127.0.0.1
@@ -888,12 +892,16 @@ jobs:
         # code. Harmless on the asan-ubsan leg (TSAN_OPTIONS is simply unused there).
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
-          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
-          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://balance_management:balance_management@localhost:15433/balance_management
-          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0386: was never set in CI, so test_subscriber_lifecycle.cpp always skipped.
+          SUBSCRIBER_MANAGEMENT_TEST_URL: postgresql://postgres@localhost:15434/charging
+          BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
+          TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
+          ROAMING_INTERCONNECT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           UDR_DATABASE_URL: postgresql://udr:udr@localhost:15437/udr
           MCP_PII_AUDIT_DATABASE_URL: postgresql://udr:udr@127.0.0.1:15437/mcp_audit
           AMF_REDIS_URL: tcp://127.0.0.1:16379
@@ -910,7 +918,7 @@ jobs:
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1
           NWDAF_FEATURE_STORE_PORT: "19030"
-          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/chf_rating
+          CHF_RATING_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           CHF_REDIS_URL: tcp://127.0.0.1:16379
           # Empty on the tsan leg: librdkafka's broker threads are created with glibc's C11
           # thrd_create, invisible to TSan's pthread_create interceptor, and segfault on first

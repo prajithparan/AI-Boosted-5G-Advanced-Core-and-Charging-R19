@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <pqxx/pqxx>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,12 @@
 // turn, no new HTTP service yet -- CHARGING_PROMPT.md's P4.11 owns that).
 
 namespace roaming_interconnect {
+
+// ADR-0387: a malformed date-time or a reference the relational model rejects is a 400.
+class InvalidRequest : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 // E7 InterconnectAgreement -- project-internal, realized as a real TMF651 Agreement
 // (bss_sid::Agreement) plus the two project-internal fields (partnerOperatorPlmnId, rateTerms)

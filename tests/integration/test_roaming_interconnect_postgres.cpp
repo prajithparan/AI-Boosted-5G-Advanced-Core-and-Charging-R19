@@ -25,8 +25,7 @@ std::string test_conninfo() {
     if (const char* env = std::getenv("TEST_ROAMING_INTERCONNECT_POSTGRES_URL")) {
         return env;
     }
-    return "postgresql://roaming_interconnect:roaming_interconnect@localhost:5432/"
-           "roaming_interconnect";
+    return "postgresql://postgres@127.0.0.1:5434/charging";
 }
 
 bool postgres_reachable(const std::string& conninfo) {

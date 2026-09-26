@@ -2,5 +2,5 @@
   "port": 7788,
   "metrics_bind_address": "0.0.0.0:9476",
   "self_base_url": "https://127.0.0.1:7788",
-  "database_url": "postgresql://roaming_interconnect:roaming_interconnect@localhost:5436/roaming_interconnect"
+  "database_url": "postgresql://postgres@127.0.0.1:5434/charging"
 }
