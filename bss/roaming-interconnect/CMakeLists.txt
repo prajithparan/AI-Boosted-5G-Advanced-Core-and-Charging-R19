@@ -6,7 +6,7 @@
 find_package(libpqxx CONFIG REQUIRED)
 
 add_library(roaming_interconnect_store STATIC src/store.cpp src/tap_batch.cpp)
-target_link_libraries(roaming_interconnect_store PUBLIC bss_sid libpqxx::pqxx tap3_core)
+target_link_libraries(roaming_interconnect_store PUBLIC bss_sid libpqxx::pqxx tap3_core sbi_core)
 target_include_directories(roaming_interconnect_store PUBLIC src)
 
 add_executable(roaming-interconnect src/main.cpp)

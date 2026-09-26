@@ -30083,6 +30083,191 @@ offering created via the TMF620 API completed, its `product_subscription` FK-joi
 in `charging`. The full DDL chain applies to a fresh PostgreSQL. `CapScopedCharging` (needs Doris)
 is left to CI.
 
+## ADR-0385: balance-management cut over to the consolidated charging DB -- lossless, NULL-safe, and reachable by the CHF
+
+**Date:** 2026-09-25. **Status:** accepted (user-directed: "proceed with balance management
+cut-over, don't wait"). Second service onto the `charging` DB after product-catalog (ADR-0384).
+
+**Found before cutting over (each would have broken charging for onboarded customers):**
+1. **The CHF could never find a provisioned customer's bucket.** The CHF resolves a subscriber's
+   bucket as `GET /bucket?relatedParty.id=<SUPI>` (shared bucket) else `bucket.id == SUPI`
+   (`charging_engine.cpp resolve_bucket_id`, every reserve); `bss/provisioning` (ADR-0382) created
+   `bkt-<digits>` ids. Fixed by keying the subscriber's own bucket by SUPI in provisioning (the older,
+   wider convention: CHF fallback, CAP test, lab data) -- the SID `bucket_logical_resource` link is
+   still written.
+2. **NULL amounts.** `40-balance.sql` left `remaining/reserved_value_amount` NULLable and provisioning
+   omits the reserved amount; `NULL + x` is NULL, so the first reserve on every provisioned bucket
+   would have "succeeded" while corrupting it. Now `NOT NULL DEFAULT 0` (backfilled).
+3. **Precision**: `NUMERIC(20,4)` held less than the old store's 6 decimals -> unbounded `NUMERIC`.
+4. **Account FK**: `bucket.party_account_id -> subscriber_mgmt.account` would reject top-up
+   auto-creation for every account subscriber-management still creates in its OLD per-service DB.
+   Dropped here; **re-add it in the subscriber-management cut-over** (recorded there too).
+5. **CI gap (pre-existing)**: `TEST_BALANCE_POSTGRES_URL` was never set in CI, so
+   `test_balance_shared_bucket.cpp` has been skipping there. Now set.
+
+**Decision.**
+- `bss/balance-management` persists TMF654 in schema `balance_mgmt` of `charging`; new idempotent
+  `deploy/db/charging/41-balance-lossless.sql` adds what the DTOs need; schema-qualified SQL.
+- **Access-path split, deliberately:** the **Bucket** (read and mutated on every charge) is
+  normalized (scalar columns + ordered `bucket_logical_resource` / `bucket_product` /
+  `bucket_related_party`). The **balance events** (topup/adjust/reserve; append-only, partitioned by
+  `occurred_at`, one reserve per rating decision -- hundreds of millions a day at the Tier-1 target)
+  keep their TMF654 reference lists as JSONB columns on the event row: one INSERT per event, no
+  child-table fan-out on the hottest write path. Scalars are columns; `id` gets its own index (the PK
+  is `(occurred_at, id)`, so a lookup by id would otherwise scan every partition).
+- `bucket_related_party(party_id)` indexed -- the CHF's shared-bucket lookup precedes every reserve.
+- **Semantics unchanged:** every movement is one conditional UPDATE (`WHERE remaining >= amount`,
+  row lock = concurrency safety); insufficient balance is a business outcome (201, status
+  `failed`), not an error; top-up of an unknown bucket creates it -- now as ONE atomic upsert
+  (`INSERT ... ON CONFLICT DO UPDATE ... RETURNING (xmax = 0)`), removing a create race the old
+  UPDATE-then-INSERT had. A malformed date-time is a 400 and rolls back the balance movement.
+- Wiring: config, compose (depends on postgres-chf), both CI jobs' `BALANCE_MANAGEMENT_DATABASE_URL`
+  and the new `TEST_BALANCE_POSTGRES_URL` -> `postgres-chf/charging`.
+
+**Rejected.** *CHF resolves by `logicalResource.id`* (SID-proper) -- a second round trip on every
+reserve; recorded as the follow-up once one subscriber needs several buckets (id = SUPI allows one
+own bucket per subscriber, so separate data/voice/monetary buckets are not yet possible).
+*Normalize event reference lists into child tables* -- write amplification on the hottest path.
+*Keep the account FK* -- blocks every account subscriber-management owns until its own cut-over.
+*COALESCE in the hot SQL* -- hides the NULL instead of making it impossible.
+
+**Measured** (same machine, 60 iterations of the CHF's per-charge pair, curl over fresh TLS each):
+shared-bucket lookup p50 5.5 ms (old) / 5.6 ms (new), p90 7.9 / 7.2; reserve p50 6.6 / 6.4, p90
+8.4 / 9.2 -- equivalent; no regression.
+
+**Disclosed.** The old per-service balance DB held 2 lab buckets (1 SUPI-keyed); not migrated,
+nothing seeds them. `accumulated_balance` stays unused (computed on the fly, as before). Old reads
+dropped `confirmationDate`/`partyAccount` on events; they now round-trip. Remaining on per-service
+DBs: subscriber-management, roaming-interconnect, CHF `chf_rating`.
+
+**Tests.** New `tests/integration/test_balance_lossless.cpp`: fully populated top-up/adjust/reserve
+round-trip exactly via GET (top-up amount beyond 6 decimals exact; created bucket carries the whole
+PartyAccountRef + products); unchanged semantics (credit, reserve, over-reserve fails untouched,
+release, adjust floor, accumulated sum); a provisioning-shaped bucket reserves correctly (the NULL
+case); 32 parallel reserves of 5 on 100 -> exactly 20 succeed, remaining 0, reserved 100; malformed
+date rejected with the balance unmoved. `test_balance_shared_bucket` moved to the normalized
+relatedParty table. Verified locally 2026-09-25 end to end with real processes (nrf, udr,
+product-catalog, balance-management, provisioning, chf, Doris): a customer onboarded through
+provisioning on a TMF620 offering got a CHF grant of 1,048,576 octets on rating group 20, and 0.01 USD
+was reserved from THEIR bucket (remaining 5.00 -> 4.99). Locally BalanceLossless*, SharedBucket*,
+ProductCatalog*, UdrOamProvisioning*, CapScopedCharging: 20/20.
+
+## ADR-0386: subscriber-management cut over to the consolidated charging DB -- TMF632 party lossless, SUPI/MSISDN as SID Resources, account FK restored
+
+**Date:** 2026-09-26. **Status:** accepted (continuing the user-directed charging-DB cut-over,
+ADR-0384/0385). Third service onto `charging`.
+
+**Decision.**
+- `bss/subscriber-management` persists TMF632 Individual / Organization in schema `party`
+  (normalized, `10-party.sql`) and the project's Account / Subscriber in `subscriber_mgmt`
+  (`20-subscriber.sql`), replacing its per-service JSONB rows. New idempotent
+  `21-party-subscriber-lossless.sql`: `birthDate`/`deathDate` as TIMESTAMPTZ (was DATE; TMF632 carries
+  a date-time), `href` on relatedParty and on parent/child organization refs, surrogate keys with the
+  optional TMF ids of TaxExemptionCertificate / TaxDefinition in their own columns, `ordinal` on every
+  TMF632 list, id sequences, and `subscriber_lifecycle_event` (the transition history the service
+  records, which `20-` had no home for).
+- **Subscriber SUPI / MSISDN are SID Resources** (`subscriber_mgmt.resource` rows, unique while
+  active), not columns; `get_by_supi` goes through `idx_resource_lookup`. A SUPI that is already an
+  active resource is a **409**.
+- **Stricter by design** (the relational model's NOT NULL/FK/CHECK): a subscriber needs an existing
+  `accountId` and a `chargingMode` (**400** otherwise); unknown individual / organization / parent
+  account / parent organization -> **400**; `accountKind` outside CONSUMER|ENTERPRISE -> **400**.
+  API-created subscribers start `active`, as before (the schema default `pendingActive` belongs to the
+  provisioning workflow).
+- **ADR-0385's deferred FK is restored:** `42-balance-account-fk.sql` re-adds
+  `balance_mgmt.bucket.party_account_id -> subscriber_mgmt.account` (NOT VALID: new rows enforced,
+  pre-existing lab rows not retro-checked); balance-management maps an unknown account on top-up to
+  **400**.
+- Wiring: config, compose (depends on postgres-chf), both CI jobs' `SUBSCRIBER_MANAGEMENT_DATABASE_URL`
+  / `TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL` -> `postgres-chf/charging`.
+
+**Found and fixed along the way.** `SUBSCRIBER_MANAGEMENT_TEST_URL` was never set in CI, so
+`test_subscriber_lifecycle.cpp` has **always skipped** (the second such silent skip after ADR-0385's
+balance one); now set, and the test asserts the recorded history. `test_subscriber_management_postgres`
+used a fixed SUPI and only ever passed on a fresh CI database; now unique per run.
+
+**Rejected.** *Keep SUPI/MSISDN as subscriber columns* -- duplicates the SID Resource the
+provisioning workflow and the rest of the domain already use. *Keep the bucket FK dropped* -- the
+reason (accounts in another DB) is gone. *VALIDATE the restored FK now* -- lab rows from earlier
+tests reference accounts that never existed; enforced for new rows, validation left as a clean-up step.
+
+**Disclosed.** Stores keep the one-connection-plus-mutex model (no pool yet; not on a hot path --
+nothing calls subscriber-management per charge). The old per-service DB's lab rows were not migrated.
+Canonicalisations as in ADR-0384 (UTC date-times with milliseconds; all-absent objects come back
+absent). Remaining on per-service DBs: roaming-interconnect and the CHF's `chf_rating`.
+
+**Tests.** New `tests/integration/test_party_lossless.cpp`: fully populated Individual and
+Organization (every field, every list >= 2, parent/child refs, tax certificates with definitions)
+round-trip exactly via get() and list(); integrity violations (unknown parent org, bad accountKind,
+subscriber without / with an unknown account, malformed date) are client errors. Balance: top-up for
+an unknown account -> 400. Verified locally 2026-09-26: PartyLossless, SubscriberManagementPostgres,
+SubscriberLifecycle (with its env var), BalanceLossless, SharedBucket -- 19/19; service-level POST
+account/subscriber 201, duplicate SUPI 409, no account 400; a provisioning order still completes with
+the restored FK.
+
+## ADR-0387: roaming-interconnect cut over to the consolidated charging DB -- TMF651 agreements in their domain home
+
+**Date:** 2026-09-26. **Status:** accepted (continuing the user-directed cut-over, ADR-0384..0386).
+
+**Decision.** An interconnect agreement is a TMF651 Agreement plus roaming specifics. The TMF651 part
+is stored in the domain's single TMF651 home, `subscriber_mgmt.agreement*` (normalized); the roaming
+part (partner PLMN, opaque `rateTerms`) in `roaming.interconnect_agreement`, whose `agreement_ref`
+is FK'd to the agreement; both rows share ONE server id from `subscriber_mgmt.agreement_id_seq`
+(one id space for every TMF651 agreement). TAP3 files live in `roaming.roaming_cdr_file`.
+New idempotent `51-agreement-roaming-lossless.sql` fixes what `50-agreement.sql` lost against
+`bss_sid::Agreement`: AgreementItem's product / productOffering / termOrCondition **lists** (were one
+product + one offering per row, terms hung off the agreement) -> `agreement_item_product`,
+`agreement_item_offering`, item-scoped terms; `associatedAgreement` (no home) ->
+`agreement_associated`; completionDate as a period; agreementSpecification href/description;
+ordinals; and `roaming_cdr_file` gains the **TAP3 payload, format and agreement link** it had no
+column for. `rateTerms` not supplied stays absent (stored as JSON null, not `{}`). Malformed
+date-times / a TAP3 file naming a non-existent agreement -> 400. Config, compose, both CI jobs ->
+`postgres-chf/charging`.
+
+**Rejected.** *Keep the TMF651 agreement as JSONB on the interconnect row* -- a second, unqueryable
+agreement home. *Separate id spaces* -- the nested TMF651 id has always equalled the interconnect id.
+
+**Disclosed.** Stores keep one connection + mutex (not a hot path). Old per-service lab rows not
+migrated. Remaining on its own DB: the CHF's `chf_rating`.
+
+**Tests.** New `tests/integration/test_roaming_lossless.cpp`: fully populated agreement (every field,
+lists >= 2 incl. per-item lists) round-trips exactly via get() and list(); omitted rateTerms stays
+omitted; TAP3 bytes round-trip; dangling agreement / bad date -> 400. Existing
+`RoamingInterconnectPostgres*` pass. Locally 5/5 (2026-09-26).
+
+## ADR-0388: the CHF rating store cut over to the consolidated charging DB -- the consolidation is complete
+
+**Date:** 2026-09-26. **Status:** accepted (user: "Please proceed fast"). Last per-service store onto
+`charging` (after ADR-0384..0387).
+
+**Decision.** `chf::RatingDecisionStore` writes schema `chf_rating` of `charging`: each decision
+into the time-partitioned `chf_rating.rating_decision` with `charging_data_ref` and
+`subscriber_identifier` (SUPI) as first-class columns (per-customer inquiry at Tier-1 volume; the
+lookup by chargingDataRef now uses `idx_rating_ref` instead of a JSONB expression), and its TMF678
+AppliedCustomerBillingRate as a row of `chf_rating.applied_customer_billing_rate` sharing the id.
+New idempotent `61-rating-lossless.sql` adds what the CHF records but `60-rating.sql` dropped: tariff
+id + pinned version, rule fired, AI advisory; unbounded NUMERIC amounts (was 4 decimals). The single
+writer (`charging_engine.cpp write_rating_decision`) now passes the SUPI. Audit rows use the
+`chf_rating.audit_record` shape (actor/action/detail with entityType/entityId/afterSnapshot/
+aiAdvisoryRef). Config (chf, mcp-server), compose, CI (`CHF_RATING_DATABASE_URL`,
+`MCP_RATING_DATABASE_URL`), the CAP test's direct query and `scripts/pipeline-clean.sh` ->
+`charging`/`chf_rating`.
+
+**Found and fixed.** `config/mcp-server.json` pointed its rating store at the UDR's Postgres
+(`udr:udr@...:5437/chf_rating`), so the MCP rating-decision tool could not have worked locally.
+
+**Disclosed.** The store is still ONE connection behind a mutex and is written on every rating
+decision -- a throughput limit on the CHF hot path (pre-existing; a pool is the follow-up before any
+scale run). `taxExcluded == taxIncluded` (no tax engine) as before. The old `chf_rating` database
+and CI's step applying `nfs/chf/schema.postgres.sql` to it are now unused (retire with the other
+per-service DBs). **With this, every charging/BSS service persists in the consolidated `charging`
+DB** (+ `orchestration`); UDR and ADRF keep their own DBs by design.
+
+**Tests.** Locally 2026-09-26: CapScopedCharging (the CHF rates an InitialDP and the test finds the
+decision in `chf_rating.rating_decision` of `charging`), plus ProductCatalogLossless, BalanceLossless
+-- 10/10; SQL check: decision row carries chargingDataRef, SUPI, tariff id; ACBR and audit rows
+written.
+
 ## ADR-0440: LI increment 4, prerequisite 2 -- the X1 IdentifierAssociationExtensions gating, and the AMF IdentifierAssociation + LocationUpdate hooks
 
 **Date:** 2026-09-26. **Status:** accepted (partial: IdentifierAssociation and LocationUpdate are

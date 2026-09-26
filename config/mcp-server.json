@@ -29,7 +29,7 @@
       ]
     }
   },
-  "rating_database_url": "postgresql://udr:udr@127.0.0.1:5437/chf_rating",
+  "rating_database_url": "postgresql://postgres@127.0.0.1:5434/charging",
   "cdr_host": "127.0.0.1",
   "cdr_port": 9030,
   "cdr_user": "root",

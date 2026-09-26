@@ -64,6 +64,18 @@ constexpr const char* kApiRoot = "/tmf-api/agreementManagement/v4";
 
 } // namespace
 
+// ADR-0387: relational-model rejections are client errors, not 500s.
+template <typename Handler> auto guarded(Handler handler) {
+    return [handler = std::move(handler)](
+               const sbi_core::http2::Request& req) -> sbi_core::http2::Response {
+        try {
+            return handler(req);
+        } catch (const roaming_interconnect::InvalidRequest& e) {
+            return sbi_core::http2::problem_response(400, "Bad Request", e.what());
+        }
+    };
+}
+
 int main() {
     const auto config = nf_config::load("roaming-interconnect", CONFIG_DIR);
     const auto port = nf_config::require<unsigned short>(config, "port");
@@ -112,7 +124,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/agreement",
-        [&agreement_store, &agreement_create_counter](const sbi_core::http2::Request& req) {
+        guarded([&agreement_store, &agreement_create_counter](const sbi_core::http2::Request& req) {
             sbi_core::http2::Response err;
             auto body =
                 sbi_core::http2::parse_json_body<roaming_interconnect::InterconnectAgreement>(req,
@@ -130,18 +142,18 @@ int main() {
             resp.headers.emplace("location", std::string(kApiRoot) + "/agreement/" + id);
             resp.body = json(*stored).dump();
             return resp;
-        });
+        }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/agreement",
-                     [&agreement_store](const sbi_core::http2::Request&) {
+                     guarded([&agreement_store](const sbi_core::http2::Request&) {
                          const auto agreements = agreement_store.list();
                          return sbi_core::http2::Response::json(200, json(agreements).dump());
-                     });
+                     }));
 
     server.add_route("GET",
                      std::string(kApiRoot) + "/agreement/{id}",
-                     [&agreement_store](const sbi_core::http2::Request& req) {
+                     guarded([&agreement_store](const sbi_core::http2::Request& req) {
                          const auto id = req.path_params.at("id");
                          const auto agreement = agreement_store.get(id);
                          if (!agreement.has_value()) {
@@ -149,7 +161,7 @@ int main() {
                                  404, "Not Found", "No InterconnectAgreement " + id);
                          }
                          return sbi_core::http2::Response::json(200, json(*agreement).dump());
-                     });
+                     }));
 
     server.start();
     spdlog::info("roaming-interconnect: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
