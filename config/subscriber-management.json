@@ -2,5 +2,5 @@
   "port": 7787,
   "metrics_bind_address": "0.0.0.0:9475",
   "self_base_url": "https://127.0.0.1:7787",
-  "database_url": "postgresql://subscriber_management:subscriber_management@localhost:5435/subscriber_management"
+  "database_url": "postgresql://postgres@127.0.0.1:5434/charging"
 }

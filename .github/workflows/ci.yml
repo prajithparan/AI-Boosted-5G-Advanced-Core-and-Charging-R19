@@ -433,10 +433,12 @@ jobs:
         # chf_rating_postgres_conninfo/chf_redis_conninfo/chf_doris_options comments).
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
-          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0386: was never set in CI, so test_subscriber_lifecycle.cpp always skipped.
+          SUBSCRIBER_MANAGEMENT_TEST_URL: postgresql://postgres@localhost:15434/charging
           BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
           TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
@@ -890,10 +892,12 @@ jobs:
         # code. Harmless on the asan-ubsan leg (TSAN_OPTIONS is simply unused there).
         env:
           TEST_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
-          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          TEST_SUBSCRIBER_MANAGEMENT_POSTGRES_URL: postgresql://postgres@localhost:15434/charging
           TEST_ROAMING_INTERCONNECT_POSTGRES_URL: postgresql://roaming_interconnect:roaming_interconnect@localhost:15436/roaming_interconnect
           PRODUCT_CATALOG_DATABASE_URL: postgresql://postgres@localhost:15434/charging
-          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@localhost:15435/subscriber_management
+          SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
+          # ADR-0386: was never set in CI, so test_subscriber_lifecycle.cpp always skipped.
+          SUBSCRIBER_MANAGEMENT_TEST_URL: postgresql://postgres@localhost:15434/charging
           BALANCE_MANAGEMENT_DATABASE_URL: postgresql://postgres@localhost:15434/charging
           # ADR-0385: was never set in CI, so test_balance_shared_bucket.cpp skipped there.
           TEST_BALANCE_POSTGRES_URL: postgresql://postgres@localhost:15434/charging

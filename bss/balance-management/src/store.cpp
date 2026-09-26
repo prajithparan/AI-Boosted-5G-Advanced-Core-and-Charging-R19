@@ -326,25 +326,35 @@ MutationResult<bss_sid::TopupBalance> BalanceStore::topup(bss_sid::TopupBalance 
 
     // One atomic statement: credit an existing bucket, or create it (TMF654 has no POST /bucket;
     // a top-up of an unknown bucket is the creation path -- store.hpp). xmax = 0 marks the insert.
-    const bool created =
-        txn.exec("INSERT INTO balance_mgmt.bucket (id, href, party_account_id, party_account_name, "
-                 "party_account_href, party_account_description, party_account_status, "
-                 "remaining_value_unit, remaining_value_amount, usage_type, status) VALUES "
-                 "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active') ON CONFLICT (id) DO UPDATE SET "
-                 "remaining_value_amount = balance_mgmt.bucket.remaining_value_amount + "
-                 "EXCLUDED.remaining_value_amount, updated_at = now() RETURNING (xmax = 0) AS ins",
-                 pqxx::params{bucket_id,
-                              resource_base_url_ + "/bucket/" + bucket_id,
-                              account_id(acc),
-                              acc ? acc->name : std::nullopt,
-                              acc ? acc->href : std::nullopt,
-                              acc ? acc->description : std::nullopt,
-                              acc ? acc->status : std::nullopt,
-                              units,
-                              amount,
-                              request.usageType.value_or("monetary")})
-            .one_row()["ins"]
-            .as<bool>();
+    // ADR-0386: bucket.party_account_id references subscriber_mgmt.account again; an unknown
+    // account is the caller's error (400), not a 500.
+    bool created = false;
+    try {
+        created =
+            txn.exec("INSERT INTO balance_mgmt.bucket (id, href, party_account_id, "
+                     "party_account_name, "
+                     "party_account_href, party_account_description, party_account_status, "
+                     "remaining_value_unit, remaining_value_amount, usage_type, status) VALUES "
+                     "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'active') ON CONFLICT (id) DO UPDATE SET "
+                     "remaining_value_amount = balance_mgmt.bucket.remaining_value_amount + "
+                     "EXCLUDED.remaining_value_amount, updated_at = now() RETURNING (xmax = 0) AS "
+                     "ins",
+                     pqxx::params{bucket_id,
+                                  resource_base_url_ + "/bucket/" + bucket_id,
+                                  account_id(acc),
+                                  acc ? acc->name : std::nullopt,
+                                  acc ? acc->href : std::nullopt,
+                                  acc ? acc->description : std::nullopt,
+                                  acc ? acc->status : std::nullopt,
+                                  units,
+                                  amount,
+                                  request.usageType.value_or("monetary")})
+                .one_row()["ins"]
+                .as<bool>();
+    } catch (const pqxx::foreign_key_violation&) {
+        throw InvalidRequest("partyAccount " + account_id(acc).value_or("") +
+                             " does not exist (subscriber_mgmt.account)");
+    }
     if (created) {
         for (std::size_t i = 0; i < request.product.size(); ++i) {
             const auto& p = request.product[i];

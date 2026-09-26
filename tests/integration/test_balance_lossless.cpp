@@ -80,6 +80,9 @@ protected:
         pqxx::connection c(conninfo());
         pqxx::work t(c);
         t.exec("DELETE FROM balance_mgmt.bucket WHERE id LIKE 'test-bal-%'");
+        // ADR-0386: buckets reference subscriber_mgmt.account -- the accounts these tests fund.
+        t.exec("INSERT INTO subscriber_mgmt.account (id, account_kind) VALUES "
+               "('acct-lossless','CONSUMER'), ('acct-sem','CONSUMER') ON CONFLICT DO NOTHING");
         t.commit();
     }
     void provisioned_bucket(const std::string& id, double remaining) {
@@ -201,6 +204,15 @@ TEST_F(BalanceLossless, ParallelReservesNeverOverdraw) {
     const auto b = store.get_bucket("test-bal-race");
     EXPECT_DOUBLE_EQ(*b->remainingValue->value, 0.0);
     EXPECT_DOUBLE_EQ(*b->reservedValue->value, 100.0);
+}
+
+TEST_F(BalanceLossless, ToppingUpForAnUnknownAccountIsA400) {
+    bss_sid::TopupBalance t;
+    t.bucket = bss_sid::BucketRef{"test-bal-noacct", std::nullopt, std::nullopt};
+    t.amount = bss_sid::Quantity{1.0, "USD"};
+    t.partyAccount = bss_sid::PartyAccountRef{"acct-does-not-exist"};
+    EXPECT_THROW(store.topup(t), balance_management::InvalidRequest);
+    EXPECT_FALSE(store.get_bucket("test-bal-noacct").has_value());
 }
 
 TEST_F(BalanceLossless, MalformedDateTimeIsRejectedWithoutMovingBalance) {

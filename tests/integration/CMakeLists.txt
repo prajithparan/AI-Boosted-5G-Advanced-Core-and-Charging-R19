@@ -47,6 +47,7 @@ add_executable(integration_tests
     test_udm_ueau_from_udr.cpp
     test_product_catalog_lossless.cpp
     test_balance_lossless.cpp
+    test_party_lossless.cpp
     # ADR-0382: the OAM provisioning validator + its store, compiled in (udr is an executable).
     ${CMAKE_SOURCE_DIR}/nfs/udr/src/oam_provisioning.cpp
     ${CMAKE_SOURCE_DIR}/nfs/udr/src/stores.cpp

@@ -774,10 +774,11 @@ services:
     depends_on:
       pki-init:
         condition: service_completed_successfully
-      postgres-subscriber:
+      postgres-chf:
         condition: service_healthy
     environment:
-      SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://subscriber_management:subscriber_management@postgres-subscriber:5432/subscriber_management
+      # ADR-0386: the consolidated charging DB, schemas party + subscriber_mgmt.
+      SUBSCRIBER_MANAGEMENT_DATABASE_URL: postgresql://postgres@postgres-chf:5432/charging
       # ADR-0077 retrofit: same class of self-referential-URL fix as balance-management's own.
       SUBSCRIBER_MANAGEMENT_SELF_BASE_URL: https://subscriber-management:7787
     volumes:
