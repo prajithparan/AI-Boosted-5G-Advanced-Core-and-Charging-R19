@@ -54,6 +54,17 @@ for nf in "${NF_NAMES[@]}"; do
 
     echo "== ${nf} =="
     openssl ecparam -name prime256v1 -genkey -noout -out "${nf_dir}/key.pem"
+    # world-readable (openssl otherwise writes private keys 0600, owner-only): every NF's own
+    # runtime container in this project runs as root, so 0600-owned-by-root was never a problem
+    # here -- until Keycloak (ADR-0441/ADR-0442), whose official image runs its process as
+    # UID 1000, not root, and fails closed at startup unable to read a 0600 root-owned key.pem
+    # ("Failed to start server in (production) mode: /build/certs/keycloak/key.pem", no further
+    # detail logged). Found running ADR-0442's own real containerized proof, fixed at the root
+    # (every leaf key, not a keycloak-only special case) since any future non-root NF image would
+    # hit the identical failure. Still a lab-only CA/keypair (this file's own header comment), so
+    # loosening a leaf key's mode is not a new secrecy regression -- the CA key itself (which
+    # signs, and is never read by a served container) is deliberately left at its default 0600.
+    chmod 644 "${nf_dir}/key.pem"
     openssl req -new -key "${nf_dir}/key.pem" \
         -subj "/O=5gc-r19 Lab/CN=${nf}" \
         -out "${nf_dir}/csr.pem"

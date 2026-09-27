@@ -1,0 +1,21 @@
+apiVersion: v2
+name: oam-gui-bff
+description: >
+  oam-gui-bff -- the Phase 7 operator GUI's backend-for-frontend (ADR-0420..0425, ADR-0441,
+  ADR-0442): TLS 1.3 + operator-CA mTLS to the browser, OIDC (authorization code + PKCE) to a
+  Keycloak realm, `operator_iam` (maker-checker, tamper-evident audit) in PostgreSQL, and a
+  read/edit surface over every other component's config/<nf>.json (ADR-0425). Lab-grade Helm
+  chart, same disclosed-gap category as deploy/helm/udr/Chart.yaml: no PKI provisioning (the
+  operator creates a `<release>-oam-gui-bff-tls` secret for its own leaf certificate and an
+  `<release>-oam-gui-bff-trust` secret for the CAs it must trust -- see values.yaml), no
+  HA/clustering (single replica -- `IamStore`'s own PostgreSQL connections would work fine
+  concurrently across replicas, but a second replica sharing one Deployment's baked config is
+  untested here). ADDITIONAL, NEW disclosed gap this chart introduces, not inherited from
+  elsewhere: the image bakes in config/oam-gui-bff.json's own 127.0.0.1-based defaults (IAM
+  database, product-catalog, Keycloak) exactly as amf/nrf's own charts bake in their
+  127.0.0.1-based NRF base URL (task #109's already-tracked class of gap) -- a real cluster
+  deployment needs the same ConfigMap-driven override task #109 already names, applied here too,
+  not invented as a one-off for this chart alone.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
