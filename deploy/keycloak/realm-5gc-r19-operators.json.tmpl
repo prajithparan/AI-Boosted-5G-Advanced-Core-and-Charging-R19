@@ -1,0 +1,233 @@
+{
+  "id": "5gc-r19-operators",
+  "realm": "5gc-r19-operators",
+  "enabled": true,
+  "sslRequired": "external",
+  "bruteForceProtected": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "browserFlow": "5gc-r19 browser",
+  "authenticationFlows": [
+    {
+      "alias": "5gc-r19 browser",
+      "description": "Browser auth; copy of 'browser' with OTP step-up to LoA 'mfa' (see ADR-0441 for the full rationale).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-spnego",
+          "authenticatorFlow": false,
+          "requirement": "DISABLED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 25,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 26,
+          "flowAlias": "5gc-r19 browser Organization",
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "flowAlias": "5gc-r19 browser forms",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "5gc-r19 browser forms",
+      "description": "Username, password, otp and other auth forms.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "flowAlias": "5gc-r19 browser Browser - Conditional OTP",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "5gc-r19 browser Browser - Conditional OTP",
+      "description": "Requires OTP when the requested acr is >= LoA 'mfa'; sets the token's acr claim to 'mfa' on success (ADR-0441).",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-level-of-authentication",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 0,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "5gc-r19-loa1"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 21,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "5gc-r19 browser Organization",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 10,
+          "flowAlias": "5gc-r19 browser Browser - Conditional Organization",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "5gc-r19 browser Browser - Conditional Organization",
+      "description": "Flow to determine if the organization identity-first login is to be used",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "organization",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "5gc-r19-loa1",
+      "config": {
+        "loa-condition-level": "1",
+        "loa-max-age": "36000"
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "oam-gui",
+      "name": "oam-gui-bff (ADR-0422..0424)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__OAM_GUI_CLIENT_SECRET__",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://127.0.0.1:8710/auth/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "acr.loa.map": "{\"mfa\":1}",
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "roles",
+        "basic",
+        "email"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "5c1e6b7a-0001-4a11-9c2e-0a1b2c3d4e5f",
+      "username": "shop.agent.lab",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "shop.agent.lab@lab.invalid",
+      "firstName": "Lab",
+      "lastName": "ShopAgent",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "__SHOP_AGENT_PASSWORD__",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "secretData": "{\"value\":\"__SHOP_AGENT_OTP_SECRET__\"}",
+          "credentialData": "{\"subType\":\"totp\",\"digits\":6,\"period\":30,\"algorithm\":\"HmacSHA1\"}",
+          "userLabel": "lab-authenticator"
+        }
+      ]
+    },
+    {
+      "id": "5c1e6b7a-0002-4a11-9c2e-0a1b2c3d4e5f",
+      "username": "security.admin.lab",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "security.admin.lab@lab.invalid",
+      "firstName": "Lab",
+      "lastName": "SecurityAdmin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "__SECURITY_ADMIN_PASSWORD__",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "secretData": "{\"value\":\"__SECURITY_ADMIN_OTP_SECRET__\"}",
+          "credentialData": "{\"subType\":\"totp\",\"digits\":6,\"period\":30,\"algorithm\":\"HmacSHA1\"}",
+          "userLabel": "lab-authenticator"
+        }
+      ]
+    }
+  ]
+}

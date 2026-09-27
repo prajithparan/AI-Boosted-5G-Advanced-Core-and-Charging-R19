@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-keycloak
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: no HA/clustering (disclosed gap, ADR-0441 -- same category as the other
+  # lab-grade charts in deploy/helm/). A second replica would need Keycloak's own Infinispan
+  # clustering configured, which this chart does not attempt.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: keycloak
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - start
+            {{- if .Values.existingSecrets.realmImport }}
+            - --import-realm
+            {{- end }}
+            - --https-certificate-file=/etc/keycloak-tls/tls.crt
+            - --https-certificate-key-file=/etc/keycloak-tls/tls.key
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.admin | default (printf "%s-keycloak-admin" .Release.Name) }}
+                  key: username
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.admin | default (printf "%s-keycloak-admin" .Release.Name) }}
+                  key: password
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://{{ .Release.Name }}-keycloak-postgres:5432/keycloak"
+            - name: KC_DB_USERNAME
+              value: keycloak
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecrets.db | default (printf "%s-keycloak-db" .Release.Name) }}
+                  key: POSTGRES_PASSWORD
+            - name: KC_HOSTNAME
+              value: {{ .Values.hostname | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "false"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/keycloak-tls
+              readOnly: true
+            {{- if .Values.existingSecrets.realmImport }}
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.existingSecrets.tls | default (printf "%s-keycloak-tls" .Release.Name) }}
+        {{- if .Values.existingSecrets.realmImport }}
+        - name: realm-import
+          secret:
+            secretName: {{ .Values.existingSecrets.realmImport }}
+        {{- end }}

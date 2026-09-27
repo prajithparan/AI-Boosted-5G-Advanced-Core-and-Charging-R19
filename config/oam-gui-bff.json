@@ -25,13 +25,15 @@
     "redirect_uri": "https://127.0.0.1:8710/auth/callback",
     "post_logout_redirect_uri": "https://127.0.0.1:8710/",
     "idp_ca_path": "certs/ca/ca.crt",
-    "acr_values": "",
+    "acr_values": "mfa",
     "mfa_amr": [
       "otp",
       "mfa",
       "hwk"
     ],
-    "mfa_acr": []
+    "mfa_acr": [
+      "mfa"
+    ]
   },
   "nf_config": {
     "config_dir": "config",
