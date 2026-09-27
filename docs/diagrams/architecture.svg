@@ -484,10 +484,10 @@
 <rect x="668.5" y="710.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
 <use href="#g-stream" x="680.5" y="722.0" width="32" height="32"/>
 <text x="696.5" y="783.0" text-anchor="middle" fill="#1f2328" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:13px;font-weight:700;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">Apache Kafka</text>
-<text x="696.5" y="795.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">event bus (KRaft)</text>
+<text x="696.5" y="795.0" text-anchor="middle" fill="#3d4249" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:9.8px;font-weight:500;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">event bus, 3-broker KRaft cluster</text>
 <text x="696.5" y="806.0" text-anchor="middle" fill="#1f5fbf" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.8px;font-weight:600;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">3.9 · Apache-2.0</text>
-<text x="696.5" y="816.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">topic chf.cdr · acks=all</text>
-<text x="696.5" y="826.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">idempotent producer</text>
+<text x="696.5" y="816.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">chf.cdr 9p · mfaf.notifications 6p</text>
+<text x="696.5" y="826.5" text-anchor="middle" fill="#6b7280" style="font-family:Inter, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:8.3px;font-weight:500;font-style:italic;" paint-order="stroke" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">RF=3 · min.insync.replicas=2</text>
 <rect x="831.5" y="708.0" width="60" height="60" rx="13" fill="url(#grad-0e7490)" stroke="#084556" stroke-width="1"/>
 <rect x="833.5" y="710.0" width="56" height="28.0" rx="11" fill="url(#gloss)"/>
 <use href="#g-bars" x="845.5" y="722.0" width="32" height="32"/>

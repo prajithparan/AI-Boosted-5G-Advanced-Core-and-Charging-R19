@@ -6,6 +6,7 @@
   "nrf_heartbeat_seconds": 30,
   "redis_url": "tcp://127.0.0.1:6379",
   "redis_pool_size": 16,
+  "redis_mode": "single",
   "storages": {
     "Realm01": ["Storage01", "Storage02"]
   },

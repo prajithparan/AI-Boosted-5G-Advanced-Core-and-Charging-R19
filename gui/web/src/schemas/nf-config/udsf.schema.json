@@ -40,6 +40,9 @@
       "x-env-override": "UDSF_REDIS_POOL_SIZE",
       "x-cpp-type": "int"
     },
+    "redis_mode": {
+      "type": "string"
+    },
     "storages": {
       "type": "object",
       "additionalProperties": false,
@@ -101,6 +104,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
+    "redis_mode: present in the file but no source line visibly reads it",
     "storages: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

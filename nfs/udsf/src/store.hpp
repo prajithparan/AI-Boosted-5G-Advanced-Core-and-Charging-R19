@@ -47,11 +47,65 @@
 #include <set>
 #include <string>
 #include <sw/redis++/redis++.h>
+#include <type_traits>
 #include <vector>
 
 #include "search.hpp"
 
 namespace udsf {
+
+// Routes a Store operation to the right Valkey connection, transparently over a single-node or a
+// real Valkey Cluster deployment (docs/DECISIONS.md ADR-0443). StorageRef::prefix() already
+// carries a "{realmId/storageId}" hash tag in every key (ADR-0400's own key design), so one
+// storage always hashes to one slot/shard.
+//
+// with(hash_tag, f) calls f(Redis&) once, on a connection bound to that one shard in cluster mode
+// or the one shared pool in single-node mode -- NOT conn()-then-hold: sw::redis::Redis is
+// copy-deleted (redis.h), so a bound handle can only be returned by move, and
+// RedisCluster::redis(hash_tag, new_connection=false)'s handle PINS one connection out of that
+// shard's pool for as long as it lives (sw::redis::GuardedConnection, connection_pool.h -- fetched
+// at construction, released at destruction, never returned to the pool in between). Every caller
+// below does its whole unit of work inside ONE with() call and never calls another Store method
+// (which would call with() again) while still inside one -- two nested with() calls on the SAME
+// shard would each try to hold a connection from a pool sized by redis_pool_size, and with
+// ConnectionPoolOptions::wait_timeout defaulting to 0 (wait forever), enough concurrent nested
+// calls hang the process rather than erroring. list_subs() inlines get_sub()'s own body for
+// exactly this reason instead of calling it per id from inside its own with().
+class RedisRouter {
+public:
+    explicit RedisRouter(std::shared_ptr<sw::redis::Redis> single) : single_(std::move(single)) {}
+    explicit RedisRouter(std::shared_ptr<sw::redis::RedisCluster> cluster)
+        : cluster_(std::move(cluster)) {}
+
+    template <typename F>
+    auto with(const std::string& hash_tag,
+              F&& f) const -> std::invoke_result_t<F&, sw::redis::Redis&> {
+        if (cluster_) {
+            auto r = cluster_->redis(hash_tag, /*new_connection=*/false);
+            return f(r);
+        }
+        return f(*single_);
+    }
+
+    // WATCH/MULTI/EXEC needs its own method, not with(hash_tag, ...).transaction(): a Redis object
+    // built from RedisCluster::redis() wraps one already-fetched connection (sw/redis++'s own
+    // "single connection mode"), and Redis::transaction() unconditionally throws on that object
+    // ("cannot create transaction in single connection mode", redis.cpp) because it has no pool of
+    // its own left to hand the Transaction. RedisCluster::transaction(hash_tag, ...) is the
+    // library's own, separate, real entry point for a cluster-routed transaction; single-node mode
+    // keeps calling Redis::transaction() exactly as before.
+    sw::redis::Transaction
+    transaction(const std::string& hash_tag, bool piped, bool new_connection) const {
+        if (cluster_) {
+            return cluster_->transaction(hash_tag, piped, new_connection);
+        }
+        return single_->transaction(piped, new_connection);
+    }
+
+private:
+    std::shared_ptr<sw::redis::Redis> single_;
+    std::shared_ptr<sw::redis::RedisCluster> cluster_;
+};
 
 struct StorageRef {
     std::string realm;
@@ -97,6 +151,7 @@ using Notification = nlohmann::json;
 class Store {
 public:
     Store(std::shared_ptr<sw::redis::Redis> redis, std::string dr_api_root);
+    Store(std::shared_ptr<sw::redis::RedisCluster> redis, std::string dr_api_root);
 
     // ---- records ---------------------------------------------------------------------------
     std::optional<Record> get_record(const StorageRef& s, const std::string& id);
@@ -172,7 +227,7 @@ private:
                                                         const std::optional<Record>& before,
                                                         const std::optional<Record>& after);
 
-    std::shared_ptr<sw::redis::Redis> redis_;
+    RedisRouter redis_;
     std::string dr_api_root_;
 };
 

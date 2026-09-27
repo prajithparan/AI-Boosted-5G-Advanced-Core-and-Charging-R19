@@ -39,6 +39,7 @@
 
 #include <chrono>
 #include <map>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -210,6 +211,17 @@ int main() {
     auto redis_url = nf_config::require<std::string>(config, "redis_url", "UDSF_REDIS_URL");
     const auto redis_pool_size =
         nf_config::require<int>(config, "redis_pool_size", "UDSF_REDIS_POOL_SIZE");
+    // docs/DECISIONS.md ADR-0443: "single" (default, unchanged behaviour) or "cluster" -- a real
+    // Valkey Cluster, seeded from redis_url, routed by sw::redis::RedisCluster (store.hpp's
+    // RedisRouter). Absent from every other NF's config; UDSF is this pass's one converted NF.
+    const auto redis_mode =
+        nf_config::optional<std::string>(config, "redis_mode", "UDSF_REDIS_MODE")
+            .value_or("single");
+    if (redis_mode != "single" && redis_mode != "cluster") {
+        spdlog::critical("udsf: redis_mode must be \"single\" or \"cluster\", got \"{}\"",
+                         redis_mode);
+        return 1;
+    }
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "UDSF_NRF_HEARTBEAT_SECONDS");
     const auto storages = nf_config::require<json>(config, "storages", "UDSF_STORAGES");
@@ -246,8 +258,15 @@ int main() {
     // (each holding a connection for WATCH..EXEC) share the pool.
     redis_url += (redis_url.find('?') == std::string::npos ? "?" : "&") +
                  std::string("pool_size=") + std::to_string(redis_pool_size);
-    udsf::Store store(nf_config::connect_redis_or_die(redis_url, "udsf"),
-                      settings.self_base + udsf::kDrRoot);
+    std::optional<udsf::Store> store_opt;
+    if (redis_mode == "cluster") {
+        store_opt.emplace(nf_config::connect_redis_cluster_or_die(redis_url, "udsf"),
+                          settings.self_base + udsf::kDrRoot);
+    } else {
+        store_opt.emplace(nf_config::connect_redis_or_die(redis_url, "udsf"),
+                          settings.self_base + udsf::kDrRoot);
+    }
+    udsf::Store& store = *store_opt;
 
     sbi_core::http2::TlsConfig server_tls{
         .cert_path = CERTS_DIR "/udsf/cert.pem",
