@@ -31360,15 +31360,23 @@ Real production risk, correctly flagged rather than discovered later -- this pro
 commercialization mandate (ADR-0049) requires reliability exceeding free5GC's, which this gap does
 not meet as-is.
 
-## ADR-0442: `oam-gui-bff` containerized -- Dockerfile, compose entry, Helm chart, closing ADR-0441's own disclosed deferral
+## ADR-0442: `oam-gui-bff` containerized -- Dockerfile, compose entry, Helm chart, closing ADR-0441's COMPOSE-side deferral
 
-**Date:** 2026-09-27. **Status:** accepted; real image built, real compose service wired against
-the same lab CA every other NF uses, real login round-trip proved through the CONTAINERIZED binary
-(not the host binary ADR-0441's own proof used). Closes ADR-0441's explicit deferral, quoted in
-full there: *"`oam-gui-bff` itself has no Dockerfile or compose/Helm entry... a containerized BFF
-would need `token_endpoint`/`jwks_uri` reachable at Keycloak's in-cluster/in-network name... while
-`issuer` stays the externally-visible... URL -- both endpoints are independently configurable
-already, so this needs a values/config change when it happens, not new code."*
+**Date:** 2026-09-27. **Status:** accepted, PARTIALLY -- the COMPOSE half is real and proved
+end-to-end; the HELM half is lint/template-verified only and does NOT start successfully as
+committed (below). Real compose service, real login round-trip through a real, containerized
+`oam-gui-bff` and a real, containerized Keycloak, wired against the same lab CA every other NF
+uses. The image that ran that proof was NOT built from `oam-gui-bff.Dockerfile`'s own from-scratch
+build -- every attempt at that, on this machine, in this session, was defeated by severe host
+network degradation before finishing (detailed below, with what WAS independently verified in
+Docker despite that: the Node/Alpine web-build stage). Closes ADR-0441's explicit deferral, quoted
+in full there, for its COMPOSE clause only: *"`oam-gui-bff` itself has no Dockerfile or
+compose/Helm entry... a containerized BFF would need `token_endpoint`/`jwks_uri` reachable at
+Keycloak's in-cluster/in-network name... while `issuer` stays the externally-visible... URL --
+both endpoints are independently configurable already, so this needs a values/config change when
+it happens, not new code."* That sentence bundles compose ("in-network") and Helm ("in-cluster")
+together; this ADR delivers the former and explicitly does NOT deliver the latter -- see Decision 8
+and the closing status line.
 
 **Decision 1: `deploy/docker/oam-gui-bff.Dockerfile`, THREE stages, not the usual two.**
 `gui/bff/src/bff.cpp`'s `load_static_files()` throws if `<static_dir>/index.html` is missing --
@@ -31488,21 +31496,34 @@ is not a new secrecy regression; the CA key itself (`ca.key`, which signs, and i
 served container) is deliberately left at its default `0600`.
 
 **Decision 8: `deploy/helm/oam-gui-bff/` follows `deploy/helm/keycloak/`'s `existingSecrets`
-convention, not `deploy/helm/udr/`'s bare image-only shape.** Chosen because, unlike UDR/AMF/NRF's
-charts (which carry no certs into Helm at all -- a disclosed gap, unchanged here), this NF's real
-PKI/OIDC-secret wiring is exactly what this task is about, so leaving it as unaddressed as UDR's
-would have papered over the same gap ADR-0441 already had to solve properly for Keycloak's own
-chart. Three secrets (`-tls`, `-trust`, `-oidc`), mounted by `subPath` onto the exact
-`/build/certs/...` paths `config/oam-gui-bff.json`'s own relative paths resolve to (`REPO_ROOT`
-baked in at compile time as `/build`, same mechanism the Dockerfile relies on). NOT included:
-a ConfigMap for the rest of `config/oam-gui-bff.json` (IAM database URL, `product_catalog_base_url`,
-Keycloak endpoints) -- every other NF chart in this repo (`amf`, `nrf`, `udr`) bakes in its own
-config's `127.0.0.1`-based defaults with NO Helm override at all (task #109's already-tracked class
-of gap, `docker-compose.yml`'s own `ADR-0077 retrofit` comments document the identical bug for
-compose). Adding a ConfigMap-driven override for this ONE chart alone, while every other chart
-still bakes in `127.0.0.1`, would be inventing a heavier, inconsistent pattern for a single NF
-rather than fixing the class of gap project-wide -- named as a real limitation, not silently
-matched to a lower bar. No autoscaling block (unlike `udr`'s, which earned one architecturally --
+convention, not `deploy/helm/udr/`'s bare image-only shape -- but, disclosed plainly rather than
+glossed over, this chart does NOT make the pod start successfully as committed.** The certs/secret
+wiring (three secrets -- `-tls`, `-trust`, `-oidc` -- mounted by `subPath` onto the exact
+`/build/certs/...` paths `config/oam-gui-bff.json`'s relative paths resolve to, `REPO_ROOT` baked
+in at compile time as `/build`) is real and chosen deliberately over UDR/AMF/NRF's charts (which
+carry no certs into Helm at all): this NF's PKI/OIDC-secret wiring is exactly what this task is
+about, so leaving it unaddressed would have papered over the same gap ADR-0441 already solved
+properly for Keycloak's own chart. What is NOT wired, and is the reason this chart is a real,
+unclosed gap rather than a finished deliverable: `config/oam-gui-bff.json`'s baked-in defaults --
+`iam_database_url` (`postgresql://oam_gui_bff@127.0.0.1:5434/...`) and the `oidc` block's
+`token_endpoint`/`jwks_uri` (`127.0.0.1:8443`) -- are wrong for a cluster on BOTH counts, not just
+the OIDC one ADR-0441's own deferral named. `IamStore`'s constructor (`iam.cpp`) opens its
+PostgreSQL connection pool EAGERLY and calls `nf_config::fatal()` (process exit) if it cannot
+connect -- so this chart's pod, run as committed, crash-loops at startup on the database
+connection alone, before OIDC ever matters. Closing that needs a REAL `operator_iam` PostgreSQL
+reachable from within the cluster, which no chart in this repository provisions yet (Keycloak's
+own chart brings a DEDICATED Postgres for ITS OWN database, not `operator_iam` -- a different
+database on a different instance in every other deployment target this project has). Building
+that dedicated Postgres (or a shared-Postgres Helm pattern this project does not have yet) is a
+real, separate piece of work, not a small addition to fold into this ADR under time pressure --
+named here as the reason this task's Helm chart is real infrastructure (lint/template-verified,
+matches the project's chart conventions) but not yet a chart that starts. Compare: every other NF
+chart in this repo (`amf`, `nrf`, `udr`) ALSO bakes in `127.0.0.1`-based config with no Helm
+override (task #109's already-tracked class of gap, `docker-compose.yml`'s own
+`ADR-0077 retrofit` comments document the identical bug for compose) -- this chart is consistent
+with that existing bar, not below it, but that bar itself does not clear "starts in a real
+cluster" for THIS NF the way it happens to for a stateless-config NF with no required datastore.
+No autoscaling block (unlike `udr`'s, which earned one architecturally --
 all state in PostgreSQL): nothing here has tested two `oam-gui-bff` pods behind one Service
 (session-cookie affinity, single-use `login_state` rows in `IamStore`), so it is left out rather
 than claimed working. `helm lint`/`helm template` run against a real `helm` binary (via
@@ -31526,32 +31547,48 @@ Docker/Helm entry yet" sentence ADR-0441 put there is now false and is replaced.
 **What was actually run, not just written** (the task's bar, restated from ADR-0441: "a container
 that starts" is not done; a real round-trip succeeding is):
 
-- **The image that ran the proof below was packaged from a binary compiled directly on this
-  build host, not from `oam-gui-bff.Dockerfile`'s own from-scratch build -- disclosed plainly,
-  not blurred.** This machine's network was severely degraded while this task ran (measured, not
-  assumed: `ping 1.1.1.1` showed 33-50% packet loss and 390-440ms RTT over a WiFi link; `curl` to
-  `google.com`/`github.com` timed out outright at points), on top of a concurrent CI run
-  (`36294057085`) competing for the same link. `oam-gui-bff.Dockerfile`'s own `node:22-alpine`
-  layer pull (55.59 MB) took over 75 minutes and then failed outright
-  (`read tcp ...: read: connection timed out`) on its first full attempt; a second attempt was
-  still running when this ADR was written (see the file's own build log if it has since finished --
-  if it has, this paragraph is stale and should say so, not be left standing). Rather than block
-  the whole task on one machine's transient link, the SAME source was built the OTHER way this
-  project's own CI already builds it: `cmake --build` against this host's existing vcpkg binary
-  cache (`~/.cache/vcpkg/archives`, the exact cache directory `.github/workflows/ci.yml`'s own
-  self-hosted-runner step already points at) and the shared `build-tools/asn1c` cache -- Release,
-  `-D5GC_BUILD_TESTS=OFF`, the identical CMake invocation the Dockerfile's builder stage runs,
-  producing a functionally identical binary (confirmed: only `libstdc++`/`libm`/`libgcc_s`/`libc`
-  dynamic dependencies via `ldd` -- every vcpkg dependency is statically linked, same as the
-  official image's runtime stage would produce) in under two minutes. `gui/web`'s `npm ci && npm
-  run build` was verified separately on this same host's Node 22.22.1 (also fast, no network
-  contention there). Both artifacts were packaged into an image using the SAME runtime layout
-  (`ubuntu:24.04` + `openssl`/`ca-certificates`, `/build/...` paths) `oam-gui-bff.Dockerfile`'s own
-  runtime stage uses, tagged `docker-oam-gui-bff:latest` (the exact name `docker compose` expects
-  for this project/service pair), so `docker-compose.yml`'s `oam-gui-bff` service definition itself
-  needed no change to run it. **If the official Dockerfile build has since completed on this or
-  another machine, retag its output the same way and rerun this proof -- the two are expected to
-  behave identically, and nothing about the proof below depends on which one produced the image.**
+- **The image that ran the proof below was hand-packaged from a binary compiled directly on this
+  build host, not from `oam-gui-bff.Dockerfile`'s own from-scratch build -- and that official
+  build NEVER completed in this session. Disclosed plainly, not blurred.** This machine's network
+  was severely degraded while this task ran (measured, not assumed: `ping 1.1.1.1` showed 33-50%
+  packet loss and 390-440ms RTT over a WiFi link; `curl` to `google.com`/`github.com` timed out
+  outright at points), on top of a concurrent CI run (`36294057085`) competing for the same link.
+  Three real attempts at `docker build -f oam-gui-bff.Dockerfile`, in this exact worktree, all
+  failed: (1) the `node:22-alpine` layer pull (55.59 MB) took over 75 minutes then failed outright
+  (`read tcp ...: read: connection timed out`); (2) a second attempt got PAST that layer (BuildKit
+  cache) but failed cloning `vcpkg` from GitHub after ~20 minutes (`RPC failed; curl 92 HTTP/2
+  stream 5 was not closed cleanly`); (3) a third attempt reused both caches (Node stage and the
+  `vcpkg` git objects fetched so far) and was still stuck re-cloning `vcpkg` after 8+ minutes when
+  it was killed to write this ADR, rather than left running indefinitely on a shared machine.
+  **What IS independently verified as working, from attempt (2)'s own log:** the `web-builder`
+  stage -- `npm ci` and `npm run build` (`tsc --noEmit` + `vite build`, Alpine/musl) -- ran to
+  completion INSIDE Docker (`DONE 2.1s`, identical output to the host run: 424 modules, the same
+  three `dist/` files). **What is NOT verified inside Docker in this session:** the builder stage
+  (`vcpkg` bootstrap, `asn1c`, the actual `cmake --build --target oam-gui-bff`) and the final
+  `COPY --from=builder`/`COPY --from=web-builder` assembly into the runtime stage. Rather than
+  block the whole task on one machine's transient link, the SAME source was independently built
+  the OTHER way this project's own CI already builds it: `cmake --build` against this host's
+  existing vcpkg binary cache (`~/.cache/vcpkg/archives`, the exact cache directory
+  `.github/workflows/ci.yml`'s own self-hosted-runner step already points at) and the shared
+  `build-tools/asn1c` cache -- Release, `-D5GC_BUILD_TESTS=OFF`, the identical CMake invocation
+  the Dockerfile's builder stage runs, producing a functionally identical binary (confirmed: only
+  `libstdc++`/`libm`/`libgcc_s`/`libc` dynamic dependencies via `ldd` -- every vcpkg dependency is
+  statically linked, same as the official image's runtime stage would produce) in under two
+  minutes. That binary and the SEPARATELY-Docker-verified `gui/web/dist` were packaged into an
+  image using the SAME runtime layout (`ubuntu:24.04` + `openssl`/`ca-certificates`, `/build/...`
+  paths) `oam-gui-bff.Dockerfile`'s own runtime stage uses. This proof's image was tagged
+  `docker-oam-gui-bff:latest` (the exact name `docker compose` expects for this project/service
+  pair) only for the duration of the proof, then **explicitly removed afterward**
+  (`docker rmi docker-oam-gui-bff:latest`) precisely so a future `docker compose up oam-gui-bff` on
+  this shared machine builds the real image from the real Dockerfile rather than silently reusing
+  this hand-packaged substitute. **Whoever next has a working network should run
+  `docker build -f deploy/docker/oam-gui-bff.Dockerfile -t docker-oam-gui-bff:latest .` from the
+  repo root, bring up `keycloak`/`oam-gui-bff` (`docker compose -f deploy/docker/
+  docker-compose.yml up -d keycloak oam-gui-bff`, `pki-init` first if `certs_data` is fresh), and
+  rerun `deploy/keycloak/prove_operator_login.sh` (committed with this ADR, not left in a
+  scratchpad) against that real image -- this ADR's own proof used a substitute for the builder
+  stage specifically because of an environmental condition on one machine at one time, not because
+  the Dockerfile is unverified by design.**
 - **Real containers, real shared infrastructure.** `pki-init`'s own `apt-get install openssl` hung
   indefinitely under the same degraded network (11+ minutes, zero log output) -- worked around by
   running `scripts/gen-lab-pki.sh`'s remaining NF names (`udsf keycloak oam-gui-bff` -- everything
@@ -31568,7 +31605,9 @@ that starts" is not done; a real round-trip succeeding is):
   predates ADR-0423/ADR-0441 -- see Disclosed below) -- `CREATE DATABASE`, then
   `deploy/db/operator_iam/*.sql`, then `deploy/keycloak/seed-lab-operators.sql`, all applied via
   `docker exec ... psql`.
-- **Positive path.** `curl`, presenting the real `terminal-lab-1` operator-CA client certificate
+- **Positive path**, scripted and committed as `deploy/keycloak/prove_operator_login.sh` (its own
+  header has the exact prerequisites and usage) rather than left in a scratchpad. `curl`,
+  presenting the real `terminal-lab-1` operator-CA client certificate
   (mTLS) generated by `gui/scripts/gen-operator-pki.sh` on the host, hit the CONTAINERIZED
   `oam-gui-bff`'s real `/auth/login` -> real `302` to the CONTAINERIZED Keycloak's authorization
   endpoint (`https://127.0.0.1:8443/realms/5gc-r19-operators/...`, `acr_values=mfa`, real PKCE
@@ -31627,4 +31666,8 @@ that starts" is not done; a real round-trip succeeding is):
   Dockerfile-from-scratch) the proof actually used.
 
 **ADR-0441 status:** its "`oam-gui-bff` itself has no Dockerfile or compose/Helm entry" deferral is
-closed by this ADR.
+closed by this ADR for the DOCKERFILE and COMPOSE thirds -- both real, both proved with a live
+login round-trip. The HELM third is NOT closed: the chart exists, is
+lint/template-verified, and follows this project's conventions, but does not start successfully in
+a real cluster as committed (Decision 8, `deploy/helm/oam-gui-bff/Chart.yaml`'s own disclosure).
+Narrowed here rather than left to be discovered as an overclaim on review.

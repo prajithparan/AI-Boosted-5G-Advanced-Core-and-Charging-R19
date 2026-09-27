@@ -660,17 +660,26 @@ services:
     # oam-gui-bff itself will not crash-loop racing Keycloak's own boot; a login attempted before
     # Keycloak is ready to serve its token/JWKS endpoints simply fails that one request.
 
-  # ADR-0442: the operator GUI's backend-for-frontend, containerized -- closes the gap ADR-0441
-  # explicitly disclosed and deferred ("oam-gui-bff itself has no Dockerfile or compose/Helm
-  # entry"). Shares the lab CA every other NF does (pki-init's NF list above now includes
-  # oam-gui-bff) for its own leaf certificate AND for trusting keycloak's TLS server certificate
-  # (both signed by the same CA -- see oam-gui-bff.Dockerfile's header comment). Its own
-  # OIDC-facing OPERATOR mTLS trust anchor (`operator_ca_path`) and IdP client secret
-  # (`client_secret_file`) are a SEPARATE PKI this compose file does not provision (same disclosed
-  # gap category as keycloak's own realm import above): `gui/scripts/gen-operator-pki.sh
-  # terminal-lab-1` + `deploy/keycloak/render-realm.sh`, run on the HOST exactly as ADR-0441
-  # already documented, then bind-mounted in below by the two specific files they produce -- NOT
-  # the whole certs_data volume, which stays container-CA-only for every NF-to-NF mTLS leg.
+  # ADR-0442: the operator GUI's backend-for-frontend, containerized -- closes ADR-0441's
+  # COMPOSE-side deferral ("oam-gui-bff itself has no Dockerfile or compose/Helm entry"; the Helm
+  # half is a separate, still-open gap -- deploy/helm/oam-gui-bff/Chart.yaml discloses it, do not
+  # read this compose entry as closing that side too). Shares the lab CA every other NF does
+  # (pki-init's NF list above now includes oam-gui-bff) for its own leaf certificate AND for
+  # trusting keycloak's TLS server certificate (both signed by the same CA -- see
+  # oam-gui-bff.Dockerfile's header comment). Its own OIDC-facing OPERATOR mTLS trust anchor
+  # (`operator_ca_path`) and IdP client secret (`client_secret_file`) are a SEPARATE PKI this
+  # compose file does not provision (same disclosed gap category as keycloak's own realm import
+  # above): `gui/scripts/gen-operator-pki.sh terminal-lab-1` + `deploy/keycloak/render-realm.sh`,
+  # run on the HOST exactly as ADR-0441 already documented, then bind-mounted in below by the two
+  # specific files they produce -- NOT the whole certs_data volume, which stays container-CA-only
+  # for every NF-to-NF mTLS leg. IMPORTANT, easy to get backwards: `gen-operator-pki.sh`'s own
+  # final message names `certs/ca/ca.crt` (the HOST's lab CA, from a host run of
+  # `scripts/gen-lab-pki.sh`) as the browser's trust anchor for this server's certificate -- true
+  # for a HOST-BINARY oam-gui-bff, but this CONTAINERIZED one presents a certificate signed by the
+  # certs_data VOLUME's CA instead (a separate CA; see ADR-0442's own proof for the
+  # `docker run --entrypoint cat ... /build/certs/ca/ca.crt` extraction it actually trusts against).
+  # An operator's browser must import THAT CA, not the host one, to reach this container without a
+  # certificate warning.
   oam-gui-bff:
     build:
       context: ../..

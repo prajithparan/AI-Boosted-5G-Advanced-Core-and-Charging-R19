@@ -10,12 +10,18 @@ description: >
   `<release>-oam-gui-bff-trust` secret for the CAs it must trust -- see values.yaml), no
   HA/clustering (single replica -- `IamStore`'s own PostgreSQL connections would work fine
   concurrently across replicas, but a second replica sharing one Deployment's baked config is
-  untested here). ADDITIONAL, NEW disclosed gap this chart introduces, not inherited from
-  elsewhere: the image bakes in config/oam-gui-bff.json's own 127.0.0.1-based defaults (IAM
-  database, product-catalog, Keycloak) exactly as amf/nrf's own charts bake in their
-  127.0.0.1-based NRF base URL (task #109's already-tracked class of gap) -- a real cluster
-  deployment needs the same ConfigMap-driven override task #109 already names, applied here too,
-  not invented as a one-off for this chart alone.
+  untested here). DISCLOSED BLUNTLY, not softened: **this pod does not start as committed.** The
+  image bakes in config/oam-gui-bff.json's own 127.0.0.1-based defaults (IAM database,
+  product-catalog, Keycloak) exactly as amf/nrf's own charts bake in their 127.0.0.1-based NRF
+  base URL (task #109's already-tracked class of gap) -- but unlike those NFs, `IamStore`'s
+  constructor opens its PostgreSQL connection pool EAGERLY at startup and calls a fatal exit if it
+  cannot connect (`nf_config::fatal()`, `iam.cpp`), so this pod crash-loops immediately in any real
+  cluster: no chart in this repository yet provisions a reachable `operator_iam` PostgreSQL
+  in-cluster (Keycloak's own chart's dedicated Postgres is a DIFFERENT database, for Keycloak
+  itself). `helm lint`/`helm template` are clean (ADR-0442); `helm install` against a real cluster
+  has not been attempted and would not succeed today. Closing this needs a real `operator_iam`
+  Postgres Helm story (own chart, or a shared-Postgres pattern this project does not have yet) --
+  real, separate follow-on work, not folded into this chart under time pressure.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
