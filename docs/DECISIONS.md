@@ -31466,7 +31466,18 @@ stated contract ("render on the host before `compose up`") rather than extend it
 bind-mount keeps
 `certs_data`-provisioned `oam-gui-bff/{cert,key}.pem` (this NF's own lab-CA identity, used for
 every service-to-service call) completely untouched, and changes nothing about how Keycloak's own
-realm import already works.
+realm import already works. Both mounts use compose's LONG syntax with `bind.create_host_path:
+false`, not the short `host:container:ro` form -- found necessary, not a style preference: the
+short form makes Docker silently CREATE a root-owned DIRECTORY at the host path when the source
+file does not exist yet (a fresh clone that has not yet run the two host scripts above), which
+would make the container start anyway (mounting an empty directory where a file is expected,
+failing later and more confusingly inside the app) and then make a LATER real run of those two
+scripts fail trying to write a file where a root-owned directory now sits, which the invoking user
+cannot remove without `sudo`. Verified directly: a throwaway compose file with the identical
+`bind.create_host_path: false` mount pointed at a nonexistent path, `docker compose up`, refused
+immediately (`invalid mount config for type "bind": bind source path does not exist`) and created
+nothing on disk; `docker compose -f deploy/docker/docker-compose.yml config` also confirms both
+mounts resolve to the expected absolute host paths.
 
 **Decision 6: `docker-compose.yml`'s misleading "oam-gui-bff is not containerized" comment on the
 `keycloak` service is corrected, not left to rot.** It now explains the REAL reason no health
@@ -31477,23 +31488,41 @@ own boot; a login attempted too early just fails that one request rather than cr
 container.
 
 **Decision 7 (found while proving this end-to-end, not anticipated): `scripts/gen-lab-pki.sh` now
-`chmod 644`s every leaf key it generates.** `openssl ecparam -genkey` writes private keys `0600`,
-owner-only, regardless of umask -- harmless for every NF this project already runs, because every
-one of THIS project's own runtime containers runs as root (no `Dockerfile` in `deploy/docker/` has
-a `USER` line), so root-owned-and-root-read always worked. Keycloak's official image is the first
-container in this compose file that is NOT this project's own, and it drops privileges to
-`UID 1000` before starting (confirmed: `docker run --entrypoint id quay.io/keycloak/keycloak:26.0`
--> `uid=1000(keycloak)`). The result, reproduced directly rather than guessed at from the vague
-error Keycloak itself gives: `keycloak` started, imported the realm successfully ("Realm
-'5gc-r19-operators' imported" / "Import finished successfully" both logged), and THEN failed to
-bind its HTTPS listener at the last step -- "Failed to start server in (production) mode:
-/build/certs/keycloak/key.pem", no further detail. `ls -la` inside the volume showed
-`-rw------- root root`; `UID 1000` cannot read that. Fixed at the root cause (every leaf key gets
-`chmod 644`, not a keycloak-specific carve-out) since any future non-project image in this compose
-file would hit the identical failure, silently, the same way this one did. Still a lab-only CA and
-lab-only keypairs (this script's own header comment already says so) -- loosening a LEAF key's mode
-is not a new secrecy regression; the CA key itself (`ca.key`, which signs, and is never read by any
-served container) is deliberately left at its default `0600`.
+`chmod 640`s every leaf key it generates, in BOTH the fresh-generation branch and the
+"already exists, skip" branch.** `openssl ecparam -genkey` writes private keys `0600`, owner-only,
+regardless of umask -- harmless for every NF this project already runs, because every one of THIS
+project's own runtime containers runs as root (`grep -l '^USER' deploy/docker/*.Dockerfile` matches
+nothing -- checked, not assumed), so root-owned-and-root-read always worked. Keycloak's official
+image is the first container in this compose file that is NOT this project's own, and it drops
+privileges to `UID 1000` while keeping `GID 0` (confirmed:
+`docker run --entrypoint id quay.io/keycloak/keycloak:26.0` -> `uid=1000(keycloak) gid=0(root)`).
+The result, reproduced directly rather than guessed at from the vague error Keycloak itself gives:
+`keycloak` started, imported the realm successfully ("Realm '5gc-r19-operators' imported" /
+"Import finished successfully" both logged), and THEN failed to bind its HTTPS listener at the
+last step -- "Failed to start server in (production) mode: /build/certs/keycloak/key.pem", no
+further detail. `ls -la` inside the volume showed `-rw------- root root`; `UID 1000` cannot read
+that. **This means ADR-0441's own compose Keycloak service, as committed there, could not
+actually have started against a `certs_data` volume produced the way `pki-init` produces one** --
+every volume this repository's own `pki-init` has ever provisioned carries this same `0600`
+`keycloak/key.pem`, this fix included, until this fix runs against it (the "already exists" branch
+matters for exactly this: an existing volume from BEFORE this ADR needs its key re-moded, not
+just newly-generated ones, which is why that branch also got the `chmod`, not only the fresh one).
+Chose `0640` (owner rw, GROUP r, other none) over the more permissive `0644` initially tried:
+`keycloak`'s process `GID 0` matches every leaf key's own group ownership (`root`, gid 0, in every
+container that runs this script), so group-read is sufficient -- no need to make lab private keys
+world-readable on this otherwise-shared, multi-user host. Re-verified end-to-end at `0640`
+specifically (not merely reasoned from the `gid` match): `chmod 640` the volume's
+`keycloak/key.pem`, `docker compose up -d --no-deps keycloak`, confirmed
+`Listening on: https://0.0.0.0:8443` in its log, then stopped/removed the container and
+reset the `keycloak` database again (same reason as the main proof's own cleanup, below: Keycloak's
+`IGNORE_EXISTING` import strategy would otherwise leave a realm import behind that a future run
+cannot cleanly redo).
+Fixed at the root cause (every leaf key, not a keycloak-specific carve-out) since any future
+non-project image in this compose file would hit the identical failure, silently, the same way
+this one did. Still a lab-only CA and lab-only keypairs (this script's own header comment already
+says so) -- loosening a LEAF key's mode is not a new secrecy regression; the CA key itself
+(`ca.key`, which signs, and is never read by any served container) is deliberately left at its
+default `0600`.
 
 **Decision 8: `deploy/helm/oam-gui-bff/` follows `deploy/helm/keycloak/`'s `existingSecrets`
 convention, not `deploy/helm/udr/`'s bare image-only shape -- but, disclosed plainly rather than
@@ -31600,6 +31629,14 @@ that starts" is not done; a real round-trip succeeding is):
   specifically so `up` would not also start `product-catalog` (a real port, 7785, this machine's
   CI run might have still been exercising at that moment; confirmed after the fact it was not, but
   `--no-deps` cost nothing and removed the question).
+- **The CA `prove_operator_login.sh`'s own `<ca_bundle_path>` argument needs, extracted from the
+  running `certs_data` volume itself, not any host `certs/ca/ca.crt`** (see that script's own
+  header for why those are two different CAs): any image with that volume mounted can read it
+  back out, e.g. with the always-locally-available `ubuntu:24.04` --
+  `docker run --rm -v docker_certs_data:/build/certs --entrypoint cat ubuntu:24.04
+  /build/certs/ca/ca.crt > ca.crt` -- this is exactly the command this proof actually ran (against
+  the now-removed verification image at the time, functionally identical to running it against
+  `ubuntu:24.04` or any other image sharing that mount).
 - **A real, previously-nonexistent `operator_iam`/`keycloak` pair, provisioned by hand with the
   EXACT DDL `init-domain-dbs.sh` would have run on a fresh volume** (this shared `postgres-chf`
   predates ADR-0423/ADR-0441 -- see Disclosed below) -- `CREATE DATABASE`, then

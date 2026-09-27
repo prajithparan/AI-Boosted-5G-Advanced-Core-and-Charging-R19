@@ -705,9 +705,28 @@ services:
       # directory): these two files are the ONLY pieces of the operator-facing PKI/OIDC-secret
       # this compose file does not itself provision, and mounting just them leaves the
       # certs_data-provisioned oam-gui-bff/{cert,key}.pem (this NF's own lab-CA identity, used for
-      # every outbound service call including to keycloak) untouched.
-      - ../../certs/oam-operator-ca/ca.crt:/build/certs/oam-operator-ca/ca.crt:ro
-      - ../../certs/oam-gui-bff/oidc-client-secret:/build/certs/oam-gui-bff/oidc-client-secret:ro
+      # every outbound service call including to keycloak) untouched. LONG syntax with
+      # `create_host_path: false`, not the short `host:container:ro` form: the short form makes
+      # Docker silently CREATE a root-owned DIRECTORY at the host path when the source file does
+      # not exist yet (e.g. a fresh clone that has not run gui/scripts/gen-operator-pki.sh and
+      # deploy/keycloak/render-realm.sh on the host first) -- the container would then still start
+      # (mounting an empty directory where oam-gui-bff expects a file, failing later, confusingly,
+      # inside the app instead of failing loudly here), and a later real run of those scripts would
+      # fail trying to write a FILE where a root-owned directory the invoking user cannot remove
+      # already sits. `create_host_path: false` makes a missing source fail the `up` immediately,
+      # which is the honest failure mode: run the two host scripts first.
+      - type: bind
+        source: ../../certs/oam-operator-ca/ca.crt
+        target: /build/certs/oam-operator-ca/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../../certs/oam-gui-bff/oidc-client-secret
+        target: /build/certs/oam-gui-bff/oidc-client-secret
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "8710:8710"   # operator-facing HTTPS (TLS 1.3 + operator-CA mTLS + OIDC session)
       - "9510:9510"   # Prometheus /metrics

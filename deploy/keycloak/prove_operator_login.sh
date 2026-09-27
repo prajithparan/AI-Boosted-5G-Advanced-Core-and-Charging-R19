@@ -5,11 +5,20 @@
 # certificate (mTLS), submits the real seeded lab password, computes and submits the real TOTP
 # code (deploy/keycloak/totp.py), and confirms a real session cookie is issued.
 #
-# Prerequisites (see ADR-0442 for the exact commands used the first time):
-#   - scripts/gen-lab-pki.sh (with oam-gui-bff, keycloak, and every other NF name) run once,
-#     either on the host or via the already-built image's own openssl (pki-init's own apt-get
-#     install can be skipped this way if network to apt is unavailable).
-#   - gui/scripts/gen-operator-pki.sh terminal-lab-1 (host) -- the operator-CA client cert/key
+# Prerequisites (see ADR-0442 for the exact commands used the first time) -- BOTH of the following
+# `gen-lab-pki.sh` runs are needed, not either/or, and they produce two DIFFERENT CAs used for two
+# DIFFERENT purposes:
+#   - `scripts/gen-lab-pki.sh` run ONCE ON THE HOST (with oam-gui-bff, keycloak, and every other NF
+#     name) -- a prerequisite for the next step: `gui/scripts/gen-operator-pki.sh` REFUSES to run
+#     without the host's own `certs/ca/ca.key` already present. This host-side CA is otherwise
+#     unrelated to what the running containers present.
+#   - `scripts/gen-lab-pki.sh` also run inside `pki-init` (or, if `pki-init`'s own `apt-get install
+#     openssl` cannot reach the network, directly against the ALREADY-BUILT `oam-gui-bff` image's
+#     own `openssl`, which needs no network at all -- see ADR-0442's own workaround). THIS is the
+#     CA that signs the certificates the containerized `oam-gui-bff`/`keycloak` actually present --
+#     the one this script's own `<ca_bundle_path>` argument must point at (see below), extracted
+#     from the `certs_data` volume, never assumed to be the host's `certs/ca/ca.crt`.
+#   - `gui/scripts/gen-operator-pki.sh terminal-lab-1` (host) -- the operator-CA client cert/key
 #     this script presents.
 #   - deploy/keycloak/render-realm.sh (host) -- the real client secret + seeded lab users' real
 #     password/TOTP secret this script reads.
