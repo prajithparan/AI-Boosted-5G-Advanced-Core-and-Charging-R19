@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-oam-gui-bff
+  labels:
+    app.kubernetes.io/name: oam-gui-bff
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Single replica: see values.yaml's own comment on why this chart does not offer autoscaling
+  # yet (unverified session/login-state behaviour across replicas), same disclosure style as
+  # every other single-replica chart in deploy/helm/.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oam-gui-bff
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oam-gui-bff
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: oam-gui-bff
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: https
+              containerPort: 8710
+              protocol: TCP
+            - name: metrics
+              containerPort: 9510
+              protocol: TCP
+          volumeMounts:
+            # config/oam-gui-bff.json's server_cert_path/client_cert_path (same file, this NF is
+            # simultaneously an SBI server and client) resolve to /build/certs/oam-gui-bff/*.pem
+            # (REPO_ROOT baked in as /build at compile time -- gui/bff/CMakeLists.txt).
+            - name: tls
+              mountPath: /build/certs/oam-gui-bff/cert.pem
+              subPath: cert.pem
+              readOnly: true
+            - name: tls
+              mountPath: /build/certs/oam-gui-bff/key.pem
+              subPath: key.pem
+              readOnly: true
+            # service_ca_path (the shared lab/service CA) AND oidc.idp_ca_path both point at
+            # certs/ca/ca.crt by default (config/oam-gui-bff.json) -- one file, two config keys.
+            - name: trust
+              mountPath: /build/certs/ca/ca.crt
+              subPath: service-ca.crt
+              readOnly: true
+            # operator_ca_path -- the SEPARATE operator-terminal CA (browser-facing mTLS), never
+            # the same trust anchor as service_ca_path/idp_ca_path above.
+            - name: trust
+              mountPath: /build/certs/oam-operator-ca/ca.crt
+              subPath: operator-ca.crt
+              readOnly: true
+            # oidc.client_secret_file.
+            - name: oidc
+              mountPath: /build/certs/oam-gui-bff/oidc-client-secret
+              subPath: client-secret
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.existingSecrets.tls | default (printf "%s-oam-gui-bff-tls" .Release.Name) }}
+        - name: trust
+          secret:
+            secretName: {{ .Values.existingSecrets.trust | default (printf "%s-oam-gui-bff-trust" .Release.Name) }}
+        - name: oidc
+          secret:
+            secretName: {{ .Values.existingSecrets.oidc | default (printf "%s-oam-gui-bff-oidc" .Release.Name) }}

@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf keycloak"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf keycloak oam-gui-bff"
 
   nrf:
     build:
@@ -654,8 +654,82 @@ services:
     ports:
       - "8443:8443"   # 5gc-r19-operators realm OIDC endpoints (TLS 1.3, lab CA)
     # No healthcheck: the Keycloak image ships no shell/curl/wget to probe its own health endpoint
-    # with, and nothing in this compose file depends_on keycloak's health yet (oam-gui-bff is not
-    # containerized -- disclosed below and in ADR-0441). Add one alongside that work.
+    # with. oam-gui-bff below depends_on keycloak only at service_started (not a health condition
+    # this image cannot report) -- ADR-0442's own OidcAuthenticator does not fetch JWKS at
+    # construction (main.cpp constructs it with only the config, no eager network call), so
+    # oam-gui-bff itself will not crash-loop racing Keycloak's own boot; a login attempted before
+    # Keycloak is ready to serve its token/JWKS endpoints simply fails that one request.
+
+  # ADR-0442: the operator GUI's backend-for-frontend, containerized -- closes ADR-0441's
+  # COMPOSE-side deferral ("oam-gui-bff itself has no Dockerfile or compose/Helm entry"; the Helm
+  # half is a separate, still-open gap -- deploy/helm/oam-gui-bff/Chart.yaml discloses it, do not
+  # read this compose entry as closing that side too). Shares the lab CA every other NF does
+  # (pki-init's NF list above now includes oam-gui-bff) for its own leaf certificate AND for
+  # trusting keycloak's TLS server certificate (both signed by the same CA -- see
+  # oam-gui-bff.Dockerfile's header comment). Its own OIDC-facing OPERATOR mTLS trust anchor
+  # (`operator_ca_path`) and IdP client secret (`client_secret_file`) are a SEPARATE PKI this
+  # compose file does not provision (same disclosed gap category as keycloak's own realm import
+  # above): `gui/scripts/gen-operator-pki.sh terminal-lab-1` + `deploy/keycloak/render-realm.sh`,
+  # run on the HOST exactly as ADR-0441 already documented, then bind-mounted in below by the two
+  # specific files they produce -- NOT the whole certs_data volume, which stays container-CA-only
+  # for every NF-to-NF mTLS leg. IMPORTANT, easy to get backwards: `gen-operator-pki.sh`'s own
+  # final message names `certs/ca/ca.crt` (the HOST's lab CA, from a host run of
+  # `scripts/gen-lab-pki.sh`) as the browser's trust anchor for this server's certificate -- true
+  # for a HOST-BINARY oam-gui-bff, but this CONTAINERIZED one presents a certificate signed by the
+  # certs_data VOLUME's CA instead (a separate CA; see ADR-0442's own proof for the
+  # `docker run --entrypoint cat ... /build/certs/ca/ca.crt` extraction it actually trusts against).
+  # An operator's browser must import THAT CA, not the host one, to reach this container without a
+  # certificate warning.
+  oam-gui-bff:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/oam-gui-bff.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres-chf:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      product-catalog:
+        condition: service_started
+    environment:
+      # Selects deploy/docker/oam-gui-bff.compose.json wholesale (ADR-0442) instead of
+      # config/oam-gui-bff.json's own host-binary defaults (nf_config::load's own
+      # <SERVICE>_CONFIG_FILE convention, uppercased with hyphens intact -- verified against
+      # nf_config.hpp's actual toupper()-only loop, not assumed).
+      OAM-GUI-BFF_CONFIG_FILE: /build/deploy/docker/oam-gui-bff.compose.json
+    volumes:
+      - certs_data:/build/certs
+      # Bind-mounted individually (not the whole certs/oam-operator-ca or certs/oam-gui-bff
+      # directory): these two files are the ONLY pieces of the operator-facing PKI/OIDC-secret
+      # this compose file does not itself provision, and mounting just them leaves the
+      # certs_data-provisioned oam-gui-bff/{cert,key}.pem (this NF's own lab-CA identity, used for
+      # every outbound service call including to keycloak) untouched. LONG syntax with
+      # `create_host_path: false`, not the short `host:container:ro` form: the short form makes
+      # Docker silently CREATE a root-owned DIRECTORY at the host path when the source file does
+      # not exist yet (e.g. a fresh clone that has not run gui/scripts/gen-operator-pki.sh and
+      # deploy/keycloak/render-realm.sh on the host first) -- the container would then still start
+      # (mounting an empty directory where oam-gui-bff expects a file, failing later, confusingly,
+      # inside the app instead of failing loudly here), and a later real run of those scripts would
+      # fail trying to write a FILE where a root-owned directory the invoking user cannot remove
+      # already sits. `create_host_path: false` makes a missing source fail the `up` immediately,
+      # which is the honest failure mode: run the two host scripts first.
+      - type: bind
+        source: ../../certs/oam-operator-ca/ca.crt
+        target: /build/certs/oam-operator-ca/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../../certs/oam-gui-bff/oidc-client-secret
+        target: /build/certs/oam-gui-bff/oidc-client-secret
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "8710:8710"   # operator-facing HTTPS (TLS 1.3 + operator-CA mTLS + OIDC session)
+      - "9510:9510"   # Prometheus /metrics
 
   # Real Redis/Valkey for CHF's own ChargingDataStore (ADR-0055/E3 persistence).
   # ADR-0355: the event bus. Apache Kafka (Apache-2.0) in KRaft mode -- no ZooKeeper. Redpanda

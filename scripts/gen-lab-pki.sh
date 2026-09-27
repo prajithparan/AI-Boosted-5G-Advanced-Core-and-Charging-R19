@@ -49,11 +49,33 @@ for nf in "${NF_NAMES[@]}"; do
 
     if [ -f "${nf_dir}/key.pem" ]; then
         echo "== ${nf}: cert already exists, skipping =="
+        # Group-readable (openssl otherwise writes private keys 0600, owner-only, regardless of
+        # whether this branch or the fresh-generation branch below runs): every NF's own runtime
+        # container in this project runs as root, so 0600-owned-by-root was never a problem here --
+        # until Keycloak (ADR-0441/ADR-0442), whose official image drops privileges to UID 1000
+        # (still GID 0, confirmed: `docker run --entrypoint id quay.io/keycloak/keycloak:26.0` ->
+        # `uid=1000(keycloak) gid=0(root)`) and fails closed at startup unable to read a 0600
+        # root-owned key.pem ("Failed to start server in (production) mode:
+        # /build/certs/keycloak/key.pem", no further detail logged). This branch's own chmod is not
+        # optional: a `certs_data` volume provisioned by an EARLIER run of this script (i.e. every
+        # volume that already exists on a machine that ran ADR-0441's own compose Keycloak service
+        # before this fix) hits this "already exists" branch forever after, never the fresh one
+        # below -- meaning ADR-0441's own compose Keycloak could not actually have started against
+        # such a volume as committed; this is disclosed in ADR-0442, not assumed fixed by the
+        # fresh-generation branch alone.
+        chmod 640 "${nf_dir}/key.pem" 2>/dev/null || true
         continue
     fi
 
     echo "== ${nf} =="
     openssl ecparam -name prime256v1 -genkey -noout -out "${nf_dir}/key.pem"
+    # 0640 (owner rw, GROUP r, other none), not the openssl default 0600: every leaf key's group
+    # owner is `root` (gid 0) in every container that runs this script, which is the SAME gid
+    # Keycloak's own non-root UID 1000 process runs under -- group-read is therefore sufficient,
+    # world-readable is not needed on this otherwise-shared, multi-user host. Still a lab-only
+    # CA/keypair (this file's own header comment) -- the CA key itself (`ca.key`, which signs, and
+    # is never read by a served container) is deliberately left at its default 0600.
+    chmod 640 "${nf_dir}/key.pem"
     openssl req -new -key "${nf_dir}/key.pem" \
         -subj "/O=5gc-r19 Lab/CN=${nf}" \
         -out "${nf_dir}/csr.pem"
