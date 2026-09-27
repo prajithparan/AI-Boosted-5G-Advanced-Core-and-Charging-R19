@@ -4,7 +4,8 @@
 # balance_mgmt, chf_rating, roaming; deploy/db/charging/*.sql) and `orchestration` (the customer
 # onboarding saga, deploy/db/orchestration/schema.sql) and `operator_iam` (the operator GUI's
 # identity, access, maker-checker, NF-config-version and audit domain, deploy/db/operator_iam/*.sql,
-# ADR-0423).
+# ADR-0423) and `keycloak` (the operator GUI's real OIDC IdP, ADR-0441 -- created EMPTY: Keycloak
+# migrates and owns that database's schema itself via Liquibase at boot, no DDL of ours applies).
 #
 # Runs as a postgres /docker-entrypoint-initdb.d/ script in compose (first start of an empty volume
 # only), and is invoked the same way by CI against its service container. Idempotent on the database
@@ -37,3 +38,6 @@ for f in "${DDL_ROOT}"/operator_iam/*.sql; do
     echo "init-domain-dbs: operator_iam <- $(basename "$f")"
     "${PSQL[@]}" -d operator_iam -f "$f"
 done
+
+create_db keycloak
+echo "init-domain-dbs: keycloak <- (empty; Keycloak migrates its own schema at boot)"

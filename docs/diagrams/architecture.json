@@ -862,7 +862,8 @@
     "REST + WebSocket"
    ],
    "svc": [
-    "React + JSON Forms"
+    "React + JSON Forms",
+    "Keycloak IdP live"
    ],
    "glyph": "monitor",
    "color": "#0891b2",

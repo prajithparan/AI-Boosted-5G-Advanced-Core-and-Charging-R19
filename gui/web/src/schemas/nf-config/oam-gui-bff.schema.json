@@ -124,7 +124,10 @@
           }
         },
         "mfa_acr": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "x-cpp-type": "nlohmann::json"
@@ -175,7 +178,6 @@
   "x-apply": "restart",
   "x-review": [
     "oidc: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "oidc.mfa_acr: empty array, item type unknown",
     "nf_config: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

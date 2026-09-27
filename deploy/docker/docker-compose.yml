@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf keycloak"
 
   nrf:
     build:
@@ -606,6 +606,56 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Keycloak (Apache-2.0, self-hosted) -- the real OIDC IdP for the operator GUI (ADR-0424,
+  # ADR-0441): authorization-code + PKCE, real ES256/RS256-signed ID tokens, real JWKS, real TOTP
+  # MFA gating a real `acr` claim via Keycloak's step-up (Level-of-Authentication) mechanism.
+  # Its own database is a SEPARATE database ("keycloak") on this SAME postgres-chf instance --
+  # not a schema inside `operator_iam`, not a dedicated postgres container. Keycloak owns and
+  # migrates that database itself (Liquibase, at boot); init-domain-dbs.sh only CREATEs it empty.
+  # See docs/DECISIONS.md ADR-0441 for the alternatives this rejected (dedicated postgres
+  # instance; reusing operator_iam's database/schema).
+  #
+  # The realm (client, step-up MFA flow, two lab operator users) is provisioned by
+  # deploy/keycloak/render-realm.sh into deploy/keycloak/import/ (gitignored, generated secrets --
+  # same pattern as certs/) BEFORE `docker compose up keycloak`; Keycloak's `--import-realm` reads
+  # it once, on first boot against an empty `keycloak` database.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres-chf:
+        condition: service_healthy
+    environment:
+      # Lab-only bootstrap credential for the MASTER realm admin console, same disclosed shape as
+      # postgres-chf's POSTGRES_HOST_AUTH_METHOD=trust above -- not used by the operator GUI login
+      # path at all (that is the imported 5gc-r19-operators realm, OIDC-only, no admin console).
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: lab-only-change-me
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-chf:5432/keycloak
+      KC_DB_USERNAME: postgres
+      # Ignored by postgres-chf's trust auth; the Postgres JDBC driver still requires a non-empty
+      # value to be configured.
+      KC_DB_PASSWORD: unused-trust-auth
+      KC_HOSTNAME: https://127.0.0.1:8443
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "false"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - certs_data:/build/certs:ro
+      - ../keycloak/import:/opt/keycloak/data/import:ro
+    command:
+      - start
+      - --import-realm
+      - --https-certificate-file=/build/certs/keycloak/cert.pem
+      - --https-certificate-key-file=/build/certs/keycloak/key.pem
+    ports:
+      - "8443:8443"   # 5gc-r19-operators realm OIDC endpoints (TLS 1.3, lab CA)
+    # No healthcheck: the Keycloak image ships no shell/curl/wget to probe its own health endpoint
+    # with, and nothing in this compose file depends_on keycloak's health yet (oam-gui-bff is not
+    # containerized -- disclosed below and in ADR-0441). Add one alongside that work.
 
   # Real Redis/Valkey for CHF's own ChargingDataStore (ADR-0055/E3 persistence).
   # ADR-0355: the event bus. Apache Kafka (Apache-2.0) in KRaft mode -- no ZooKeeper. Redpanda
