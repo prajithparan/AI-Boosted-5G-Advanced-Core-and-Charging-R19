@@ -1477,8 +1477,12 @@ build_session_deletion_response_ies(std::uint64_t request_seid,
 }
 
 // Runs on the main thread (blocking UDP I/O, same "blocking transport gets its own thread"
-// discipline ADR-0006/ADR-0030 already established -- here it's simply the only thread, since
-// UPF has no HTTP2 server to share time with). Never returns.
+// discipline ADR-0006/ADR-0030 already established). UPDATE (ADR-0357): this comment used to say
+// "never returns" and "UPF has no HTTP2 server to share time with" -- both stale. ADR-0357 gave
+// this loop a real stop_requested flag + shutdown UDP nudge (see this function's own body) so it
+// returns cleanly on SIGTERM instead of only ending via SIGKILL; run_sbi_server (below, in main())
+// is this NF's real Nupf_EventExposure/GetUEPrivateIPaddrAndIdentifiers SBI server, on its own
+// thread precisely because this one blocks.
 // pfcp_bind_port: every port configurable outside code (user mandate). Read in main() from
 // config/upf.json (`pfcp_bind_port`, env UPF_PFCP_BIND_PORT) and passed in, rather than taken
 // from pfcp_core::kPfcpPort here. 8805 stays the configured default because it is IANA-assigned
@@ -1771,13 +1775,22 @@ int main() {
     }
 
     std::thread(run_nrf_lifecycle, upf_instance_id, nrf_base_url).detach();
-    std::thread(run_sbi_server, sbi_port, std::ref(event_subs), sbi_core::read_tps_limit(config))
-        .detach();
+    // ADR-0394 (extended): NOT detached -- run_sbi_server holds a reference to event_subs, which
+    // main() destructs on return; a detached copy of this exact bug (an unjoined thread using a
+    // soon-to-be-destructed local) is what caused a real, reproduced crash in NSACF's own
+    // run_periodic_reporting (see that function's own comment in nfs/nsacf/src/main.cpp) and was
+    // the original AMF NGAP finding before that (nfs/amf/src/ngap_task.cpp's
+    // NgapShutdownCoordinator). run_sbi_server already self-registers its own io_context for
+    // SIGTERM-triggered stop via run_multi_threaded -- it just needs to be joined, not detached,
+    // so main()'s own `return 0` below waits for it to actually finish first.
+    std::thread sbi_server_thread(
+        run_sbi_server, sbi_port, std::ref(event_subs), sbi_core::read_tps_limit(config));
     run_pfcp_lifecycle(start_time,
                        datapath.has_value() ? &*datapath : nullptr,
                        teid_session_store,
                        seid_to_teid_store,
                        nf_config::require<std::uint16_t>(
                            config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT")); // blocks forever
+    sbi_server_thread.join();
     return 0;
 }

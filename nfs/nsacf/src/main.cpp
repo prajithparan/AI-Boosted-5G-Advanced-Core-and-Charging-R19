@@ -68,6 +68,7 @@
 #include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -270,8 +271,18 @@ void report_threshold_events(sbi_core::http2::Client& notify_client,
 // PERIODIC subscriptions. One scan thread rather than a timer per subscription: the cadence this
 // service reports at is seconds, and a thread per subscription would be the wrong shape for a
 // list that is edited while it is read.
+// ADR-0394 (extended): this thread used to be detached with no stop signal at all, holding
+// references (subscriptions/slices) to objects main() owns and destructs on return -- reproduced
+// directly as a real `Fatal glibc error: pthread_mutex_lock.c: ... assertion failed` crash during
+// AMF integration tests that send this process SIGTERM while it is mid-sleep, one of several
+// real instances of the exact same bug class the AMF NGAP thread had (see NgapShutdownCoordinator's
+// own header comment in nfs/amf/src/ngap_task.cpp for the original root-cause writeup). `main()`
+// no longer detaches this thread -- it joins it after its own run_multi_threaded(ioc) returns, so
+// this loop only needs to notice `stop_requested` and return; it does not need to interrupt a
+// blocking syscall the way the AMF/SCTP case did.
 void run_periodic_reporting(nsacf::SacSubscriptionStore& subscriptions,
-                            nsacf::SliceAdmissionStore& slices) {
+                            nsacf::SliceAdmissionStore& slices,
+                            std::atomic<bool>& stop_requested) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/nsacf/cert.pem",
         .key_path = CERTS_DIR "/nsacf/key.pem",
@@ -280,8 +291,11 @@ void run_periodic_reporting(nsacf::SacSubscriptionStore& subscriptions,
     sbi_core::http2::Client notify_client(std::move(client_tls));
 
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> next_due;
-    while (true) {
+    while (!stop_requested.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (stop_requested.load()) {
+            break;
+        }
         const auto now = std::chrono::steady_clock::now();
         for (const auto& sub : subscriptions.active_snapshot()) {
             if (sub.event_trigger != sbi_gen::SACEventTrigger::PERIODIC ||
@@ -926,11 +940,21 @@ int main() {
         });
 
     std::thread(run_nrf_lifecycle, nsacf_instance_id, nrf_base, advertised_ipv4).detach();
-    std::thread(run_periodic_reporting, std::ref(subscriptions), std::ref(slices)).detach();
+    // ADR-0394 (extended): NOT detached -- see run_periodic_reporting's own header comment. Joined
+    // below, after run_multi_threaded(ioc) returns, so subscriptions/slices are not destructed
+    // while this thread might still be using them.
+    std::atomic<bool> periodic_reporting_stop{false};
+    sbi_core::on_shutdown_signal(
+        [&periodic_reporting_stop] { periodic_reporting_stop.store(true); });
+    std::thread periodic_reporting_thread(run_periodic_reporting,
+                                          std::ref(subscriptions),
+                                          std::ref(slices),
+                                          std::ref(periodic_reporting_stop));
 
     server.start();
     spdlog::info("nsacf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     spdlog::info("nsacf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
+    periodic_reporting_thread.join();
     return 0;
 }

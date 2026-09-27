@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,16 @@ public:
     // socket for it. Throws std::runtime_error on failure.
     SctpSocket accept();
 
+    // ADR-0394. Same connection-accepting behaviour as accept(), but returns std::nullopt instead
+    // of throwing when set_receive_timeout's own deadline expires with nothing pending -- lets a
+    // caller poll a stop flag between attempts instead of blocking indefinitely (this is how
+    // run_ngap_lifecycle's own accept loop learns to stop accepting new associations on shutdown,
+    // since there is no portable, safe way to interrupt a blocked accept() on a LISTENING socket
+    // from another thread the way shutdown_now() below does for a CONNECTED one). Still throws on
+    // any other real accept() failure. set_receive_timeout affects this call the same way it
+    // affects receive() -- SO_RCVTIMEO is a plain socket option the kernel honours for both.
+    std::optional<SctpSocket> accept_or_timeout();
+
     // Client-role counterpart to bind_and_listen/accept -- establishes a new SCTP association to
     // a real listening peer (e.g. this AMF's own NGAP port, from a test acting as a second, real
     // gNB). Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0090): added when a real
@@ -79,11 +91,24 @@ public:
 
     bool valid() const { return fd_ >= 0; }
 
+    // ADR-0394. Forces a blocking receive() on THIS association's socket, from ANY thread, to
+    // return promptly -- shutdown(), not close(): calling shutdown() on a socket another thread
+    // is concurrently blocked reading from is well-defined POSIX behaviour (the blocked call
+    // returns, here exactly like a graceful peer disconnect, receive()'s own existing ECONNRESET
+    // path already handles it correctly); a concurrent close() from another thread risks the
+    // classic fd-reuse race instead. This is what closes the real gap ADR-0394 found: this
+    // project's per-association NGAP threads (ADR-0030/ADR-0095) had no way to be asked to stop
+    // before this existed, so process shutdown could race them destructing shared clients/stores
+    // they were still using. Safe to call even after this object's own owning thread has already
+    // closed it (a no-op: fd_ is atomic, read once, and ::shutdown on an fd number this object no
+    // longer holds is simply never reached).
+    void shutdown_now();
+
 private:
     explicit SctpSocket(int fd);
     void close_if_open();
 
-    int fd_ = -1;
+    std::atomic<int> fd_{-1};
 };
 
 } // namespace ngap_core

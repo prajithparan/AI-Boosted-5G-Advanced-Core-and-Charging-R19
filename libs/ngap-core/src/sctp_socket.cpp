@@ -62,15 +62,12 @@ SctpSocket::~SctpSocket() {
     close_if_open();
 }
 
-SctpSocket::SctpSocket(SctpSocket&& other) noexcept : fd_(other.fd_) {
-    other.fd_ = -1;
-}
+SctpSocket::SctpSocket(SctpSocket&& other) noexcept : fd_(other.fd_.exchange(-1)) {}
 
 SctpSocket& SctpSocket::operator=(SctpSocket&& other) noexcept {
     if (this != &other) {
         close_if_open();
-        fd_ = other.fd_;
-        other.fd_ = -1;
+        fd_ = other.fd_.exchange(-1);
     }
     return *this;
 }
@@ -116,6 +113,24 @@ SctpSocket SctpSocket::accept() {
         throw_errno("accept() failed");
     }
     return SctpSocket(client_fd);
+}
+
+std::optional<SctpSocket> SctpSocket::accept_or_timeout() {
+    const int client_fd = ::accept(fd_, nullptr, nullptr);
+    if (client_fd < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return std::nullopt;
+        }
+        throw_errno("accept() failed");
+    }
+    return SctpSocket(client_fd);
+}
+
+void SctpSocket::shutdown_now() {
+    const int fd = fd_.load();
+    if (fd >= 0) {
+        ::shutdown(fd, SHUT_RDWR);
+    }
 }
 
 void SctpSocket::send(const std::vector<std::uint8_t>& data, std::uint16_t stream) {

@@ -121,6 +121,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -378,10 +379,18 @@ void run_nrf_lifecycle(const std::string& smf_instance_id, const std::string& nr
 // ADR-0040 (UPF's own turn) explicitly promised this stage would close that gap for real.
 // Retries forever (same "keep trying, NRF/UPF may not be up yet" discipline run_nrf_lifecycle
 // itself already uses) until at least one UPF instance with a real ipv4Addresses entry is found.
-std::string discover_upf_ipv4(sbi_core::http2::Client& http_client,
-                              sbi_core::OAuth2Client& oauth,
-                              const std::string& nrf_base) {
-    while (true) {
+// ADR-0394 (extended): returns std::nullopt instead of retrying forever once `stop_requested` is
+// set -- this loop's own indefinite retry (real, and necessary: a UPF this SMF needs may simply
+// not have registered with NRF yet) is exactly what `run_pfcp_lifecycle`'s own caller-side stop
+// check could never reach if this inner loop had no stop awareness of its own: joining
+// run_pfcp_lifecycle's thread on shutdown would then hang forever in every test/deployment where
+// no UPF is present yet -- trading ADR-0394's original crash for a guaranteed hang, which is
+// worse. Found and fixed in the same pass as the crash itself, not discovered separately later.
+std::optional<std::string> discover_upf_ipv4(sbi_core::http2::Client& http_client,
+                                             sbi_core::OAuth2Client& oauth,
+                                             const std::string& nrf_base,
+                                             std::atomic<bool>& stop_requested) {
+    while (!stop_requested.load()) {
         auto token = oauth.get_bearer_token();
         if (!token.has_value()) {
             spdlog::error("smf: OAuth2 token fetch failed for UPF discovery: {}", token.error());
@@ -411,6 +420,7 @@ std::string discover_upf_ipv4(sbi_core::http2::Client& http_client,
         spdlog::info("smf: no UPF registered with NRF yet, retrying discovery in 2s");
         std::this_thread::sleep_for(std::chrono::seconds(2));
     }
+    return std::nullopt;
 }
 
 // Real PFCP/N4 Association Setup with UPF (TS 29.244 SS6.2.6.2/SS7.4.4.1-2) -- Stage 2 of
@@ -532,7 +542,8 @@ private:
 void run_pfcp_lifecycle(const std::string& smf_instance_id,
                         const std::string& nrf_base,
                         UpfEndpointStore& upf_endpoint_store,
-                        smf::PfcpPeer& pfcp_peer) {
+                        smf::PfcpPeer& pfcp_peer,
+                        std::atomic<bool>& stop_requested) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/smf/cert.pem",
         .key_path = CERTS_DIR "/smf/key.pem",
@@ -542,13 +553,17 @@ void run_pfcp_lifecycle(const std::string& smf_instance_id,
     sbi_core::OAuth2Client oauth(
         http_client, nrf_base + "/oauth2/token", smf_instance_id, "nnrf-disc", "NRF");
 
-    const std::string upf_ip = discover_upf_ipv4(http_client, oauth, nrf_base);
-    spdlog::info("smf: discovered UPF at {} via Nnrf_NFDiscovery", upf_ip);
+    const auto upf_ip = discover_upf_ipv4(http_client, oauth, nrf_base, stop_requested);
+    if (!upf_ip.has_value()) {
+        spdlog::info("smf: PFCP lifecycle stopping before UPF discovery ever succeeded (SIGTERM)");
+        return;
+    }
+    spdlog::info("smf: discovered UPF at {} via Nnrf_NFDiscovery", *upf_ip);
 
-    const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
+    const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(*upf_ip),
                                                       g_upf_pfcp_port);
 
-    while (true) {
+    while (!stop_requested.load()) {
         pfcp_core::Header req_header;
         req_header.has_seid = false;
         req_header.message_type = pfcp_core::MessageType::AssociationSetupRequest;
@@ -585,8 +600,8 @@ void run_pfcp_lifecycle(const std::string& smf_instance_id,
             cause_ie != nullptr ? pfcp_core::decode_cause(cause_ie->value) : std::nullopt;
 
         if (cause.has_value() && *cause == pfcp_core::Cause::RequestAccepted) {
-            spdlog::info("smf: PFCP Sx Association established with UPF at {}", upf_ip);
-            upf_endpoint_store.set(upf_ip);
+            spdlog::info("smf: PFCP Sx Association established with UPF at {}", *upf_ip);
+            upf_endpoint_store.set(*upf_ip);
             return;
         }
         spdlog::warn("smf: PFCP Association Setup did not succeed (cause={}), backing off and "
@@ -4166,12 +4181,23 @@ int main() {
         });
 
     std::thread(run_nrf_lifecycle, smf_instance_id, nrf_base_url).detach();
-    std::thread(run_pfcp_lifecycle,
-                smf_instance_id,
-                nrf_base_url,
-                std::ref(upf_endpoint_store),
-                std::ref(pfcp_peer))
-        .detach();
+    // ADR-0394 (extended): NOT detached -- this thread holds references to upf_endpoint_store/
+    // pfcp_peer, both main()-local and destructed on return. While UPF association hasn't yet
+    // succeeded (its own retry loop, real in this project's own test logs: "smf: no UPF
+    // registered with NRF yet, retrying discovery in 2s"), this thread is still alive and would
+    // touch both after they were destructed if SIGTERM arrived mid-retry and this thread were
+    // left to run past main()'s own return the way it used to be -- the same bug class found and
+    // fixed for AMF's NGAP thread (nfs/amf/src/ngap_task.cpp, NgapShutdownCoordinator) and
+    // NSACF's own periodic-reporting thread (nfs/nsacf/src/main.cpp), reproduced there as a real
+    // crash, fixed here before it was.
+    std::atomic<bool> pfcp_lifecycle_stop{false};
+    sbi_core::on_shutdown_signal([&pfcp_lifecycle_stop] { pfcp_lifecycle_stop.store(true); });
+    std::thread pfcp_lifecycle_thread(run_pfcp_lifecycle,
+                                      smf_instance_id,
+                                      nrf_base_url,
+                                      std::ref(upf_endpoint_store),
+                                      std::ref(pfcp_peer),
+                                      std::ref(pfcp_lifecycle_stop));
 
     // ADR-0379: the Nsmf_EventExposure QOS_MON producer. A background thread periodically emits a
     // QOS_MON notification, per subscribed slice/session, to each subscription's notifUri -- the
@@ -4182,8 +4208,32 @@ int main() {
     const int qos_mon_interval =
         nf_config::optional<int>(config, "qos_mon_interval_seconds", "SMF_QOS_MON_INTERVAL_SECONDS")
             .value_or(30);
+    // ADR-0394 (extended): NOT detached when active -- this thread captures event_subs/sm_contexts
+    // by reference, both main()-local, same real dangling-reference risk on shutdown as every
+    // other instance of this bug class found in this same pass (see run_periodic_reporting's own
+    // comment in nfs/nsacf/src/main.cpp for the original crash this was found from). Optional
+    // (std::optional<std::thread>) because spawning it at all is itself conditional
+    // (qos_mon_interval > 0); joined below only when it was actually started. A condition
+    // variable, not a plain sleep_for + flag check, so shutdown is prompt even at this NF's own
+    // configured interval (defaults to 30s -- a plain post-sleep flag check would make every
+    // shutdown wait up to that long, an unacceptably slow bound for a test suite or a real
+    // rolling restart alike).
+    std::atomic<bool> qos_mon_stop{false};
+    std::mutex qos_mon_mutex;
+    std::condition_variable qos_mon_cv;
+    std::optional<std::thread> qos_mon_thread;
     if (qos_mon_interval > 0) {
-        std::thread([&event_subs, &sm_contexts, qos_mon_interval] {
+        sbi_core::on_shutdown_signal([&qos_mon_stop, &qos_mon_mutex, &qos_mon_cv] {
+            qos_mon_stop.store(true);
+            const std::lock_guard<std::mutex> lock(qos_mon_mutex);
+            qos_mon_cv.notify_all();
+        });
+        qos_mon_thread.emplace([&event_subs,
+                                &sm_contexts,
+                                qos_mon_interval,
+                                &qos_mon_stop,
+                                &qos_mon_mutex,
+                                &qos_mon_cv] {
             const sbi_core::http2::TlsConfig notif_tls{
                 .cert_path = CERTS_DIR "/smf/cert.pem",
                 .key_path = CERTS_DIR "/smf/key.pem",
@@ -4191,8 +4241,11 @@ int main() {
             };
             sbi_core::http2::Client notif_client(notif_tls);
             std::uint64_t tick = 0;
-            while (true) {
-                std::this_thread::sleep_for(std::chrono::seconds(qos_mon_interval));
+            std::unique_lock<std::mutex> lock(qos_mon_mutex);
+            while (!qos_mon_cv.wait_for(lock,
+                                        std::chrono::seconds(qos_mon_interval),
+                                        [&qos_mon_stop] { return qos_mon_stop.load(); })) {
+                lock.unlock();
                 ++tick;
                 std::time_t now = std::time(nullptr);
                 std::tm tm{};
@@ -4212,8 +4265,9 @@ int main() {
                             "smf: QOS_MON notify to {} failed: {}", notif.notif_uri, r.error());
                     }
                 }
+                lock.lock();
             }
-        }).detach();
+        });
         spdlog::info("smf: Nsmf_EventExposure QOS_MON producer on (every {}s)", qos_mon_interval);
     }
 
@@ -4221,5 +4275,9 @@ int main() {
     spdlog::info("smf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     spdlog::info("smf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
+    pfcp_lifecycle_thread.join();
+    if (qos_mon_thread.has_value()) {
+        qos_mon_thread->join();
+    }
     return 0;
 }

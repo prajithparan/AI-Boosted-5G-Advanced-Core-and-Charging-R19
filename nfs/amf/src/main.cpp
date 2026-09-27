@@ -1375,26 +1375,39 @@ int main() {
     // ngap_bind_address/ngap_bind_port default (config/amf.json) to 127.0.0.5:38412, matching
     // simulators/ransim/config/gnb.yaml's pre-agreed AMF target exactly (ADR-0016) -- now a real
     // config value (ADR-0077), not an in-source literal.
-    std::thread(amf::ngap::run_ngap_lifecycle,
-                ngap_bind_address,
-                ngap_bind_port,
-                amf_instance_id,
-                nrf_base,
-                peers,
-                std::ref(ue_contexts),
-                std::ref(ue_ngap_registry),
-                std::ref(ue_security_contexts),
-                std::ref(amf_ue_id_index),
-                std::ref(gnb_associations),
-                amf_region_id,
-                amf_set_id,
-                amf_pointer,
-                li_poi.get())
-        .detach();
+    //
+    // ADR-0394: NOT detached, unlike every other "own dedicated thread" in this file (run_nrf_
+    // lifecycle above, or UPF's analogous run_pfcp_lifecycle). Joined below, after
+    // run_multi_threaded(ioc) returns -- ue_contexts/ue_ngap_registry/ue_security_contexts/
+    // amf_ue_id_index/gnb_associations/peers are all local to this function and about to be
+    // destructed by `return 0`'s own stack unwind; run_ngap_lifecycle's own detached
+    // per-association threads (unaffected by this join -- they were already real, coordinated
+    // shutdown via NgapShutdownCoordinator before this line) read/write every one of those
+    // through this same run_ngap_lifecycle thread's own reference parameters until it actually
+    // returns. Detaching this thread the way it used to be would let main() destroy all of that
+    // while run_ngap_lifecycle's own shutdown-drain (up to 5s, waiting for in-flight associations)
+    // was still running -- exactly the race ADR-0394 found and root-caused, one level up from the
+    // per-association fix itself.
+    std::thread ngap_thread(amf::ngap::run_ngap_lifecycle,
+                            ngap_bind_address,
+                            ngap_bind_port,
+                            amf_instance_id,
+                            nrf_base,
+                            peers,
+                            std::ref(ue_contexts),
+                            std::ref(ue_ngap_registry),
+                            std::ref(ue_security_contexts),
+                            std::ref(amf_ue_id_index),
+                            std::ref(gnb_associations),
+                            amf_region_id,
+                            amf_set_id,
+                            amf_pointer,
+                            li_poi.get());
 
     server.start();
     spdlog::info("amf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
     spdlog::info("amf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
+    ngap_thread.join();
     return 0;
 }

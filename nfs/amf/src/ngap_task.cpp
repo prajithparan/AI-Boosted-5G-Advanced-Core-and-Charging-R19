@@ -1,6 +1,7 @@
 #include "ngap_task.hpp"
 
 #include "sbi_core/http2_client.hpp"
+#include "sbi_core/io_context_pool.hpp"
 #include "sbi_core/logging.hpp"
 #include "sbi_core/multipart.hpp"
 #include "sbi_core/oauth2_client.hpp"
@@ -10,9 +11,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <thread>
+#include <unordered_set>
 
 #include "TS26510_CommonData_grp.hpp"
 #include "TS29509_Nausf_UEAuthentication.hpp"
@@ -169,6 +172,84 @@ std::atomic<unsigned long> g_next_amf_ue_ngap_id{1};
 // pattern: the POI is process-lifetime singleton state, exactly like that allocator. Read only on
 // the NGAP task thread(s); set before any association is accepted.
 LiPoi* g_li_poi = nullptr;
+
+// ADR-0394: real, coordinated shutdown for the NGAP task's own detached-thread-per-association
+// model (ADR-0030/ADR-0095). Found while testing ADR-0393: this AMF's per-association threads had
+// no way to be told to stop, so a real SIGTERM could race main()'s own subsequent teardown of the
+// shared SBI clients/stores those threads were still using, crashing the process (reproduced
+// identically in several PRE-EXISTING, unrelated tests too -- a genuine, previously-undiscovered
+// gap, not a regression). run_ngap_lifecycle's own accept loop polls stop_requested() via
+// accept_or_timeout() instead of blocking on accept() forever (SctpSocket::accept_or_timeout's own
+// comment explains why a listening socket can't be interrupted the other way); each association's
+// blocking receive() is interrupted for real via SctpSocket::shutdown_now(), the POSIX-well-defined
+// "shutdown() a socket another thread is blocked reading from" technique. Mirrors
+// nfs/upf/src/main.cpp's own run_pfcp_lifecycle shutdown-nudge pattern (ADR-0357) -- the same real
+// problem (a thread blocked in a synchronous socket call that sbi_core::stop_on_shutdown_signal's
+// own io_context::stop() cannot reach), solved with sbi_core::on_shutdown_signal the same way, just
+// for N per-association sockets instead of UPF's one shared PFCP socket.
+class NgapShutdownCoordinator {
+public:
+    // Called from the SIGTERM callback (sbi_core::on_shutdown_signal, runs on ShutdownWatcher's
+    // own thread): stops the accept loop and interrupts every currently-live association's own
+    // blocking receive() so its thread can notice and exit.
+    void begin_shutdown() {
+        stop_requested_.store(true);
+        const std::lock_guard<std::mutex> lock(mutex_);
+        for (auto* assoc : live_associations_) {
+            assoc->shutdown_now();
+        }
+    }
+
+    bool stop_requested() const { return stop_requested_.load(); }
+
+    // Brackets one association's own live SctpSocket for the whole time it could still be
+    // blocked in receive() -- see handle_association's own use (RAII, so every return path is
+    // covered without duplicating the unregister call at each one).
+    void register_association(ngap_core::SctpSocket* assoc) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        live_associations_.insert(assoc);
+        // Closes the real race window between "shutdown began" and "this brand-new association
+        // registered": begin_shutdown() only interrupts sockets already in the set at the moment
+        // it iterates, so one that finishes accept() and registers a heartbeat later would
+        // otherwise never be told to stop.
+        if (stop_requested_.load()) {
+            assoc->shutdown_now();
+        }
+    }
+    void unregister_association(ngap_core::SctpSocket* assoc) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        live_associations_.erase(assoc);
+        cv_.notify_all();
+    }
+
+    // Called once, from run_ngap_lifecycle itself right after its own accept loop ends, so this
+    // thread's own return -- and main()'s subsequent teardown of the shared SBI clients/stores
+    // every association thread uses -- waits for real in-flight work to actually finish instead
+    // of racing it. Bounded: a peer-NF call one of these threads is blocked on (SMF/PCF/AUSF) can
+    // legitimately outlast a short grace period, and this project's own fail-open discipline
+    // (e.g. NSACF's) already accepts that a slow peer must not hang shutdown forever -- this
+    // mitigates the real race ADR-0394 found, it does not claim to eliminate every possible delay.
+    void wait_for_associations(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const bool all_done =
+            cv_.wait_for(lock, timeout, [this] { return live_associations_.empty(); });
+        if (!all_done) {
+            spdlog::warn(
+                "amf-ngap: {} association(s) still in flight after a {} ms shutdown grace "
+                "period -- proceeding anyway (each is most likely blocked on a real peer-NF "
+                "call; ADR-0394's race is mitigated by this bound, not eliminated for every "
+                "possible delay)",
+                live_associations_.size(),
+                timeout.count());
+        }
+    }
+
+private:
+    std::atomic<bool> stop_requested_{false};
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::unordered_set<ngap_core::SctpSocket*> live_associations_;
+};
 
 // Minimal per-association state carried from Stage 2's InitialUEMessage handler to Stage 3's
 // UplinkNASTransport handler -- both are separate, otherwise-stateless per-message handlers, but
@@ -2269,8 +2350,23 @@ void handle_association(const PeerEndpoints& peers,
                         amf::ngap::GnbAssociationRegistry& gnb_associations,
                         std::uint8_t amf_region_id,
                         std::uint16_t amf_set_id,
-                        std::uint8_t amf_pointer) {
+                        std::uint8_t amf_pointer,
+                        NgapShutdownCoordinator& shutdown_coordinator) {
     spdlog::info("amf-ngap: gNB association established");
+
+    // ADR-0394: brackets this exact SctpSocket object (a by-value parameter, never moved again
+    // after this point -- every helper this file passes it to takes it by reference) for the
+    // whole time it could be blocked in receive() below, so a real SIGTERM can interrupt it via
+    // shutdown_now() instead of racing this thread's own use of the shared clients/stores passed
+    // in above. RAII covers every return path in this function without duplicating the
+    // unregister call at each one.
+    shutdown_coordinator.register_association(&assoc);
+    struct UnregisterOnExit {
+        NgapShutdownCoordinator& coordinator;
+        ngap_core::SctpSocket* socket;
+        ~UnregisterOnExit() { coordinator.unregister_association(socket); }
+    } unregister_guard{shutdown_coordinator, &assoc};
+
     UeAuthState auth_state{}; // this association's single UE, see UeAuthState's own comment
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0095): this association's own
     // real gNB identity, captured at NGSetupRequest -- registered into gnb_associations so a real
@@ -2546,7 +2642,8 @@ void run_association_thread(ngap_core::SctpSocket assoc,
                             amf::ngap::GnbAssociationRegistry& gnb_associations,
                             std::uint8_t amf_region_id,
                             std::uint16_t amf_set_id,
-                            std::uint8_t amf_pointer) {
+                            std::uint8_t amf_pointer,
+                            NgapShutdownCoordinator& shutdown_coordinator) {
     sbi_core::http2::TlsConfig ausf_client_tls{
         .cert_path = CERTS_DIR "/amf/cert.pem",
         .key_path = CERTS_DIR "/amf/key.pem",
@@ -2603,7 +2700,8 @@ void run_association_thread(ngap_core::SctpSocket assoc,
                        gnb_associations,
                        amf_region_id,
                        amf_set_id,
-                       amf_pointer);
+                       amf_pointer,
+                       shutdown_coordinator);
 }
 
 LiPoi* li_poi() {
@@ -2630,18 +2728,30 @@ void run_ngap_lifecycle(const std::string& bind_address,
 
     ngap_core::SctpSocket listener;
     listener.bind_and_listen(bind_address, bind_port);
+    // ADR-0394: bounds accept()'s own block so the loop below can periodically notice a real
+    // SIGTERM instead of only ever waking on the next real gNB connection -- see
+    // NgapShutdownCoordinator's own header comment for the rest of this fix.
+    listener.set_receive_timeout(std::chrono::milliseconds(500));
     spdlog::info("amf-ngap: listening for NGAP/N2 (SCTP) on {}:{}", bind_address, bind_port);
 
-    while (true) {
-        ngap_core::SctpSocket assoc = listener.accept();
+    NgapShutdownCoordinator shutdown_coordinator;
+    sbi_core::on_shutdown_signal(
+        [&shutdown_coordinator] { shutdown_coordinator.begin_shutdown(); });
+
+    while (!shutdown_coordinator.stop_requested()) {
+        auto maybe_assoc = listener.accept_or_timeout();
+        if (!maybe_assoc.has_value()) {
+            continue; // the 500ms poll interval elapsed with nothing pending -- loop back and
+                      // recheck stop_requested()
+        }
         // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0095): real concurrent
         // association handling -- one std::thread per accepted association (was strictly
         // sequential, ADR-0031: "a real AMF would handle multiple concurrent associations").
-        // Detached: this lab has no coordinated shutdown path for in-flight associations (same
-        // real, disclosed scope every other detached/fire-and-forget thread in this project
-        // already carries), the process exiting is what ends them.
+        // Detached, but no longer fire-and-forget: shutdown_coordinator (ADR-0394) is a real,
+        // coordinated stop signal + bounded wait, not just "the process exiting is what ends
+        // them" the way this comment used to read.
         std::thread(run_association_thread,
-                    std::move(assoc),
+                    std::move(*maybe_assoc),
                     // By value, not std::ref: this thread is detached and outlives the frame that
                     // owns `peers` in main()'s caller chain. The stores below are std::ref'd
                     // because main() owns them for the whole process lifetime; a 4-string copy
@@ -2656,9 +2766,19 @@ void run_ngap_lifecycle(const std::string& bind_address,
                     std::ref(gnb_associations),
                     amf_region_id,
                     amf_set_id,
-                    amf_pointer)
+                    amf_pointer,
+                    std::ref(shutdown_coordinator))
             .detach();
     }
+
+    spdlog::info("amf-ngap: SIGTERM received, no longer accepting new associations -- waiting "
+                 "for in-flight ones to finish");
+    // ADR-0394: this is the wait that closes the real race -- main() (blocked in
+    // sbi_core::run_multi_threaded) only proceeds to destroy the shared SBI clients/stores this
+    // function's own parameters reference once every association thread that was still using them
+    // has actually returned, not merely been asked to.
+    shutdown_coordinator.wait_for_associations(std::chrono::seconds(5));
+    spdlog::info("amf-ngap: shutdown complete");
 }
 
 } // namespace amf::ngap
