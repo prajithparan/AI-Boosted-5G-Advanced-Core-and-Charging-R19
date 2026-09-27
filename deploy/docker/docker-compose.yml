@@ -363,13 +363,22 @@ services:
         condition: service_completed_successfully
       nrf:
         condition: service_started
-      kafka:
+      kafka-1:
         condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      kafka-topics-init:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     environment:
       MFAF_REDIS_URL: tcp://valkey:6379
-      MFAF_EVENT_BUS_BROKERS: kafka:9092
+      # ADR-0443: the 3-broker cluster's own INTERNAL listener (not kafka:9092's HOST listener --
+      # that was reachable from another container only by accident, since its advertised address
+      # was 127.0.0.1, meaningless inside a container; the real bug is disclosed there).
+      MFAF_EVENT_BUS_BROKERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
       MFAF_ADVERTISED_IPV4: mfaf
     volumes:
       - certs_data:/build/certs
@@ -732,33 +741,110 @@ services:
       - "9510:9510"   # Prometheus /metrics
 
   # Real Redis/Valkey for CHF's own ChargingDataStore (ADR-0055/E3 persistence).
-  # ADR-0355: the event bus. Apache Kafka (Apache-2.0) in KRaft mode -- no ZooKeeper. Redpanda
-  # was rejected: its core is BSL / Redpanda Community licensed, neither OSI-approved (P1).
-  kafka:
+  # ADR-0355 (single broker) -> ADR-0443 (3-broker KRaft cluster, real replication). Apache Kafka
+  # (Apache-2.0) -- no ZooKeeper. Redpanda was rejected: its core is BSL / Redpanda Community
+  # licensed, neither OSI-approved (P1).
+  #
+  # Why 3 brokers, not 1: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR and every topic's own
+  # replication.factor cannot exceed the broker count -- a real replication factor (durability
+  # surviving one broker's loss) needs at least that many brokers to replicate ONTO. combined
+  # broker+controller KRaft roles (same pattern the single-node service already used), one voter
+  # each -- the minimum real (not single-point) KRaft controller quorum.
+  #
+  # Partition counts for chf.cdr and mfaf.notifications are set by kafka-topics-init below, not by
+  # KAFKA_AUTO_CREATE_TOPICS_ENABLE (now "false", was "true"): auto-create hands a racing first
+  # producer whatever num.partitions default applies (1) before this file's own sizing has run,
+  # silently undersizing the topic it was never told to size -- ADR-0443 disables it and creates
+  # both topics explicitly, sized.
+  kafka-1: &kafka-broker
     image: apache/kafka:3.9.0
-    environment:
+    environment: &kafka-broker-env
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      # Two listeners, because two kinds of client: NFs on the host reach 127.0.0.1:9092; Doris'
-      # Routine Load, inside the compose network, reaches kafka:29092. A single advertised address
-      # cannot serve both -- the broker tells each client where to connect, and "127.0.0.1" means
-      # something different inside a container.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      # Three listeners per broker: NFs/tools on the host reach 127.0.0.1:<broker's own HOST
+      # port> (each broker needs a DIFFERENT host port -- they are different containers sharing
+      # the host network namespace's loopback); every other broker and Doris' Routine Load, both
+      # inside the compose network, reach <service>:29092. A single advertised address cannot
+      # serve both -- the broker tells each client where to reconnect, and "127.0.0.1" means
+      # something different inside a container than it does on the host.
       KAFKA_LISTENERS: HOST://:9092,INTERNAL://:29092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: HOST://127.0.0.1:9092,INTERNAL://kafka:29092
+      KAFKA_ADVERTISED_LISTENERS: HOST://127.0.0.1:9092,INTERNAL://kafka-1:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 3 brokers -> a real replication factor for the internal __consumer_offsets topic too, not
+      # just the topics this file provisions explicitly.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       # Lab-only: PLAINTEXT. A deployment puts TLS + SASL on the listener; CDRs are billing data.
-    ports:
-      - "9092:9092"
-    healthcheck:
+    healthcheck: &kafka-broker-healthcheck
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 20
+    ports:
+      - "9092:9092"
+
+  kafka-2:
+    <<: *kafka-broker
+    environment:
+      <<: *kafka-broker-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: HOST://127.0.0.1:9192,INTERNAL://kafka-2:29092
+    ports:
+      - "9192:9092"
+
+  kafka-3:
+    <<: *kafka-broker
+    environment:
+      <<: *kafka-broker-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: HOST://127.0.0.1:9292,INTERNAL://kafka-3:29092
+    ports:
+      - "9292:9092"
+
+  # ADR-0443. Runs once against the up cluster and exits: KAFKA_AUTO_CREATE_TOPICS_ENABLE is now
+  # "false" (see kafka-1's own comment), so nothing else will create these topics.
+  #
+  # Sizing (docs/DECISIONS.md ADR-0443 has the full derivation):
+  #   chf.cdr: Tier-1 target 300M CDRs/day = 3,472 CDRs/s average. Busy-hour concentration
+  #   (disclosed assumption, not a measured or 3GPP-specified figure: ~15% of a day's traffic in
+  #   its single busiest hour, a common telecom capacity-planning rule of thumb) -> 12,500 CDRs/s
+  #   sustained peak; x2 disclosed burst/growth headroom -> 25,000 CDRs/s design target. Divided by
+  #   a DISCLOSED, NOT independently measured, conservative per-partition throughput assumption of
+  #   3,000 msgs/s (KB-sized JSON, acks=all, idempotent producer, shared/modest hardware -- in the
+  #   range commonly cited in published Kafka sizing guidance, not this project's own benchmark) ->
+  #   ceil(25,000/3,000) = 9, already a clean multiple of the 3-broker count (3 leader-partitions
+  #   per broker). ADR-0443's PROOF STATUS ran a real kafka-producer-perf-test.sh against this same
+  #   cluster and topic and reports what it found -- explicitly NOT as this sizing's basis, since
+  #   that run shared the machine with a live CI build under heavy contention.
+  #   mfaf.notifications: no documented rate (ADR-0443 flags this, does not invent one); sized
+  #   instead for consumer-group parallelism headroom (partition count upper-bounds how many MFAF
+  #   replicas can consume the topic concurrently, docs/DECISIONS.md ADR-0365).
+  #   Both: replication.factor=3 (every broker), min.insync.replicas=2 (acks=all then genuinely
+  #   waits for a second broker, not just the leader, before acknowledging).
+  kafka-topics-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:29092 --create --if-not-exists \
+          --topic chf.cdr --partitions 9 --replication-factor 3 \
+          --config min.insync.replicas=2
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:29092 --create --if-not-exists \
+          --topic mfaf.notifications --partitions 6 --replication-factor 3 \
+          --config min.insync.replicas=2
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:29092 --describe
 
   # ADR-0044 mandated Valkey; the lab was still on redis:7-alpine, which resolves to Redis 7.4 --
   # the first version under RSALv2/SSPL, not OSI-approved (P1). Caught by the architecture
@@ -772,6 +858,90 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # ADR-0443: a real Valkey Cluster, additive to the single-node `valkey` above -- every existing
+  # NF (AMF, AUSF, CHF, ADRF, NWDAF, DCCF, LI-MDF, MFAF) keeps using the single-node service,
+  # unchanged, on purpose: their store code talks to Valkey through sw::redis::Redis, which has no
+  # MOVED/ASK-redirect handling, so pointing it at one node of a real cluster would silently serve
+  # only the ~1/N of keys that happen to hash to that node's own slot range and error on the rest
+  # -- a real gap ADR-0443 discloses rather than hides behind a cluster that would only actually
+  # have one usable shard. UDSF is the one NF whose CODE was converted this pass (store.hpp's
+  # RedisRouter, built on sw::redis::RedisCluster, which does handle redirects) -- its own compose
+  # entry below is deliberately still `redis_mode=single` against the service above, same as every
+  # other NF, so nothing in this file actually talks to this cluster yet either; ADR-0443's own
+  # PROOF STATUS used a standalone harness against these 6 nodes directly instead. Opt a converted
+  # NF in by pointing <NF>_REDIS_URL at valkey-cluster-1:6379 and setting <NF>_REDIS_MODE=cluster.
+  #
+  # 3 masters + 1 replica each = 6 nodes: the minimum real (not single-shard) Valkey/Redis Cluster
+  # topology -- Redis Cluster needs at least 3 master nodes to hold quorum for slot/failover
+  # decisions, and a shard with no replica has no failover at all. Shard COUNT here is sized to
+  # prove real multi-shard routing and per-shard failover, not against a measured UDSF ops/memory
+  # budget (no such figure is documented the way chf.cdr's CDR/day figure is -- ADR-0443 says so
+  # plainly rather than inventing one).
+  valkey-cluster-1: &valkey-cluster-node
+    image: valkey/valkey:8-alpine
+    command: >
+      valkey-server --cluster-enabled yes --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000 --appendonly no
+    healthcheck: &valkey-cluster-node-healthcheck
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "7001:6379"
+  valkey-cluster-2:
+    <<: *valkey-cluster-node
+    ports:
+      - "7002:6379"
+  valkey-cluster-3:
+    <<: *valkey-cluster-node
+    ports:
+      - "7003:6379"
+  valkey-cluster-4:
+    <<: *valkey-cluster-node
+    ports:
+      - "7004:6379"
+  valkey-cluster-5:
+    <<: *valkey-cluster-node
+    ports:
+      - "7005:6379"
+  valkey-cluster-6:
+    <<: *valkey-cluster-node
+    ports:
+      - "7006:6379"
+
+  # Runs `--cluster create` once, against all 6 nodes' own container IPs on the compose network
+  # (valkey-cli resolves them by service DNS name here; the resulting CLUSTER SLOTS map itself is
+  # published to every node's nodes.conf, and the value that ends up ANNOUNCED to a client is each
+  # node's own container IP, not its service name -- ADR-0443 discloses whether that was reachable
+  # from the host for this pass's proof). --cluster-replicas 1 with 6 nodes listed pairs each
+  # master with the next node as its replica (valkey-cli's own default assignment order).
+  valkey-cluster-init:
+    image: valkey/valkey:8-alpine
+    depends_on:
+      valkey-cluster-1:
+        condition: service_healthy
+      valkey-cluster-2:
+        condition: service_healthy
+      valkey-cluster-3:
+        condition: service_healthy
+      valkey-cluster-4:
+        condition: service_healthy
+      valkey-cluster-5:
+        condition: service_healthy
+      valkey-cluster-6:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        valkey-cli --cluster create \
+          valkey-cluster-1:6379 valkey-cluster-2:6379 valkey-cluster-3:6379 \
+          valkey-cluster-4:6379 valkey-cluster-5:6379 valkey-cluster-6:6379 \
+          --cluster-replicas 1 --cluster-yes
+        valkey-cli -h valkey-cluster-1 cluster nodes
 
   # Real, self-hosted, open-source Apache Doris for CHF's CDR generation (ADR-0058, P4.4;
   # ADR-0192 records the migration and the full engine comparison). `all-in-one` is a real,
@@ -922,11 +1092,15 @@ services:
   kafka-ui:
     image: kafbat/kafka-ui:latest
     depends_on:
-      kafka:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
         condition: service_healthy
     environment:
       KAFKA_CLUSTERS_0_NAME: lab
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:29092,kafka-2:29092,kafka-3:29092
     ports:
       - "8080:8080"
     restart: unless-stopped

@@ -16,8 +16,17 @@
 --
 -- Run once against the database that owns the cdr table, e.g.
 --   mysql -h127.0.0.1 -P9030 -uroot -D chf_cdr < nfs/chf/routine_load.doris.sql
--- Brokers/topic here are the lab compose values (Doris reaches the broker on the compose network's
--- INTERNAL listener, kafka:29092); a deployment substitutes its own.
+-- Brokers/topic here are the lab compose values (Doris reaches the brokers on the compose
+-- network's INTERNAL listener; ADR-0443 made this a real 3-broker cluster, kafka-1/2/3:29092,
+-- replication.factor=3 -- was a single broker, kafka:29092); a deployment substitutes its own.
+-- "kafka_partitions" is deliberately left unset: the real, current CREATE ROUTINE LOAD reference
+-- (https://doris.apache.org/docs/dev/sql-manual/sql-statements/data-modification/load-and-export/
+-- CREATE-ROUTINE-LOAD/, fetched before sizing chf.cdr's partitions up in ADR-0443, not recalled
+-- from memory) states: "If not specified, defaults to subscribing to all partitions under the
+-- topic from OFFSET_END" -- so growing the partition count here needs no change to this job. This
+-- was NOT independently re-verified against the specific installed image's own local docs/behavior
+-- (unlike ADR-0392's pg_partman verification, which did run the real thing); it rests on the
+-- public docs for the Doris version family this project uses, disclosed as such.
 
 CREATE ROUTINE LOAD cdr_from_event_bus ON cdr
 COLUMNS(recorded_date, charging_data_ref, invocation_sequence_number, service_type, operation,
@@ -34,7 +43,7 @@ PROPERTIES (
     "max_error_number" = "0"
 )
 FROM KAFKA (
-    "kafka_broker_list" = "kafka:29092",
+    "kafka_broker_list" = "kafka-1:29092,kafka-2:29092,kafka-3:29092",
     "kafka_topic" = "chf.cdr",
     "property.group.id" = "doris-cdr",
     "property.kafka_default_offsets" = "OFFSET_BEGINNING"

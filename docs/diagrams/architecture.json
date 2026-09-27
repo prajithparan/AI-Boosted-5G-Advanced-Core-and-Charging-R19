@@ -731,18 +731,18 @@
    "row": 0,
    "acronym": "Apache Kafka",
    "name": [
-    "event bus (KRaft)"
+    "event bus, 3-broker KRaft cluster"
    ],
    "ts": [
     "3.9 \u00b7 Apache-2.0"
    ],
    "svc": [
-    "topic chf.cdr \u00b7 acks=all",
-    "idempotent producer"
+    "chf.cdr 9p \u00b7 mfaf.notifications 6p",
+    "RF=3 \u00b7 min.insync.replicas=2"
    ],
    "glyph": "stream",
    "color": "#1f2937",
-   "source": "compose:kafka"
+   "source": "compose:kafka-2"
   },
   {
    "id": "doris",
