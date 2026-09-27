@@ -35,6 +35,14 @@ constexpr std::uint8_t kMessageTypeDlNasTransport = 0x68;
 constexpr std::uint8_t kMessageTypeServiceRequest = 0x4C;
 constexpr std::uint8_t kMessageTypeServiceReject = 0x4D;
 constexpr std::uint8_t kMessageTypeServiceAccept = 0x4E;
+// ADR-0393. TS 24.501 §9.7 message type values, confirmed against
+// simulators/ransim/vendor/UERANSIM/src/lib/nas/enums.hpp's EMessageType
+// (DEREGISTRATION_REQUEST_UE_ORIGINATING=0b01000101, DEREGISTRATION_ACCEPT_UE_ORIGINATING=
+// 0b01000110) -- not guessed. This project implements only the UE-originating direction; the
+// UE-terminated values (0x47/0x48) are real but unused here (network-initiated deregistration is
+// out of scope, disclosed).
+constexpr std::uint8_t kMessageTypeDeregistrationRequestUeOriginating = 0x45;
+constexpr std::uint8_t kMessageTypeDeregistrationAcceptUeOriginating = 0x46;
 
 // TS 24.501 §9.1.1 security header type values (the byte carried in the outer secured envelope,
 // distinct from the inner plaintext message's own header, which always carries
@@ -932,6 +940,78 @@ std::vector<std::uint8_t> encode_service_reject_plain(std::uint8_t mm_cause) {
     out.push_back(kMessageTypeServiceReject);
     out.push_back(mm_cause);
     return out;
+}
+
+std::optional<DeregistrationRequestOutcome>
+decode_deregistration_request(const aka_crypto::NasIntKey& knas_int,
+                              const aka_crypto::NasEncKey& knas_enc,
+                              std::uint32_t uplink_count,
+                              const std::vector<std::uint8_t>& p) {
+    // Sent under the association's ordinary post-SecurityModeComplete protection -- same
+    // "integrity protected and ciphered" envelope as UlNasTransport/RegistrationComplete, not the
+    // ServiceRequest special case (that one is deliberately never ciphered -- see this file's own
+    // ServiceRequest section header comment for why; a Deregistration always arrives on an
+    // association whose identity is already known from UeAuthState, so no such chicken-and-egg
+    // problem applies here).
+    const auto result = decode_secured_uplink(
+        knas_int, knas_enc, kShtIntegrityProtectedAndCiphered, /*ciphered=*/true, uplink_count, p);
+    if (!result.has_value())
+        return std::nullopt;
+
+    DeregistrationRequestOutcome out;
+    out.mac_valid = result->mac_valid;
+    if (!out.mac_valid)
+        return out;
+
+    const auto& inner = result->plain_inner;
+    // header(3) + ngKSI/deregistrationType packed byte(1) + mobileIdentity length(2) = 6 bytes
+    // minimum, even for a zero-length mobile identity (which never happens in practice, but the
+    // length field itself is always present).
+    if (inner.size() < 6 || inner[0] != kEpdMobilityManagement ||
+        inner[2] != kMessageTypeDeregistrationRequestUeOriginating) {
+        out.mac_valid = false; // not a message this function decodes
+        return out;
+    }
+
+    // mandatoryIE1(&ngKSI, &deRegistrationType) packs ngKSI into the high nibble and
+    // deRegistrationType into the low nibble (confirmed against decode_registration_request's own
+    // analogous byte, ngKSI-high/registrationType-low -- the same packing convention, not a
+    // separate guess). deRegistrationType's own value is itself Bmp4Enc112(switchOff,
+    // reRegistrationRequired, accessType): switchOff is bit3 of that nibble (bit3 of the whole
+    // byte), matching ie1.cpp's Bmp4Dec112(val, &switchOff, &reRegistrationRequired, &accessType)
+    // -- reRegistrationRequired (bit2) and accessType (bits0-1) are not read; this build has
+    // exactly one AMF, one gNB and one access type in scope (ADR-0031), so nothing branches on
+    // them.
+    out.switch_off = (inner[3] & 0b1000) != 0;
+
+    // 5GS Mobile Identity (TS 24.501 §9.11.3.4): Type-6 IE, 2-octet big-endian length, then value
+    // -- walked past by its own length field, not decoded (see this function's own declaration
+    // comment in nas_codec.hpp for why no caller needs the result).
+    const std::size_t id_len = (static_cast<std::size_t>(inner[4]) << 8) | inner[5];
+    if (6 + id_len > inner.size()) {
+        out.mac_valid = false;
+        return out;
+    }
+
+    return out;
+}
+
+std::vector<std::uint8_t> encode_deregistration_accept(const aka_crypto::NasIntKey& knas_int,
+                                                       const aka_crypto::NasEncKey& knas_enc,
+                                                       std::uint32_t downlink_count) {
+    // Inner plaintext message (TS 24.501 §8.2.11): header and message type only -- confirmed
+    // against simulators/ransim/vendor/UERANSIM/src/lib/nas/msg.cpp's own
+    // DeRegistrationAcceptUeOriginating::onBuild, an EMPTY body (no IEs at all, mandatory or
+    // optional).
+    const std::vector<std::uint8_t> inner{kEpdMobilityManagement,
+                                          kSecurityHeaderNotProtected,
+                                          kMessageTypeDeregistrationAcceptUeOriginating};
+    return encode_secured_downlink(knas_int,
+                                   knas_enc,
+                                   kShtIntegrityProtectedAndCiphered,
+                                   /*ciphered=*/true,
+                                   downlink_count,
+                                   inner);
 }
 
 } // namespace amf::nas

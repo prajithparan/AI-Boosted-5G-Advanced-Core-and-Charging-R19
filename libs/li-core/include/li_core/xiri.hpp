@@ -92,17 +92,6 @@ struct AmfRegistration {
     bool operator==(const AmfRegistration&) const = default;
 };
 
-// XIRIEvent.deregistration [2] AMFDeregistration -- TS 33.128 clause 6.2.2.2.3, table
-// 6.2.2.2.3-1. Only the two M members here; every identifier (sUPI/sUCI/gUTI/...) is C
-// ("if available") and correlated at the MDF2 by the X2 PDU's XID, so a minimal record is
-// conformant. The C identifier members are added when the AMF POI that produces this event is
-// wired against real AMF state.
-struct AmfDeregistration {
-    AmfDirection deregistration_direction = AmfDirection::NetworkInitiated;
-    AccessType access_type = AccessType::ThreeGppAccess;
-    bool operator==(const AmfDeregistration&) const = default;
-};
-
 // XIRIEvent.startOfInterceptionWithRegisteredUE [4] AMFStartOfInterceptionWithRegisteredUE --
 // TS 33.128 clause 6.2.2.2.5, table 6.2.2.2.5-1. Generated when LI is activated on a UE that is
 // already 5GMM-REGISTERED. Only the M members (registrationResult, sUPI, gUTI) here;
@@ -174,6 +163,28 @@ struct UserLocation {
 struct Location {
     std::optional<UserLocation> user_location;
     bool operator==(const Location&) const = default;
+};
+
+// XIRIEvent.deregistration [2] AMFDeregistration -- TS 33.128 clause 6.2.2.2.3, table
+// 6.2.2.2.3-1. deregistration_direction/access_type are the two M members. sUPI/gUTI/location are
+// C ("if available") -- ADR-0393 wires them, since the AMF POI now has real state to populate
+// them from. sUCI/pEI/gPSI/cause/reRegRequiredIndicator/unavailabilityPeriodDuration/
+// additionalUserIdentifiers remain unpopulated C/O members: this project's AMF has no SUCI
+// retained past registration, no PEI capture, no GPSI mapping, and this increment's scope is a
+// UE-originating ACCEPT (no reject cause applies) -- disclosed, not silently dropped.
+struct AmfDeregistration {
+    AmfDirection deregistration_direction = AmfDirection::NetworkInitiated;
+    AccessType access_type = AccessType::ThreeGppAccess;
+    std::optional<Supi> supi;
+    std::optional<FiveGGuti> guti;
+    std::optional<Location> location;
+    // SwitchOffIndicator ::= ENUMERATED { normalDetach(1), switchOff(2) } -- TS 24.501 §5.5.2.2's
+    // "switch off" deregistration-type bit, real and cheaply available since this POI's trigger
+    // decodes that exact bit to decide whether to send DEREGISTRATION ACCEPT at all (see
+    // TS 33.128 6.2.2.2.3's own two UE-initiated bullets).
+    enum class SwitchOff : std::uint8_t { NormalDetach = 1, SwitchOff = 2 };
+    std::optional<SwitchOff> switch_off_indicator;
+    bool operator==(const AmfDeregistration&) const = default;
 };
 
 // XIRIEvent.locationUpdate [3] AMFLocationUpdate -- TS 33.128 clause 6.2.2.2.4, table

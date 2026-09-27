@@ -628,6 +628,25 @@ in this table. `ue.yaml`'s `op` field and three missing UAC fields were fixed as
 found along the way (ADR-0030/ADR-0032) -- this config file had never actually been run against
 real `nr-ue` before this staged effort.
 
+### UE-originating Deregistration (ADR-0393)
+
+| Procedure | TS clause / message | Test |
+|---|---|---|
+| NAS DeregistrationRequest decode (UE-originating) | TS 24.501 §8.2.12, §5.5.2.2, §9.11.3.20 (deregistration type incl. switchOff bit) | `test_amf_deregistration.cpp` `AmfDeregistration.NormalDeregistrationTearsDownSessionAndUeContext`/`SwitchOffDeregistrationSendsNoAccept`: real `nf_test` UE driver, MAC-verified against real keys at the real post-PDU-session NAS COUNT (3) |
+| NAS DeregistrationAccept encode (not sent when switchOff) | TS 24.501 §8.2.11, §5.5.2.2.2 | Same two tests: deciphered/MAC-verified by the test driver for the non-switchOff case; the switchOff case asserts no Accept precedes the NGAP release |
+| AMF -> SMF `POST /nsmf-pdusession/v1/sm-contexts/{smContextRef}/release` (`Nsmf_PDUSession_ReleaseSMContext`) | TS 29.502 `Nsmf_PDUSession` | `AmfDeregistration.NormalDeregistrationTearsDownSessionAndUeContext`: real call against a real SMF holding a real smContextRef from a real CreateSMContext earlier in the same test |
+| AMF -> PCF `DELETE /npcf-am-policy-control/v1/policies/{polAssoId}` (`Npcf_AMPolicyControl DeleteIndividualAMPolicyAssociation`) | TS 29.507 `Npcf_AMPolicyControl` | Same test: real call against a real PCF holding the real polAssoId captured at registration (ADR-0393's own Decision 8) |
+| NGAP UEContextReleaseCommand, AMF-INITIATED (Cause=nas/deregister) | TS 38.413 §9.2.1.9 | Both tests: real PER-encoded PDU received and parsed by the test gNB, cause value asserted (`parse_ue_context_release_command_nas_cause`) -- the first AMF-INITIATED (as opposed to RAN-initiated) UEContextReleaseCommand this project has ever driven end to end |
+| NGAP UEContextReleaseComplete (confirming the above) | TS 38.413 §9.2.1.11 | Both tests: real `build_ue_context_release_complete` sent back, exercising `handle_ue_context_release_complete`'s ADR-0393 cleanup (`UeSecurityContextStore`/`AmfUeIdIndexStore` removal) for real, not just compile-verified |
+| LI xIRIs: AMFDeregistration (6.2.2.2.3), AMFIdentifierDeassociation (6.2.2.2.7) | TS 33.128 | `li_amf_poi_integration_tests`: `LiAmfPoi.EmitsDeregistrationAndIdentifierDeassociationForATarget`, `DeregistrationSwitchOffIndicatorIsReported`, extended `LiAmfPoiGating.RecordMatrix` -- LiPoi unit scope only; the AMF-process call sites in `ngap_task.cpp` are compile-verified, not exercised end to end (this AMF runs with LI disabled in both integration tests above) |
+
+**Found while testing, not fixed here (ADR-0394):** the AMF test process in
+`test_amf_deregistration.cpp` reliably crashes during its OWN teardown (a pre-existing shutdown
+race between detached per-association NGAP threads and process-wide SIGTERM handling, reproduced
+in unrelated pre-existing tests too -- see ADR-0394 for the full analysis). Every assertion above
+still passes before that crash occurs; it does not indicate a defect in the Deregistration
+procedure itself.
+
 ## UPF PFCP/N4 (staged plan, Phase 3 Stage 0-4, ADR-0039/ADR-0040/ADR-0041/ADR-0042/ADR-0043)
 
 **Stage 4 (eBPF/XDP datapath), fully resolved 2026-08-09** (see ADR-0043 in full, including its
@@ -5330,12 +5349,15 @@ wired to this yet -- it is the interface floor for the MDF2 (increment 3) and th
 | MDF2 keep-alive fault handling: TIME_P2 silence and TIME_P3 expiry detected (deactivate-all on expiry); `ReportNEIssue` back to the ADMF logged, not sent (needs the X1 client of the ADMF increment) | TS 103 221-1 6.6.2 | `nfs/li-mdf/src/main.cpp` keepalive thread, `libs/li-core` `KeepaliveMonitor` | exercised via `test_li_x1.cpp` keepalive tests; ADR-0377 disclosed |
 | GetTaskDetails full TaskStatus response (provisioningStatus + listOfFaults); NF wiring (AMF POI; MDF2 done per ADR-0377) | TS 103 221-1 6.4 | -- | **not built** / **disclosed** (ADR-0372; GetTaskDetails answered 1080) |
 
-## AMF IRI-POI -- six AMF xIRI codecs + the in-AMF POI, Registration wired (ADR-0378)
+## AMF IRI-POI -- six AMF xIRI codecs + the in-AMF POI, five of six wired (ADR-0378, ADR-0440, ADR-0393)
 
 Increment 4 of the LI programme. TS 33.127 clause 6.2.2.4 defines 13 AMF xIRI events; the approved
 "core mobility + identity" subset of six has its `li_core::xiri` codecs built and ASan-clean, the
-POI module (LI_X1 provisioning + target store + LI_X2 emit) lives in `nfs/amf/src/li_poi.cpp`, and
-the Registration event is wired end to end. The AMF is the first binary to host both the NGAP and
+POI module (LI_X1 provisioning + target store + LI_X2 emit) lives in `nfs/amf/src/li_poi.cpp`.
+Registration (ADR-0378), IdentifierAssociation/LocationUpdate (ADR-0440), and, since ADR-0393,
+Deregistration/IdentifierDeassociation are wired to real AMF triggers; only
+StartOfInterceptionWithRegisteredUE remains without a conformant trigger (this AMF has no
+mid-registration LI-activation hook). The AMF is the first binary to host both the NGAP and
 TS33128Payloads asn1c codecs (83 shared type names); the containment holds (see ADR-0378).
 
 | Procedure | TS clause | Source | Test |
@@ -5353,7 +5375,8 @@ TS33128Payloads asn1c codecs (83 shared type names); the containment holds (see 
 | POI gating decision per matching task (XID): absent -> all but Identifier(De)Association; IdentifierAssociation -> only IdAssoc/IdDeassoc/LocationUpdate; All -> all | TS 33.128 6.2.2.2.1 | `nfs/amf/src/li_poi.cpp` `xiri_record_enabled`, `LiPoi::Impl::matches` | `test_li_amf_poi.cpp` LiAmfPoiGating.* (5) |
 | IdentifierAssociation hook: REGISTRATION ACCEPT sent -> AMFIdentifierAssociation (sUPI, gUTI, location from the UplinkNASTransport ULI), Payload Direction 5 | TS 33.128 6.2.2.2.7 | `nfs/amf/src/ngap_task.cpp` `handle_uplink_nas_transport_smc_complete`; `nfs/amf/src/li_location.cpp` `user_location_from_ies` | `test_li_amf_poi.cpp` LiAmfPoiGating.IdentifierAssociationModeEmitsOnlyItsRecords; `test_li_amf_location.cpp` DecodesUserLocationFromAnIeContainer |
 | LocationUpdate hooks: N2 PathSwitchRequest (acknowledged) and HandoverNotify -> AMFLocationUpdate (sUPI, location from the message's ULI) | TS 33.128 6.2.2.2.4 | `nfs/amf/src/ngap_task.cpp` `handle_path_switch_request`; `nfs/amf/src/ngap_handover.cpp` `handle_handover_notify` | POI level: `test_li_amf_poi.cpp` LiAmfPoiGating.*; the NGAP-side hook is compile-verified only (disclosed, ADR-0440) |
-| Deregistration / IdentifierDeassociation / StartOfInterception detection hooks | TS 33.127 6.2.2.4 | -- | **not built** / **disclosed** (ADR-0378, ADR-0440): no AMF deregistration procedure (Deregistration's trigger, and IdentifierDeassociation's only conformant one), no CONFIGURATION UPDATE COMMAND (5G-GUTI), no POI<->AMF registration-state coupling -- codecs done, no conformant trigger yet |
+| Deregistration/IdentifierDeassociation hooks: UE-originating DeregistrationRequest -> AMFDeregistration (deregistrationDirection=UeInitiated, accessType, sUPI, gUTI, location, switchOffIndicator) + AMFIdentifierDeassociation (sUPI, gUTI, location); codecs extended with their real C members (sUPI/gUTI/location/switchOffIndicator) | TS 33.127 6.2.2.4; TS 33.128 6.2.2.2.3, 6.2.2.2.7 | `nfs/amf/src/ngap_task.cpp` `handle_uplink_nas_transport_deregistration`; `nfs/amf/src/li_poi.cpp` `report_deregistration`/`report_identifier_deassociation`; `libs/li-core/src/xiri.cpp` `fill/extract(AMFDeregistration)` | POI level: `test_li_amf_poi.cpp` LiAmfPoi.EmitsDeregistrationAndIdentifierDeassociationForATarget, DeregistrationSwitchOffIndicatorIsReported, extended LiAmfPoiGating.RecordMatrix; the NGAP-side hook is compile-verified only (disclosed, ADR-0393 -- this AMF runs with LI disabled in `test_amf_deregistration.cpp`) |
+| StartOfInterception detection hook | TS 33.127 6.2.2.4 | -- | **not built** / **disclosed** (ADR-0378): no POI<->AMF registration-state coupling for LI activated mid-registration -- codec done, no conformant trigger yet |
 
 ## NWDAF completion -- SERVICE_EXPERIENCE data path + the VFL hook (ADR-0379, ADR-0380)
 

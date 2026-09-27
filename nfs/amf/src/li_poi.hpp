@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "li_core/xiri.hpp"
@@ -21,12 +22,14 @@
 // counted, never allowed to break a UE procedure (an intercept failure must not take down the
 // network function it lives in).
 //
-// Wired events: Registration (TS 33.128 clause 6.2.2.2.2, ADR-0378), and since ADR-0440
-// IdentifierAssociation (6.2.2.2.7, at REGISTRATION ACCEPT) and LocationUpdate (6.2.2.2.4, at N2
-// PathSwitchRequest and HandoverNotify), all gated per target by the X1
-// IdentifierAssociationExtensions parameter (6.2.2.2.1). Deregistration, IdentifierDeassociation
-// and StartOfInterceptionWithRegisteredUE have codecs but no conformant AMF trigger yet (ADR-0440
-// lists why) and are not emitted.
+// Wired events: Registration (TS 33.128 clause 6.2.2.2.2, ADR-0378), IdentifierAssociation
+// (6.2.2.2.7, at REGISTRATION ACCEPT) and LocationUpdate (6.2.2.2.4, at N2 PathSwitchRequest and
+// HandoverNotify) since ADR-0440, and since ADR-0393 Deregistration (6.2.2.2.3, at UE-originating
+// DEREGISTRATION) and IdentifierDeassociation (6.2.2.2.7, the same trigger -- ADR-0440 named this
+// exact procedure as the only conformant trigger for it). All four are gated per target by the X1
+// IdentifierAssociationExtensions parameter (6.2.2.2.1). StartOfInterceptionWithRegisteredUE has a
+// codec but no conformant AMF trigger yet (this AMF has no mid-registration LI-activation hook)
+// and is not emitted.
 
 namespace amf {
 
@@ -40,6 +43,7 @@ enum class AmfXiriRecord : std::uint8_t {
     LocationUpdate,
     IdentifierAssociation,
     IdentifierDeassociation,
+    Deregistration,
 };
 
 // TS 33.128 clause 6.2.2.2.1, as a pure function:
@@ -118,6 +122,30 @@ public:
     // Location.locationInfo.userLocation, for an NGAP source) are M.
     void report_location_update(const std::string& supi,
                                 const li_core::xiri::UserLocation& location);
+
+    // TS 33.128 clause 6.2.2.2.3: AMFDeregistration for a target UE that has deregistered.
+    // UE-initiated only in this build (ADR-0393): this AMF implements no network-initiated
+    // deregistration procedure, so that trigger cannot fire and is not a gap in this call's own
+    // scope. `switch_off` is the decoded DEREGISTRATION REQUEST's own switch-off indicator
+    // (TS 24.501 §9.11.3.20) -- the same bit that decides whether this AMF even sends a NAS
+    // DEREGISTRATION ACCEPT (clause 6.2.2.2.3's two distinct UE-initiated trigger bullets: "sends
+    // ... ACCEPT" for a normal deregistration, "receives ... REQUEST ... switch off" when it
+    // does not). `guti`/`location` are C ("if available") members, populated when this call site
+    // has them.
+    void report_deregistration(const std::string& supi,
+                               bool switch_off,
+                               const std::optional<GutiParts>& guti,
+                               const std::optional<li_core::xiri::UserLocation>& location);
+
+    // TS 33.128 clause 6.2.2.2.7: AMFIdentifierDeassociation "when the IRI-POI ... detects an
+    // identifier deassociation without a new association within the same UE context" -- ADR-0440
+    // found the only conformant trigger this AMF has is a UE deregistering, so this is always
+    // emitted alongside report_deregistration for that same event, never from an independent
+    // site. `location` is OPTIONAL here (unlike IdentifierAssociation, where it is mandatory).
+    void
+    report_identifier_deassociation(const std::string& supi,
+                                    const GutiParts& guti,
+                                    const std::optional<li_core::xiri::UserLocation>& location);
 
 private:
     struct Impl;

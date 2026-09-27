@@ -123,4 +123,30 @@ std::optional<std::vector<std::uint8_t>> open_secured_downlink(
 std::optional<std::vector<std::uint8_t>>
 extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner);
 
+// ADR-0393: pulls the real 5G-GUTI value bytes (11 octets: identity-type byte, PLMN(3),
+// AMF Region ID(1), AMF Set ID/Pointer packed(2), 5G-TMSI(4)) out of a deciphered
+// RegistrationAccept, i.e. this driver's own `open_secured_downlink`'s returned plain_inner --
+// the inverse of nfs/amf/src/nas_codec.cpp's own encode_registration_accept, so a Deregistration
+// this driver later sends can carry the UE's REAL assigned identity instead of a fabricated one.
+// std::nullopt if the message is not a RegistrationAccept carrying IEI 0x77 (this project's AMF
+// always sends one, ADR-0075, so a real UE never hits this case in practice).
+std::optional<std::vector<std::uint8_t>>
+extract_guti_from_registration_accept(const std::vector<std::uint8_t>& plain_inner);
+
+// DeregistrationRequestUeOriginating (TS 24.501 §8.2.12), integrity protected AND ciphered
+// (security header type 0x02 -- sent under the association's ordinary post-SecurityModeComplete
+// protection, not ServiceRequest's special never-ciphered case; see
+// nfs/amf/src/nas_codec.cpp's decode_deregistration_request for why that distinction doesn't
+// apply here). `guti_value` is normally extract_guti_from_registration_accept's own result --
+// this driver sends whatever it's given, uninterpreted, matching AMF's own decoder (it walks the
+// mobile identity TLV by length, never decodes its content). `switch_off` sets TS 24.501
+// §5.5.2.2's "switch off" bit (byte layout: ngKSI in the high nibble, fixed 0 -- this project's
+// only ever-allocated ngKSI, ADR-0031 -- packed with Bmp4Enc112(switchOff, reRegistrationRequired=
+// spare/0, accessType=THREEGPP_ACCESS=0b01) in the low nibble, confirmed against
+// simulators/ransim/vendor/UERANSIM/src/utils/bits.hpp's real Ranged8 bit order).
+std::vector<std::uint8_t> build_deregistration_request(const NasKeys& keys,
+                                                       std::uint32_t uplink_count,
+                                                       const std::vector<std::uint8_t>& guti_value,
+                                                       bool switch_off = false);
+
 } // namespace nf_test

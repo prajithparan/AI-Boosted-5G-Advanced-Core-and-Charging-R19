@@ -61,6 +61,15 @@ public:
                                std::uint8_t pdu_session_id,
                                const std::vector<std::uint8_t>& n1_sm_container);
 
+    // ADR-0393: encodes (amf::nas::encode_deregistration_accept) and sends a secured
+    // DEREGISTRATION ACCEPT over the registered UE's live association, get-and-incrementing its
+    // next_downlink_count exactly as send_dl_nas_transport does -- the registry's own count is the
+    // single source of truth regardless of which thread calls this (an async
+    // Namf_Communication N1N2MessageTransfer from the SBI server thread could have advanced it
+    // since this UE's own NGAP thread last touched it). Returns false if no live association is
+    // registered for this SUPI.
+    bool send_deregistration_accept(const std::string& supi);
+
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0096): sends a pre-encoded raw
     // NGAP PDU on the registered UE's CURRENT live association -- used by handle_handover_notify
     // (running on the TARGET association's own thread) to send a real, AMF-initiated

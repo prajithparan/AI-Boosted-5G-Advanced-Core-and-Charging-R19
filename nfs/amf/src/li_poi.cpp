@@ -108,6 +108,8 @@ const char* record_name(AmfXiriRecord record) {
             return "AMFIdentifierAssociation";
         case AmfXiriRecord::IdentifierDeassociation:
             return "AMFIdentifierDeassociation";
+        case AmfXiriRecord::Deregistration:
+            return "AMFDeregistration";
     }
     return "AMF xIRI";
 }
@@ -497,6 +499,62 @@ void LiPoi::report_location_update(const std::string& supi,
                     update,
                     li_core::PayloadDirection::NotApplicable,
                     AmfXiriRecord::LocationUpdate);
+    }
+}
+
+void LiPoi::report_deregistration(const std::string& supi,
+                                  bool switch_off,
+                                  const std::optional<GutiParts>& guti,
+                                  const std::optional<li_core::xiri::UserLocation>& location) {
+    const std::string bare = bare_identity(supi);
+    for (const auto& matched : impl_->matches(supi)) {
+        if (!xiri_record_enabled(matched.gating, AmfXiriRecord::Deregistration)) {
+            continue; // IdentifierAssociation-only target: 6.2.2.2.1, "No other record types"
+        }
+        li_core::xiri::AmfDeregistration dereg;
+        // UE-initiated only in this build (ADR-0393): this AMF implements no network-initiated
+        // deregistration procedure, so table 5.3.2-1's direction is always the UE side.
+        dereg.deregistration_direction = li_core::xiri::AmfDirection::UeInitiated;
+        dereg.access_type = li_core::xiri::AccessType::ThreeGppAccess;
+        dereg.supi = xiri_supi(matched.target, bare);
+        if (guti) {
+            dereg.guti = to_xiri_guti(*guti);
+        }
+        if (location) {
+            dereg.location = to_xiri_location(*location);
+        }
+        dereg.switch_off_indicator =
+            switch_off ? li_core::xiri::AmfDeregistration::SwitchOff::SwitchOff
+                       : li_core::xiri::AmfDeregistration::SwitchOff::NormalDetach;
+        // Clause 6.2.2.2.3 names no direction; table 5.3.2-1 sets it from the initiator, which is
+        // the target UE for every trigger this AMF implements -- same convention as
+        // report_registration's own UE-initiated case.
+        impl_->emit(
+            matched, dereg, li_core::PayloadDirection::FromTarget, AmfXiriRecord::Deregistration);
+    }
+}
+
+void LiPoi::report_identifier_deassociation(
+    const std::string& supi,
+    const GutiParts& guti,
+    const std::optional<li_core::xiri::UserLocation>& location) {
+    const std::string bare = bare_identity(supi);
+    for (const auto& matched : impl_->matches(supi)) {
+        if (!xiri_record_enabled(matched.gating, AmfXiriRecord::IdentifierDeassociation)) {
+            continue; // table 6.2.2.1.1-1: extension absent -> never generated
+        }
+        li_core::xiri::AmfIdentifierDeassociation deassoc;
+        deassoc.supi = xiri_supi(matched.target, bare);
+        deassoc.guti = to_xiri_guti(guti);
+        if (location) {
+            deassoc.location = to_xiri_location(*location);
+        }
+        // Clause 6.2.2.2.7 (the deassociation half): "shall set the Payload Direction field ...
+        // to not applicable (Direction Value 5)" -- same value the association half already uses.
+        impl_->emit(matched,
+                    deassoc,
+                    li_core::PayloadDirection::NotApplicable,
+                    AmfXiriRecord::IdentifierDeassociation);
     }
 }
 

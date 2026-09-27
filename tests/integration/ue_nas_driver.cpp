@@ -32,6 +32,10 @@ constexpr std::uint8_t kShtIntegrityProtectedAndCiphered = 0x02;
 constexpr std::uint8_t kDirectionDownlink = 1;
 constexpr std::uint8_t kMessageTypeRegistrationComplete = 0x43;
 constexpr std::uint8_t kMessageTypeUlNasTransport = 0x67;
+// ADR-0393, mirroring nfs/amf/src/nas_codec.cpp's own named values.
+constexpr std::uint8_t kMessageTypeRegistrationAccept = 0x42;
+constexpr std::uint8_t kIeiRegistrationAcceptGuti = 0x77;
+constexpr std::uint8_t kMessageTypeDeregistrationRequestUeOriginating = 0x45;
 constexpr std::uint8_t kMessageTypeDlNasTransport = 0x68;
 constexpr std::uint8_t kPayloadContainerTypeN1SmInformation = 0x01;
 // UlNasTransport's own optional IEIs, mirroring nfs/amf/src/nas_codec.cpp's named values.
@@ -405,6 +409,67 @@ extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner) {
     }
     return std::vector<std::uint8_t>(plain_inner.begin() + 6,
                                      plain_inner.begin() + 6 + static_cast<std::ptrdiff_t>(len));
+}
+
+std::optional<std::vector<std::uint8_t>>
+extract_guti_from_registration_accept(const std::vector<std::uint8_t>& plain_inner) {
+    // header(3) + mandatory registrationResult IE (Type-4: len(1) + value(1)) = 5 bytes before
+    // any optional IE begins -- same shape nfs/amf/src/nas_codec.cpp's own
+    // encode_registration_accept writes.
+    if (plain_inner.size() < 5 || plain_inner[0] != kEpdMobilityManagement ||
+        plain_inner[2] != kMessageTypeRegistrationAccept) {
+        return std::nullopt;
+    }
+    std::size_t off = 5;
+    while (off < plain_inner.size()) {
+        const std::uint8_t iei = plain_inner[off];
+        if (off + 3 > plain_inner.size()) {
+            break;
+        }
+        const std::size_t len =
+            (static_cast<std::size_t>(plain_inner[off + 1]) << 8) | plain_inner[off + 2];
+        if (off + 3 + len > plain_inner.size()) {
+            break;
+        }
+        if (iei == kIeiRegistrationAcceptGuti) {
+            return std::vector<std::uint8_t>(plain_inner.begin() + off + 3,
+                                             plain_inner.begin() + off + 3 +
+                                                 static_cast<std::ptrdiff_t>(len));
+        }
+        off += 3 + len;
+    }
+    return std::nullopt;
+}
+
+std::vector<std::uint8_t> build_deregistration_request(const NasKeys& keys,
+                                                       std::uint32_t uplink_count,
+                                                       const std::vector<std::uint8_t>& guti_value,
+                                                       bool switch_off) {
+    // ngKSI (high nibble, fixed 0 -- this project's only ever-allocated ngKSI, ADR-0031) packed
+    // with deRegistrationType (low nibble): Bmp4Enc112(switchOff, reRegistrationRequired,
+    // accessType) -- switchOff at bit3, reRegistrationRequired (spare, 0) at bit2, accessType
+    // (THREEGPP_ACCESS=0b01) at bits0-1. Confirmed against
+    // simulators/ransim/vendor/UERANSIM/src/utils/bits.hpp's real Ranged8 bit order (first
+    // argument ends up in the HIGHEST bit position of the group).
+    constexpr std::uint8_t kAccessTypeThreeGpp = 0b01;
+    const std::uint8_t dereg_type_nibble =
+        static_cast<std::uint8_t>((switch_off ? 0b1000 : 0) | kAccessTypeThreeGpp);
+    const std::uint8_t ngksi_dereg_byte = static_cast<std::uint8_t>(dereg_type_nibble & 0x0F);
+
+    std::vector<std::uint8_t> inner;
+    inner.push_back(kEpdMobilityManagement);
+    inner.push_back(kSecurityHeaderNotProtected);
+    inner.push_back(kMessageTypeDeregistrationRequestUeOriginating);
+    inner.push_back(ngksi_dereg_byte);
+    // 5GS Mobile Identity (Type-6 LV-E): 2-octet big-endian length, then the value AMF's own
+    // decoder walks past by length without interpreting -- see decode_deregistration_request's
+    // own comment for why. Sent uninterpreted, whatever the caller gave (normally a real 5G-GUTI
+    // extracted from this UE's own RegistrationAccept).
+    inner.push_back(static_cast<std::uint8_t>((guti_value.size() >> 8) & 0xFF));
+    inner.push_back(static_cast<std::uint8_t>(guti_value.size() & 0xFF));
+    inner.insert(inner.end(), guti_value.begin(), guti_value.end());
+
+    return seal_uplink(keys, uplink_count, kShtIntegrityProtectedAndCiphered, inner);
 }
 
 } // namespace nf_test

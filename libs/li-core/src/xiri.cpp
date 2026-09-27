@@ -339,16 +339,73 @@ tl::expected<AmfRegistration, std::string> extract(const AMFRegistration_t& src)
     return out;
 }
 
-void fill(AMFDeregistration_t& out, const AmfDeregistration& src) {
-    // Both members are non-OPTIONAL in the ASN.1 and M in table 6.2.2.2.3-1; no allocation.
+tl::expected<void, std::string> fill(AMFDeregistration_t& out, const AmfDeregistration& src) {
+    // deregistrationDirection/accessType are non-OPTIONAL (M); everything below is an asn1c
+    // OPTIONAL pointer, allocated only when this project's POI has the value (ADR-0393).
     out.deregistrationDirection = static_cast<long>(src.deregistration_direction);
     out.accessType = static_cast<long>(src.access_type);
+    if (src.supi) {
+        auto* supi = alloc_optional<SUPI_t>();
+        if (supi == nullptr) {
+            return tl::unexpected("SUPI allocation failed");
+        }
+        out.sUPI = supi;
+        if (auto r = fill_supi(*supi, *src.supi); !r) {
+            return r;
+        }
+    }
+    if (src.guti) {
+        auto* guti = alloc_optional<FiveGGUTI_t>();
+        if (guti == nullptr) {
+            return tl::unexpected("FiveGGUTI allocation failed");
+        }
+        out.gUTI = guti;
+        if (auto r = fill_guti(*guti, *src.guti); !r) {
+            return r;
+        }
+    }
+    if (src.location) {
+        auto* loc = alloc_optional<Location_t>();
+        if (loc == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        out.location = loc;
+        if (auto r = fill_location(*loc, *src.location); !r) {
+            return r;
+        }
+    }
+    if (src.switch_off_indicator) {
+        auto* sw = alloc_optional<SwitchOffIndicator_t>();
+        if (sw == nullptr) {
+            return tl::unexpected("SwitchOffIndicator allocation failed");
+        }
+        *sw = static_cast<long>(*src.switch_off_indicator);
+        out.switchOffIndicator = sw;
+    }
+    return {};
 }
 
-AmfDeregistration extract(const AMFDeregistration_t& src) {
+tl::expected<AmfDeregistration, std::string> extract(const AMFDeregistration_t& src) {
     AmfDeregistration out;
     out.deregistration_direction = static_cast<AmfDirection>(src.deregistrationDirection);
     out.access_type = static_cast<AccessType>(src.accessType);
+    if (src.sUPI != nullptr) {
+        auto supi = extract_supi(*src.sUPI);
+        if (!supi) {
+            return tl::unexpected(supi.error());
+        }
+        out.supi = *supi;
+    }
+    if (src.gUTI != nullptr) {
+        out.guti = extract_guti(*src.gUTI);
+    }
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    if (src.switchOffIndicator != nullptr) {
+        out.switch_off_indicator =
+            static_cast<AmfDeregistration::SwitchOff>(*src.switchOffIndicator);
+    }
     return out;
 }
 
@@ -475,8 +532,7 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
                 return fill(payload->event.choice.registration, variant_event);
             } else if constexpr (std::is_same_v<T, AmfDeregistration>) {
                 payload->event.present = XIRIEvent_PR_deregistration;
-                fill(payload->event.choice.deregistration, variant_event);
-                return {};
+                return fill(payload->event.choice.deregistration, variant_event);
             } else if constexpr (std::is_same_v<T, AmfStartOfInterceptionWithRegisteredUE>) {
                 payload->event.present = XIRIEvent_PR_startOfInterceptionWithRegisteredUE;
                 return fill(payload->event.choice.startOfInterceptionWithRegisteredUE,
@@ -547,9 +603,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
             out.event = *registration;
             return out;
         }
-        case XIRIEvent_PR_deregistration:
-            out.event = extract(payload->event.choice.deregistration);
+        case XIRIEvent_PR_deregistration: {
+            auto deregistration = extract(payload->event.choice.deregistration);
+            if (!deregistration) {
+                return tl::unexpected(deregistration.error());
+            }
+            out.event = *deregistration;
             return out;
+        }
         case XIRIEvent_PR_startOfInterceptionWithRegisteredUE: {
             auto soi = extract(payload->event.choice.startOfInterceptionWithRegisteredUE);
             if (!soi) {

@@ -321,16 +321,22 @@ TEST(LiAmfPoiGating, RecordMatrix) {
     EXPECT_TRUE(amf::xiri_record_enabled(G::Absent, R::LocationUpdate));
     EXPECT_FALSE(amf::xiri_record_enabled(G::Absent, R::IdentifierAssociation));
     EXPECT_FALSE(amf::xiri_record_enabled(G::Absent, R::IdentifierDeassociation));
+    // Deregistration is not an identifier-association record (table 6.2.2.1.1-1 only names
+    // AMFIdentifierAssociation/AMFIdentifierDeassociation) -- same rule as Registration/
+    // LocationUpdate (ADR-0393).
+    EXPECT_TRUE(amf::xiri_record_enabled(G::Absent, R::Deregistration));
     // IdentifierAssociation: only IdAssoc/IdDeassoc/LocationUpdate.
     EXPECT_FALSE(amf::xiri_record_enabled(G::IdentifierAssociation, R::Registration));
     EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::LocationUpdate));
     EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierAssociation));
     EXPECT_TRUE(amf::xiri_record_enabled(G::IdentifierAssociation, R::IdentifierDeassociation));
+    EXPECT_FALSE(amf::xiri_record_enabled(G::IdentifierAssociation, R::Deregistration));
     // All: everything.
     for (auto r : {R::Registration,
                    R::LocationUpdate,
                    R::IdentifierAssociation,
-                   R::IdentifierDeassociation}) {
+                   R::IdentifierDeassociation,
+                   R::Deregistration}) {
         EXPECT_TRUE(amf::xiri_record_enabled(G::All, r));
     }
 }
@@ -406,4 +412,80 @@ TEST(LiAmfPoiGating, NonTargetEmitsNothing) {
     h.poi->report_location_update(other, sample_location());
     std::this_thread::sleep_for(300ms);
     EXPECT_EQ(h.mdf2.size(), 0u);
+}
+
+// ADR-0393: report_deregistration/report_identifier_deassociation, the two events ADR-0440 left
+// blocked pending a real AMF deregistration trigger. Both fire from the same event, so this drives
+// them together the way ngap_task.cpp's own handler will.
+TEST(LiAmfPoi, EmitsDeregistrationAndIdentifierDeassociationForATarget) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    const auto act = post_x1(client, x1_activate(kXid, kTargetImsi, "All"));
+    ASSERT_EQ(act.body.find("ErrorResponse"), std::string::npos) << act.body;
+
+    const std::string supi = std::string("imsi-") + kTargetImsi;
+    h.poi->report_deregistration(supi, /*switch_off=*/false, sample_guti(), sample_location());
+    h.poi->report_identifier_deassociation(supi, sample_guti(), sample_location());
+    ASSERT_TRUE(h.mdf2.wait_for(2, 5s))
+        << "expected 2 xIRIs (Deregistration, IdentifierDeassociation)";
+
+    const auto received = h.mdf2.take();
+    ASSERT_EQ(received.size(), 2u);
+
+    // AMFDeregistration: direction FromTarget (clause 6.2.2.2.3, table 5.3.2-1's UE-initiated
+    // case), M members set, and the real decoded switchOffIndicator (normalDetach here).
+    EXPECT_EQ(received[0].payload_direction, li_core::PayloadDirection::FromTarget);
+    const auto dereg = li_core::xiri::decode_xiri_payload(received[0].payload);
+    ASSERT_TRUE(dereg.has_value()) << dereg.error();
+    const auto& d = std::get<li_core::xiri::AmfDeregistration>(dereg->event);
+    EXPECT_EQ(d.deregistration_direction, li_core::xiri::AmfDirection::UeInitiated);
+    EXPECT_EQ(d.access_type, li_core::xiri::AccessType::ThreeGppAccess);
+    ASSERT_TRUE(d.supi.has_value());
+    EXPECT_EQ(std::get<li_core::xiri::Imsi>(*d.supi).digits, kTargetImsi);
+    ASSERT_TRUE(d.guti.has_value());
+    EXPECT_EQ(d.guti->five_g_tmsi, 0x0A0B0C0Du);
+    ASSERT_TRUE(d.location.has_value() && d.location->user_location.has_value());
+    EXPECT_EQ(*d.location->user_location, sample_location());
+    ASSERT_TRUE(d.switch_off_indicator.has_value());
+    EXPECT_EQ(*d.switch_off_indicator, li_core::xiri::AmfDeregistration::SwitchOff::NormalDetach);
+
+    // AMFIdentifierDeassociation: direction 5 (not applicable, clause 6.2.2.2.7), M members set.
+    EXPECT_EQ(received[1].payload_direction, li_core::PayloadDirection::NotApplicable);
+    const auto deassoc = li_core::xiri::decode_xiri_payload(received[1].payload);
+    ASSERT_TRUE(deassoc.has_value()) << deassoc.error();
+    const auto& da = std::get<li_core::xiri::AmfIdentifierDeassociation>(deassoc->event);
+    EXPECT_EQ(std::get<li_core::xiri::Imsi>(da.supi).digits, kTargetImsi);
+    EXPECT_EQ(da.guti.five_g_tmsi, 0x0A0B0C0Du);
+    ASSERT_TRUE(da.location.has_value() && da.location->user_location.has_value());
+    EXPECT_EQ(*da.location->user_location, sample_location());
+}
+
+// The "switch off" case: TS 24.501 never sends a NAS ACCEPT for it, but the xIRI trigger is still
+// real (clause 6.2.2.2.3's second UE-initiated bullet: "receives ... REQUEST ... switch off") --
+// this only asserts the switchOffIndicator value the POI records, not the AMF's own NAS behavior
+// (that belongs to the AMF-process integration test, not this unit-scope one).
+TEST(LiAmfPoi, DeregistrationSwitchOffIndicatorIsReported) {
+    PoiHarness h;
+    auto client = make_admf_client();
+    const auto act = post_x1(client, x1_activate(kXid, kTargetImsi, "All"));
+    ASSERT_EQ(act.body.find("ErrorResponse"), std::string::npos) << act.body;
+
+    h.poi->report_deregistration(std::string("imsi-") + kTargetImsi,
+                                 /*switch_off=*/true,
+                                 std::nullopt,
+                                 std::nullopt);
+    ASSERT_TRUE(h.mdf2.wait_for(1, 5s));
+    const auto dereg = li_core::xiri::decode_xiri_payload(h.mdf2.take()[0].payload);
+    ASSERT_TRUE(dereg.has_value()) << dereg.error();
+    const auto& d = std::get<li_core::xiri::AmfDeregistration>(dereg->event);
+    ASSERT_TRUE(d.switch_off_indicator.has_value());
+    EXPECT_EQ(*d.switch_off_indicator, li_core::xiri::AmfDeregistration::SwitchOff::SwitchOff);
+    // SUPI is always available here (the POI already matched this event to a target by SUPI), so
+    // it is always set regardless of what the caller passed for guti/location -- only THOSE stay
+    // absent when the caller has nothing to give.
+    ASSERT_TRUE(d.supi.has_value());
+    EXPECT_EQ(std::get<li_core::xiri::Imsi>(*d.supi).digits, kTargetImsi);
+    EXPECT_FALSE(d.guti.has_value()) << "no guti was passed -- a C member must stay absent, not "
+                                        "default-fabricated";
+    EXPECT_FALSE(d.location.has_value()) << "no location was passed -- same C-member rule";
 }

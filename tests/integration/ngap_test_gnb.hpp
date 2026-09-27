@@ -146,6 +146,25 @@ public:
     };
     static bool extract_downlink_nas(const std::vector<std::uint8_t>& pdu_bytes, DownlinkNas& out);
 
+    // ADR-0393: real UEContextReleaseComplete (TS 38.413 §9.2.1.11), the gNB's own confirmation of
+    // a UEContextReleaseCommand -- needed for the Deregistration test, which drives a real
+    // AMF-INITIATED release for the first time (every earlier NGAP test that reaches
+    // UEContextReleaseCommand never sent a Complete back, so handle_ue_context_release_complete
+    // and its ADR-0393 cleanup were never exercised end to end). Mandatory IE set per
+    // UEContextReleaseComplete-IEs: AMF-UE-NGAP-ID(10), RAN-UE-NGAP-ID(85) -- both mandatory,
+    // everything else in the real IE set is optional and not sent here.
+    std::vector<std::uint8_t> build_ue_context_release_complete(std::uint64_t amf_ue_id,
+                                                                std::uint32_t ran_ue_id);
+
+    // ADR-0393: pulls the NAS Cause value out of a received UEContextReleaseCommand -- lets a
+    // test distinguish the two real causes this AMF now sends (CauseNas_normal_release=0 for the
+    // pre-existing RAN-initiated round trip, CauseNas_deregister=2 for the new AMF-INITIATED one)
+    // rather than only checking that some UEContextReleaseCommand arrived. Returns false if the
+    // PDU is not one, or its Cause is not the nas group.
+    static bool
+    parse_ue_context_release_command_nas_cause(const std::vector<std::uint8_t>& pdu_bytes,
+                                               long& nas_cause);
+
     // --- Questions a test can ask about a received PDU, without touching ASN.1 itself. ---
 
     enum class Outcome { Initiating, Successful, Unsuccessful, Undecodable };

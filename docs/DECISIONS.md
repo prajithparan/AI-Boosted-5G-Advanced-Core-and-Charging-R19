@@ -31099,3 +31099,263 @@ not done; a real round-trip succeeding is):
 
 **ADR-0424 status:** its "Keycloak realm export + compose/Helm entry" deferral is closed by this
 ADR. "back-channel logout" and "step-up (acr) per sensitive action" remain open, narrowed as above.
+
+## ADR-0393: AMF UE-originating Deregistration (TS 23.502 §4.2.2.3.2) -- LI programme prerequisite 3
+
+**Date:** 2026-09-27. **Status:** accepted; the common register -> establish a PDU session ->
+deregister path is implemented and covered by a real NGAP/SCTP+NAS integration test; several real,
+disclosed scope boundaries remain (below).
+
+**Why now.** ADR-0440's own "still blocked" section named this exact gap: AMFIdentifierDeassociation
+"needs an identifier deassociation without a new association within the same UE context. The AMF
+has no UE deregistration procedure. ... The only conformant trigger is deregistration, which is
+ADR-0378 prerequisite 3." This closes that prerequisite.
+
+**Decision 1: implement UE-originating Deregistration only; network-initiated is out of scope.**
+This AMF has no trigger anywhere in its own code that would decide, on its own, to deregister a
+UE -- inventing one to reach the network-initiated LI trigger bullet would be fabricating a
+procedure this build has no other reason to have. TS 23.502 §4.2.2.3.2's UE-initiated case is real,
+common, and is the one a real deregistering UE (airplane mode, SIM removal, manual "forget
+network") actually sends.
+
+**Decision 2: real byte layouts from the same vendored oracle every earlier NAS stage used.**
+`simulators/ransim/vendor/UERANSIM/src/lib/nas/msg.cpp`'s `DeRegistrationRequestUeOriginating::
+onBuild` (`mandatoryIE1(&ngKSI, &deRegistrationType); mandatoryIE(&mobileIdentity);`) and
+`DeRegistrationAcceptUeOriginating::onBuild` (empty -- no IEs at all) fix the wire shape exactly.
+`ie1.cpp`'s `IEDeRegistrationType::Decode`/`Encode` and `utils/bits.hpp`'s real `Ranged8`/
+`Bmp4Dec112` bit order fix the one packed byte's layout: ngKSI in the high nibble (same convention
+`decode_registration_request`'s own ngKSI/registrationType byte already established), then
+switchOff (bit3) | reRegistrationRequired (bit2, spare in the UE->network direction, not decoded --
+this project has no CONFIGURATION UPDATE COMMAND procedure for it to matter to) | accessType
+(bits0-1, always THREEGPP_ACCESS -- ADR-0031's single-access-type scope) in the low nibble.
+`nas_codec.cpp` gained message-type constants 0x45/0x46 (`kMessageTypeDeregistrationRequestUeOriginating`/
+`...AcceptUeOriginating`), `decode_deregistration_request`, and `encode_deregistration_accept`.
+
+**Decision 3: the mobile identity IE is walked past, not decoded.** A real UE sends its assigned
+5G-GUTI here (TS 24.501 §5.5.2.2.1); this AMF already knows which UE this is from the
+association's own `UeAuthState` (unlike ServiceRequest, which genuinely needs identity from the
+wire because it arrives on a FRESH association with no prior state to consult). Decoding a
+specific identity kind here would add real parsing work with no caller that needs the result;
+skipping the TLV by its own length field is correct regardless of what identity type it carries.
+The test driver still sends a REAL 5G-GUTI (extracted from its own RegistrationAccept via the new
+`extract_guti_from_registration_accept`, the mirror-decode of `encode_registration_accept`'s own
+GUTI IE), matching what a real UE actually sends -- a fabricated identity would have been a weaker
+test of the framing even though AMF is provably indifferent to its content.
+
+**Decision 4: the uplink NAS COUNT is tracked on `auth_state`, not hardcoded.** Every earlier
+NGAP/NAS stage hardcodes its own uplink_count literal (0/1/2) because this project's phase machine
+was, until now, strictly linear -- each phase has exactly one real message type and one real count.
+`Phase::Done` breaks that: it is reached both by a real PDU session establishment (next real count
+3) and by a ServiceRequest reconnect (next real count is that persisted store's own post-increment
+value) -- two different real counts for the one phase a Deregistration can arrive in. Hardcoding
+either would silently fail the MAC on whichever path did not use it. `UeAuthState` gained
+`next_uplink_count`, set for real by both paths that reach `Phase::Done`
+(`handle_uplink_nas_transport_pdu_session_establishment` sets 3;
+`handle_service_request` sets its own `uplink_count + 1`, the exact post-increment value
+`UeSecurityContextStore::next_uplink_count`'s own atomic counter already holds).
+
+**Decision 5: the downlink NAS COUNT for DEREGISTRATION ACCEPT belongs to `NgapUeRegistry`, not a
+local literal either.** SMF's own asynchronous `Namf_Communication` N1N2MessageTransfer callback
+(landing on the SBI server's own thread) can advance a UE's `next_downlink_count` between this
+association's own NGAP-thread reads of it, exactly the same reason `send_dl_nas_transport` already
+owns that counter instead of a caller. `NgapUeRegistry::send_deregistration_accept` mirrors
+`send_dl_nas_transport`'s own get-and-increment-under-the-registry's-own-mutex shape, just sealing
+a plain 5GMM message (`amf::nas::encode_deregistration_accept`) instead of wrapping an N1 SM
+container.
+
+**Decision 6: a real, AMF-INITIATED NGAP UEContextReleaseCommand, factored out of the existing
+RAN-initiated one.** `handle_ue_context_release_request`'s own header comment used to say
+"this does NOT implement the AMF-INITIATED direction ... this lab has no such trigger yet." It now
+does: `send_ue_context_release_command(assoc, amf_ue_id, nas_cause)` is the same PDU-building code
+that function always had, factored out and parameterized by cause so both call sites share it --
+`CauseNas_normal_release` for the pre-existing RAN-initiated round trip, `CauseNas_deregister` for
+this one. The gNB's own `UEContextReleaseComplete` confirms either through the SAME
+`handle_ue_context_release_complete`, not a second confirmation path.
+
+**Decision 7: real cleanup of the persisted stores, but only for a REAL deregistration.**
+`UeAuthState` gained a `deregistered` flag, set only by
+`handle_uplink_nas_transport_deregistration` just before it triggers the release. Only when that
+flag is set does `handle_ue_context_release_complete` remove the tmsi-keyed
+`UeSecurityContextStore`/`AmfUeIdIndexStore` entries -- the RAN-initiated round trip (radio-link
+failure, O&M intervention) reaches the SAME confirmation handler and must NOT trigger this removal:
+that UE is still registered, and a real ServiceRequest reconnect still needs those entries. Getting
+this wrong either way was a real risk this decision exists to name: unconditionally removing on
+every release would break ServiceRequest reconnection; never removing would leave a deregistered
+UE's old 5G-TMSI silently still honoured by a later ServiceRequest, the opposite of what
+"identifier deassociation" means.
+
+**Decision 8: real PCF AM Policy Association termination, closing a gap found while building
+this.** Auditing what a UE-initiated deregistration owes (TS 23.502 §4.2.2.3.2) surfaced that
+`handle_uplink_nas_transport_registration_complete` had been discarding PCF's own `Location` header
+since the AM Policy Association was first created (ADR-0075) -- the same class of gap ADR-0249
+found and fixed for SMF's `smContextRef`. `polAssoId` is now captured the identical way and stored
+on `auth_state`; deregistration calls PCF's real `DELETE .../npcf-am-policy-control/v1/policies/
+{polAssoId}` (confirmed against `nfs/pcf/src/main.cpp`'s own route, 204 success / 404 already-gone),
+best-effort (a missing PCF token or an unreachable PCF is logged, not allowed to hang the UE's own
+teardown) -- the same discipline SMF's own `ReleaseSMContext` route already applies to ITS
+best-effort PCF/CHF calls, which this AMF's own `Nsmf_PDUSession_ReleaseSMContext` calls (one per
+`smContextRef` this UE has) follow too.
+
+**Decision 9: the LI IRI-POI's `AMFDeregistration`/`AMFIdentifierDeassociation` codecs gained their
+real C members.** `libs/li-core`'s `AMFDeregistration_t`/`AMFIdentifierDeassociation_t` (asn1c-
+generated from `TS33128Payloads.asn`) already carried every field TS 33.128 table 6.2.2.2.3-1/
+6.2.2.2.7-2 names; only `fill()`/`extract()` had been written for the two M-only members
+(`li_poi.hpp`'s own header comment said as much: "added when the AMF POI that produces this event
+is wired against real AMF state" -- this is that wiring). Added: `supi`, `guti`, `location` (all
+optional/C, populated when the call site has them) and `switchOffIndicator` (tag `[10]`, real
+`SwitchOffIndicator ::= ENUMERATED { normalDetach(1), switchOff(2) }` from the vendored ASN.1,
+populated from the exact bit this procedure already decodes to decide whether to send an ACCEPT at
+all). Not populated: `sUCI`/`pEI`/`gPSI`/`cause`/`reRegRequiredIndicator`/
+`unavailabilityPeriodDuration`/`additionalUserIdentifiers` -- this AMF retains no SUCI past
+registration, captures no PEI, has no GPSI mapping, and this increment's scope is a UE-initiated
+ACCEPT (no reject cause applies; re-registration-required is spare in the UE->network direction
+anyway). `AmfXiriRecord` gained `Deregistration`; `xiri_record_enabled`'s existing decision table
+needed no logic change (Deregistration is not an identifier-association record, so it follows
+Registration/LocationUpdate's own rule -- verified by an extended `RecordMatrix` test case, not
+assumed). `LiPoi::report_deregistration`/`report_identifier_deassociation` mirror
+`report_registration`'s own per-matched-task, gating-checked, best-effort-emit shape exactly.
+Covered by two new `LiAmfPoi` unit tests (direction FromTarget for Deregistration per table
+5.3.2-1's UE-initiated case, direction 5/not-applicable for Deassociation per clause 6.2.2.2.7,
+both switchOff values, and the C-members-stay-absent-when-not-given case) -- 8/8 passing locally.
+
+**Verification.**
+- `li_amf_poi_integration_tests` (LiPoi unit scope, no AMF process): 8/8 passing, including the two
+  new tests above and the extended `RecordMatrix`.
+- `test_amf_deregistration.cpp` (real NGAP/SCTP+NAS, the full NF fleet -- NRF, UDR, UDM, AUSF, AMF,
+  PCF, SMF): `NormalDeregistrationTearsDownSessionAndUeContext` drives register -> establish a PDU
+  session -> deregister (switchOff=false), asserting a real DeregistrationAccept (MAC-verified
+  against the UE's own KNASint at downlink_count=3) followed by a real AMF-INITIATED
+  UEContextReleaseCommand (Cause=nas/deregister, parsed for real, not just "some release arrived"),
+  then confirms it with a real UEContextReleaseComplete.
+  `SwitchOffDeregistrationSendsNoAccept` drives the same setup with switchOff=true and asserts the
+  FIRST message back is the NGAP release itself, not a DownlinkNASTransport.
+- The peer-NF calls this procedure makes (SMF `ReleaseSMContext`, PCF
+  `DeleteIndividualAMPolicyAssociation`) are exercised for real over real mTLS HTTP/2 by these
+  tests, but their own HTTP-level correctness is covered by their own dedicated test files; these
+  tests assert that AMF orchestrates them and completes the real NAS+NGAP procedure.
+- `amf`/`integration_tests` build clean throughout this increment's own incremental builds.
+
+**Real, disclosed scope boundaries (not silently narrowed).**
+- **Network-initiated deregistration** is not implemented -- no trigger for it exists anywhere in
+  this AMF. `AmfDirection` is always encoded `UeInitiated` in the emitted xIRI as a direct
+  consequence, not a simplification of a case this build could reach.
+- **A Deregistration arriving in `Phase::AwaitingPduSessionEstablishmentRequest`** (before this UE
+  ever established a PDU session) is not handled -- this dispatch switch only reaches
+  `handle_uplink_nas_transport_deregistration` from `Phase::Done`, matching this project's existing
+  single-fixed-order-per-association scope (ADR-0031). A UE that deregisters before any PDU session
+  exists is a real gap this build cannot exercise yet, named here rather than discovered later.
+- **A Deregistration immediately following a ServiceRequest reconnect** runs its real NAS/NGAP/
+  SMF-release procedure correctly (the COUNT tracking in Decision 4 covers it), but its own LI
+  xIRIs carry no gUTI -- `UeSecurityContext` (the persisted, cross-association store
+  ServiceRequest reads) does not itself store GUTI components, so `auth_state.guti` is left unset
+  on that path rather than reconstructed from partial information. SUPI is still present in that
+  case's xIRIs; only the C ("if available") gUTI member is genuinely unavailable there. Not
+  covered by either integration test (both use the common register -> PDU session -> deregister
+  path).
+- **Nudm_UECM has no registration/deregistration call anywhere in this AMF** -- a separate,
+  pre-existing gap this procedure does not touch: nothing was ever registered with UDM for this
+  procedure to deregister.
+- **LI is not exercised end to end for this procedure.** The AMF process both integration tests
+  spawn runs with LI disabled (`config/amf.json`'s default) -- `report_deregistration`/
+  `report_identifier_deassociation`'s call sites inside
+  `handle_uplink_nas_transport_deregistration` are compile-verified only, the same disclosed limit
+  ADR-0440 already recorded for its own NGAP-side hooks (`ngap_task.cpp`/`ngap_handover.cpp`'s
+  PathSwitchRequest/HandoverNotify hooks). Building an LI-enabled AMF process harness is its own
+  increment, not attempted here.
+- **T3346 back-off timer handling for a rejected re-registration**, IMEISV request, and any
+  reject-cause path for DeregistrationRequest itself (this procedure only ever accepts) are out of
+  scope, consistent with this project's existing "the happy path first, real gaps disclosed" NAS
+  coverage discipline.
+
+**Fixed while here.** `ue_context_store.hpp`'s header comment claiming "nothing currently calls
+put()" was stale (ADR-0249's own `CreateSMContext`/AM-Policy-Association response handling has
+called it since that ADR) -- corrected to say what actually calls it and why the CreateUEContext-
+specific gap it originally described is still real but separate.
+
+**Rejected alternatives.**
+- *A generic "peek the message type after decrypting, dispatch on that" mechanism inside
+  `Phase::Done`*: `Phase::Done` has exactly one real, implemented message type reachable from it
+  today (Deregistration); building a dispatcher for a set of one would be speculative generality
+  with no second case to justify it. If a second post-establishment procedure is ever added, this
+  is the natural place to introduce one.
+- *Reconstructing `auth_state.guti` for the ServiceRequest-reconnect path from
+  `AmfUeIdIndexStore`/`UeSecurityContextStore`*: neither store persists GUTI components (only
+  `tmsi`, which is the 5G-TMSI half of a GUTI, not the full region/set/pointer/PLMN). Doing this
+  right would mean extending `UeSecurityContext` to also persist those fields at registration time
+  -- a real, reasonable follow-up, but out of this ADR's own scope (it would touch the registration
+  path's own persisted-context shape, not just deregistration).
+- *A single combined `report_deregistration_event` call instead of two separate `LiPoi` methods*:
+  rejected for the same reason `report_registration`/`report_identifier_association` are already
+  separate calls at the REGISTRATION ACCEPT site -- each record has its own gating decision
+  (`xiri_record_enabled`), own Payload Direction, and TS 33.128 defines them as two distinct record
+  types with two distinct trigger clauses (6.2.2.2.3 vs 6.2.2.2.7), even though this AMF happens to
+  emit both from the same real event.
+
+## ADR-0394: found while testing ADR-0393 -- a real AMF shutdown crash, pre-existing and unrelated to Deregistration
+
+**Date:** 2026-09-27. **Status:** disclosed, not fixed. A real production-reliability gap, found by
+accident while verifying ADR-0393, not introduced by it.
+
+**What was observed.** `test_amf_deregistration.cpp`'s own AMF child process reliably crashes
+during test teardown, moments after the test's own gNB association closes and the process
+receives SIGTERM -- `terminate called after throwing an instance of 'std::system_error'` (`what():
+Invalid argument`) on some runs, `Fatal glibc error: pthread_mutex_lock.c:... assertion failed`
+(two different assertion messages seen across runs) on others. The non-identical failure signature
+across otherwise-identical runs is itself informative: this is a genuine data race, not a
+deterministic logic bug.
+
+**It is not caused by ADR-0393.** Before concluding otherwise, the SAME crash was reproduced,
+unchanged, in `test_amf_ngap_handover.cpp`'s own PRE-EXISTING tests --
+`TargetGnbRefusalIsRelayedToTheSourceWithItsOwnCause`, `RegistrationAndPduSessionReachNsacf`, and
+`UeIsRejectedWhenNsacfRefusesItsSlice` -- none of which touch Deregistration, NAS COUNT tracking,
+or anything else ADR-0393 added. `RegisteredUeEstablishesARealPduSession`, run in isolation, does
+NOT crash; the same test run alongside others sometimes does. The common factor across every
+crashing case: the AMF child process's own detached per-association NGAP thread (ADR-0030/ADR-0095)
+is still alive, blocked in `SctpSocket::receive()` or freshly returned from it, at the exact moment
+SIGTERM arrives and the rest of the process begins tearing down shared state (io_contexts, SBI
+HTTP/2 clients, Redis connections) -- a plain, timing-dependent shutdown race that no earlier test
+happened to expose long enough to hit.
+
+**Root cause, as far as this investigation went (not a fix).**
+`run_ngap_lifecycle`'s own accept loop already carries the informal, disclosed comment
+"Detached: this lab has no coordinated shutdown path for in-flight associations ... the process
+exiting is what ends them" -- true, but understating the real risk: "the process exiting" is not
+instantaneous or synchronized with a detached thread's own lifetime, and this investigation is the
+first time that gap visibly crashed rather than merely leaking a thread past process exit.
+`libs/sbi-core`'s own `ShutdownWatcher` (`io_context_pool.cpp`) already learned this exact lesson
+once, for its OWN thread -- its header comment records "the first version detached it, and the
+process then SIGSEGVed on exit ... RAII all the way -- stop the loop, join the thread, then the
+members go." The per-association NGAP threads never got the same fix: they are spawned via
+`std::thread(...).detach()` with no equivalent join/wait, and `ngap_core::SctpSocket` has no
+thread-safe way to interrupt a blocking `receive()` from outside (no `shutdown()`/close-from-
+another-thread method), so there is no cheap way to even ask them to stop promptly on SIGTERM.
+
+**Why not fixed here.** A real fix needs three real pieces, none of them small: (1) a thread-safe
+"stop" primitive on `ngap_core::SctpSocket` (a `shutdown(fd, SHUT_RDWR)`-based interrupt, the
+standard POSIX technique for unblocking a thread parked in a blocking `recv`/`sctp_recvmsg` call);
+(2) a live-association registry in `run_ngap_lifecycle` that a shutdown callback can iterate to
+force-close every open association socket (plus the listening socket, to end the accept loop
+itself); (3) making the process's own shutdown sequence (main.cpp / `ShutdownWatcher`) actually
+wait for those threads to finish before destructing the shared clients/stores they touch. That is
+a real change to the NGAP thread-lifecycle architecture (ADR-0030/ADR-0095's own subject), not a
+Deregistration-procedure fix -- squeezing it into this ADR under time pressure risked a rushed
+change to a shutdown-critical path, which is exactly the kind of place a hasty fix creates a worse
+bug than the one it removes. Named here, with a concrete reproduction and a real root-cause
+sketch, for whoever picks it up next, rather than fixed in a rush or silently left for someone to
+rediscover from scratch.
+
+**Why this doesn't block ADR-0393.** The crash happens strictly AFTER every one of that
+increment's own test assertions already passed -- it is process teardown, not the Deregistration
+procedure itself misbehaving. Repeated runs (isolated and combined with the rest of the AMF NGAP
+suite) show both new `AmfDeregistration.*` tests passing consistently. One run also hit a SEPARATE,
+independent flake -- a fresh NF failing to bind its own fixed port ("Address already in use")
+immediately after a crash -- that did not reproduce on any other run in this same investigation;
+plausibly an OS-level socket-release timing race layered on top of the crash, not a deterministic
+consequence of it. Both are disclosed; neither is fixed by this ADR.
+
+**Impact if left unfixed.** In a real deployment, a gNB's NGAP association ending (a real, routine
+event -- a gNB restart, a transport-layer reset) at the same moment this AMF instance is asked to
+shut down (a rolling restart, a scale-down) could crash the instance instead of exiting cleanly.
+Real production risk, correctly flagged rather than discovered later -- this project's own
+commercialization mandate (ADR-0049) requires reliability exceeding free5GC's, which this gap does
+not meet as-is.

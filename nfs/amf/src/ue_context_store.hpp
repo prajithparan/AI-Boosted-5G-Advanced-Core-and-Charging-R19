@@ -15,13 +15,18 @@
 // TS29518_Namf_Communication.yaml). In-memory only, no persistence across restarts -- same
 // disclosed simplification as nfs/nrf/src/registry.hpp (see docs/DECISIONS.md ADR-0015).
 //
-// IMPORTANT, disclosed gap: nothing currently calls put(). CreateUEContext (the operation that
-// would populate this store for real) requires multipart/related request bodies, which
-// libs/sbi-core does not support yet -- deferred per docs/DECISIONS.md ADR-0016's multipart
-// discussion. Until CreateUEContext lands, every lookup here returns nullopt and the four
-// operations above can only ever take their "no such UE context" (404) branch in practice. Their
-// "found" branches are still implemented for real (see main.cpp) -- correct per spec, exercised by
-// nothing but a future CreateUEContext, not silently skipped.
+// UPDATE (ADR-0249/ADR-0393): this is stale -- ngap_task.cpp's own registration procedure has
+// called put() (keyed by SUPI, storing SM context refs and the PCF AM Policy Association) since
+// ADR-0249, and handle_uplink_nas_transport_deregistration calls remove() on it. CreateUEContext
+// itself (the Namf_Communication operation this store's own four SBI handlers were originally
+// built for) is UNRELATED to those SUPI-keyed puts -- it is still not implemented, for the
+// original reason below, so the "no such UE context" (404) branch for THOSE four operations
+// specifically is still the only one reachable in practice; this store is no longer empty, it is
+// just never populated the way those four operations expect.
+//
+// CreateUEContext (the operation that would populate this store keyed by ueContextId, for real)
+// requires multipart/related request bodies, which libs/sbi-core does not support yet -- deferred
+// per docs/DECISIONS.md ADR-0016's multipart discussion.
 
 namespace amf {
 

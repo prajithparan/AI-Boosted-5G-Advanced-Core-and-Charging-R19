@@ -361,4 +361,44 @@ std::vector<std::uint8_t> encode_service_accept(const aka_crypto::NasIntKey& kna
 // file's other cause values already cite).
 std::vector<std::uint8_t> encode_service_reject_plain(std::uint8_t mm_cause);
 
+// ADR-0393: UE-originating 5GMM Deregistration (TS 23.502 §4.2.2.3, TS 24.501 §8.2.12/§5.5.2.2).
+// Byte layout confirmed against simulators/ransim/vendor/UERANSIM/src/lib/nas/msg.cpp's real
+// DeRegistrationRequestUeOriginating::onBuild (`b.mandatoryIE1(&ngKSI, &deRegistrationType);
+// b.mandatoryIE(&mobileIdentity);`) and ie1.cpp's IEDeRegistrationType::Decode
+// (`bits::Bmp4Dec112(val, &switchOff, &reRegistrationRequired, &accessType)` -- switchOff is bit3,
+// reRegistrationRequired bit2 (spare in the UE->network direction per that struct's own comment,
+// not decoded), accessType bits0-1).
+//
+// The 5GS Mobile Identity IE (mandatory, Type-6 LV-E) is walked past by its own length -- not
+// decoded. A real UE sends its assigned 5G-GUTI here (TS 24.501 §5.5.2.2.1), but this AMF already
+// knows which UE this is from the association's own UeAuthState (this is the SAME association
+// registration ran on, never a fresh one -- unlike ServiceRequest, which genuinely needs identity
+// from the wire to find a security context in the first place). Decoding a specific identity kind
+// here would add real parsing work with no caller who needs the result; skipping the TLV via its
+// own length field is correct regardless of what identity type it carries.
+struct DeregistrationRequestOutcome {
+    bool mac_valid = false;
+    // TS 24.501 §5.5.2.2's "switch off" bit -- true means the UE is powering off and TS 24.501
+    // requires the network NOT send DEREGISTRATION ACCEPT for it (clause 6.2.2.2.3's own two
+    // distinct UE-initiated trigger bullets for the LI record make the same split); false is the
+    // ordinary case, where the network's own ACCEPT is what completes the procedure.
+    bool switch_off = false;
+};
+
+std::optional<DeregistrationRequestOutcome>
+decode_deregistration_request(const aka_crypto::NasIntKey& knas_int,
+                              const aka_crypto::NasEncKey& knas_enc,
+                              std::uint32_t uplink_count,
+                              const std::vector<std::uint8_t>& nas_pdu);
+
+// Encodes DeregistrationAccept (TS 24.501 §8.2.11/§5.5.2.2.2) -- header and message type only, no
+// IEs at all (confirmed against UERANSIM's own DeRegistrationAcceptUeOriginating::onBuild, an
+// EMPTY body). Integrity protected AND ciphered (security header type 0x02), the same "ordinary
+// secured message" protection every post-SecurityModeComplete downlink in this file uses. Not
+// sent at all when the request's own switch_off was true -- see DeregistrationRequestOutcome's
+// own comment; the caller is responsible for that branch, this function only builds the bytes.
+std::vector<std::uint8_t> encode_deregistration_accept(const aka_crypto::NasIntKey& knas_int,
+                                                       const aka_crypto::NasEncKey& knas_enc,
+                                                       std::uint32_t downlink_count);
+
 } // namespace amf::nas

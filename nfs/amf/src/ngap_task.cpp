@@ -210,6 +210,34 @@ struct UeAuthState {
     // still cap retries (TS 33.102 doesn't allow unbounded resync loops either), just possibly
     // higher than 1.
     bool sqn_resync_attempted = false;
+    // ADR-0393: this UE's persisted identity, set once RegistrationAccept assigns a real 5G-GUTI
+    // (or, on a ServiceRequest reconnect, the TMSI the UE presented -- guti is NOT reconstructed
+    // there, see handle_service_request's own comment; a Deregistration immediately following a
+    // ServiceRequest reconnect still runs correctly, just without a gUTI in its own xIRIs).
+    // Needed here (not just built locally where each site used to build it) so a later
+    // Deregistration on this SAME association can report it and clean up the tmsi-keyed persisted
+    // stores.
+    std::optional<std::uint32_t> tmsi;
+    std::optional<GutiParts> guti;
+    // ADR-0393: the PCF AM Policy Association's own polAssoId, captured from the Location header
+    // of PCF's 201 (same ADR-0249 pattern SMF's smContextRef capture already established) so
+    // Deregistration can terminate it (TS 23.502 §4.16.2.2's own real prerequisite for a clean
+    // AMF-side teardown -- see handle_uplink_nas_transport_deregistration's own header comment).
+    std::optional<std::string> pol_asso_id;
+    // ADR-0393: which secured uplink NAS COUNT this association's NEXT message (a Deregistration,
+    // the only procedure genuinely reachable from Phase::Done) must verify against. NOT a free
+    // parameter like the fixed 0/1/2 every earlier stage hardcodes: Phase::Done is reached by TWO
+    // different paths with different real counts (post-PDU-session-establishment=3, or a
+    // ServiceRequest reconnect's own persisted next_uplink_count), so hardcoding one value here
+    // would silently fail the MAC on whichever path did not set it.
+    std::uint32_t next_uplink_count = 0;
+    // ADR-0393: set true only by handle_uplink_nas_transport_deregistration, just before it
+    // triggers this association's own release -- distinguishes "this release IS the deregistration
+    // completing" from the pre-existing RAN-initiated UEContextRelease round trip (radio-link
+    // failure, O&M intervention, ...), which must NOT remove the persisted security context: a UE
+    // released for those reasons is still registered and a real ServiceRequest reconnect still
+    // needs UeSecurityContextStore/AmfUeIdIndexStore to have it.
+    bool deregistered = false;
     // Which UplinkNASTransport this association is next expecting -- this lab's
     // single-registration-per-association scope (ADR-0031) makes a simple linear phase enum a
     // correct dispatch key; a real AMF would need a full per-UE 5GMM state machine.
@@ -708,6 +736,16 @@ void handle_service_request(ngap_core::SctpSocket& assoc,
                               downlink_count + 1});
 
     auth_state.phase = UeAuthState::Phase::Done;
+    // ADR-0393: tmsi, so a Deregistration on this reconnected association can still clean up the
+    // persisted stores. next_uplink_count is this SAME store's pre-increment return -- the atomic
+    // increment already happened, so the store's own current value is exactly uplink_count + 1,
+    // the count this association's next secured uplink message (a Deregistration, if one comes)
+    // must verify against. guti is deliberately NOT reconstructed here (UeSecurityContext does not
+    // persist GUTI components) -- disclosed: a Deregistration immediately following a
+    // ServiceRequest reconnect still runs its real NAS/NGAP/SMF-release procedure correctly, it
+    // just reports no gUTI in its own LI xIRIs (SUPI is still present).
+    auth_state.tmsi = *tmsi;
+    auth_state.next_uplink_count = uplink_count + 1;
 
     if (info->uplink_data_status.has_value() && *info->uplink_data_status != 0) {
         spdlog::warn("amf-ngap: ServiceRequest for SUPI {} reports uplinkDataStatus={:#06x} (PDU "
@@ -728,10 +766,62 @@ void handle_service_request(ngap_core::SctpSocket& assoc,
 // this AMF replies with UEContextReleaseCommand (Cause=nas/normal-release, this lab's own
 // network-triggered-release choice, not a value taken from the request's own cause); the gNB
 // then confirms with UEContextReleaseComplete, decoded by handle_ue_context_release_complete
-// below to actually clean up. Real, disclosed scope boundary: this does NOT implement the
-// AMF-INITIATED direction (an AMF that decides on its own, e.g. after a Deregistration, to send
-// UEContextReleaseCommand unprompted) -- this lab has no such trigger yet; only the RAN-initiated
-// request/command/complete round trip a real gNB actually exercises today.
+// below to actually clean up. UPDATE (ADR-0393): the AMF-INITIATED direction this comment used to
+// say had no trigger now does -- a UE-originating Deregistration
+// (handle_uplink_nas_transport_deregistration) sends UEContextReleaseCommand unprompted, with
+// Cause=nas/deregister via the same send_ue_context_release_command helper this function now
+// also calls. The gNB's own UEContextReleaseComplete confirms that release exactly the same way,
+// through the same handle_ue_context_release_complete below -- no second confirmation path was
+// needed.
+// Real UEContextReleaseCommand (TS 38.413 §9.2.1.9), shared by both directions this AMF sends it
+// from: the RAN-initiated round trip below (cause=nas/normal-release, unconditionally, matching
+// this function's own long-standing choice) and, since ADR-0393, the genuinely AMF-INITIATED case
+// a UE-originating Deregistration produces (cause=nas/deregister) -- the direction this file's own
+// header comment used to say this lab had no trigger for.
+void send_ue_context_release_command(ngap_core::SctpSocket& assoc,
+                                     unsigned long amf_ue_id,
+                                     long nas_cause) {
+    UEContextReleaseCommand_t cmd{};
+    UE_NGAP_IDs_t ue_ngap_ids{};
+    ue_ngap_ids.present = UE_NGAP_IDs_PR_aMF_UE_NGAP_ID;
+    asn_ulong2INTEGER(&ue_ngap_ids.choice.aMF_UE_NGAP_ID, amf_ue_id);
+    ::ngap::add_ie(
+        cmd.protocolIEs,
+        ::ngap::make_ie(
+            114 /* id-UE-NGAP-IDs */, Criticality_reject, &asn_DEF_UE_NGAP_IDs, &ue_ngap_ids));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_UE_NGAP_IDs, &ue_ngap_ids);
+
+    Cause_t cause_out{};
+    cause_out.present = Cause_PR_nas;
+    cause_out.choice.nas = nas_cause;
+    ::ngap::add_ie(
+        cmd.protocolIEs,
+        ::ngap::make_ie(15 /* id-Cause */, Criticality_ignore, &asn_DEF_Cause, &cause_out));
+
+    NGAP_PDU_t pdu{};
+    pdu.present = NGAP_PDU_PR_initiatingMessage;
+    pdu.choice.initiatingMessage =
+        static_cast<InitiatingMessage_t*>(std::calloc(1, sizeof(InitiatingMessage_t)));
+    pdu.choice.initiatingMessage->procedureCode = 41 /* id-UEContextRelease */;
+    pdu.choice.initiatingMessage->criticality = Criticality_reject;
+    pdu.choice.initiatingMessage->value.present =
+        InitiatingMessage__value_PR_UEContextReleaseCommand;
+    pdu.choice.initiatingMessage->value.choice.UEContextReleaseCommand = cmd;
+
+    const auto bytes = ::ngap::encode_pdu(pdu);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_PDU, &pdu);
+    if (bytes.empty()) {
+        spdlog::error("amf-ngap: failed to PER-encode UEContextReleaseCommand");
+        return;
+    }
+    assoc.send(bytes);
+    spdlog::info("amf-ngap: sent UEContextReleaseCommand ({} bytes), AMF-UE-NGAP-ID={}, cause "
+                 "group=nas, cause value={}",
+                 bytes.size(),
+                 amf_ue_id,
+                 nas_cause);
+}
+
 void handle_ue_context_release_request(ngap_core::SctpSocket& assoc,
                                        UeAuthState& auth_state,
                                        const InitiatingMessage_t& msg) {
@@ -784,45 +874,8 @@ void handle_ue_context_release_request(ngap_core::SctpSocket& assoc,
     ASN_STRUCT_FREE(asn_DEF_AMF_UE_NGAP_ID, amf_ue_id);
     ASN_STRUCT_FREE(asn_DEF_RAN_UE_NGAP_ID, ran_ue_id);
 
-    UEContextReleaseCommand_t cmd{};
-    UE_NGAP_IDs_t ue_ngap_ids{};
-    ue_ngap_ids.present = UE_NGAP_IDs_PR_aMF_UE_NGAP_ID;
-    asn_ulong2INTEGER(&ue_ngap_ids.choice.aMF_UE_NGAP_ID,
-                      static_cast<unsigned long>(auth_state.amf_ue_id));
-    ::ngap::add_ie(
-        cmd.protocolIEs,
-        ::ngap::make_ie(
-            114 /* id-UE-NGAP-IDs */, Criticality_reject, &asn_DEF_UE_NGAP_IDs, &ue_ngap_ids));
-    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_UE_NGAP_IDs, &ue_ngap_ids);
-
-    Cause_t cause_out{};
-    cause_out.present = Cause_PR_nas;
-    cause_out.choice.nas = CauseNas_normal_release;
-    ::ngap::add_ie(
-        cmd.protocolIEs,
-        ::ngap::make_ie(15 /* id-Cause */, Criticality_ignore, &asn_DEF_Cause, &cause_out));
-
-    NGAP_PDU_t pdu{};
-    pdu.present = NGAP_PDU_PR_initiatingMessage;
-    pdu.choice.initiatingMessage =
-        static_cast<InitiatingMessage_t*>(std::calloc(1, sizeof(InitiatingMessage_t)));
-    pdu.choice.initiatingMessage->procedureCode = 41 /* id-UEContextRelease */;
-    pdu.choice.initiatingMessage->criticality = Criticality_reject;
-    pdu.choice.initiatingMessage->value.present =
-        InitiatingMessage__value_PR_UEContextReleaseCommand;
-    pdu.choice.initiatingMessage->value.choice.UEContextReleaseCommand = cmd;
-
-    const auto bytes = ::ngap::encode_pdu(pdu);
-    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_PDU, &pdu);
-    if (bytes.empty()) {
-        spdlog::error("amf-ngap: failed to PER-encode UEContextReleaseCommand");
-        return;
-    }
-    assoc.send(bytes);
-    spdlog::info("amf-ngap: sent UEContextReleaseCommand ({} bytes), AMF-UE-NGAP-ID={}, "
-                 "Cause=nas/normal-release",
-                 bytes.size(),
-                 auth_state.amf_ue_id);
+    send_ue_context_release_command(
+        assoc, static_cast<unsigned long>(auth_state.amf_ue_id), CauseNas_normal_release);
 }
 
 // SuccessfulOutcome for id-UEContextRelease (TS 38.413 §9.2.1.11) -- confirms the release this
@@ -833,6 +886,8 @@ void handle_ue_context_release_request(ngap_core::SctpSocket& assoc,
 // time per association" scope (ADR-0031) becomes "one at a time, but the association itself now
 // survives a release" as of this fix.
 void handle_ue_context_release_complete(NgapUeRegistry& ue_ngap_registry,
+                                        UeSecurityContextStore& ue_security_contexts,
+                                        AmfUeIdIndexStore& amf_ue_id_index,
                                         UeAuthState& auth_state,
                                         const SuccessfulOutcome_t& msg) {
     const auto& container = msg.value.choice.UEContextReleaseComplete.protocolIEs;
@@ -854,6 +909,16 @@ void handle_ue_context_release_complete(NgapUeRegistry& ue_ngap_registry,
 
     if (!auth_state.supi.empty()) {
         ue_ngap_registry.unregister_ue(auth_state.supi);
+    }
+    // ADR-0393: only remove the persisted security context when THIS release is a real
+    // Deregistration completing (auth_state.deregistered, set by
+    // handle_uplink_nas_transport_deregistration before it triggers the release that reaches
+    // here). The pre-existing RAN-initiated round trip (radio-link failure, O&M intervention, ...)
+    // also ends here and must NOT remove it: that UE is still registered, and a real ServiceRequest
+    // reconnect still needs UeSecurityContextStore/AmfUeIdIndexStore to have its entry.
+    if (auth_state.deregistered && auth_state.tmsi.has_value()) {
+        ue_security_contexts.remove(*auth_state.tmsi);
+        amf_ue_id_index.remove(auth_state.amf_ue_id);
     }
     auth_state = UeAuthState{};
 }
@@ -1543,6 +1608,20 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
                  tmsi,
                  auth_state.amf_ue_id);
 
+    // ADR-0393: this UE's own 5G-GUTI, kept on the association's auth_state (not just a local
+    // built conditionally for the LI hook below) so a later Deregistration on this SAME
+    // association can report a real gUTI in its own xIRIs, and so the persisted tmsi is available
+    // to clean up UeSecurityContextStore/AmfUeIdIndexStore when this UE deregisters.
+    GutiParts guti;
+    guti.mcc = kMcc;
+    guti.mnc = kMnc;
+    guti.amf_region_id = amf_region_id;
+    guti.amf_set_id = amf_set_id;
+    guti.amf_pointer = amf_pointer;
+    guti.five_g_tmsi = tmsi;
+    auth_state.guti = guti;
+    auth_state.tmsi = tmsi;
+
     // LI IRI-POI hooks at REGISTRATION ACCEPT. No-op unless LI is enabled and this SUPI is a
     // provisioned target; the POI applies each task's X1 IdentifierAssociationExtensions gating
     // (TS 33.128 6.2.2.2.1) itself. Delivery is best-effort (never breaks the registration).
@@ -1555,13 +1634,6 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
     //    The mandatory location is this UplinkNASTransport's own UserLocationInformation (TS
     //    38.413 makes it mandatory there): the UE's location as of the message the Accept answers.
     if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {
-        GutiParts guti;
-        guti.mcc = kMcc;
-        guti.mnc = kMnc;
-        guti.amf_region_id = amf_region_id;
-        guti.amf_set_id = amf_set_id;
-        guti.amf_pointer = amf_pointer;
-        guti.five_g_tmsi = tmsi;
         g_li_poi->report_registration(auth_state.supi, guti);
         if (const auto location =
                 user_location_from_ies(msg.value.choice.UplinkNASTransport.protocolIEs)) {
@@ -1710,6 +1782,31 @@ void handle_uplink_nas_transport_registration_complete(const PeerEndpoints& peer
     }
 
     ue_contexts.put(auth_state.supi, association_json);
+
+    // ADR-0393: capture the real AM Policy Association id, the same ADR-0249 Location-header
+    // pattern SMF's smContextRef capture already established. Without this AMF has no handle to
+    // terminate the association with (TS 29.507's DELETE .../policies/{polAssoId}) when the UE
+    // later deregisters -- see handle_uplink_nas_transport_deregistration's own header comment.
+    for (const auto& [name, value] : resp->headers) {
+        std::string lower_name;
+        lower_name.reserve(name.size());
+        for (const char c : name) {
+            lower_name.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+        if (lower_name == "location") {
+            const auto slash = value.find_last_of('/');
+            auth_state.pol_asso_id = slash == std::string::npos ? value : value.substr(slash + 1);
+            break;
+        }
+    }
+    if (!auth_state.pol_asso_id.has_value()) {
+        spdlog::warn("amf-ngap: PCF CreateIndividualAMPolicyAssociation's 201 carried no Location "
+                     "header -- no polAssoId stored for SUPI {}; this UE's later deregistration "
+                     "cannot terminate the AM Policy Association (it will be left orphaned on "
+                     "PCF)",
+                     auth_state.supi);
+    }
+
     spdlog::info("amf-ngap: AM Policy Association established with PCF for SUPI {} -- UE "
                  "registration procedure fully complete",
                  auth_state.supi);
@@ -1767,7 +1864,11 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
                      auth_state.supi);
         return;
     }
-    auth_state.phase = UeAuthState::Phase::Done; // this project's only implemented SM procedure
+    auth_state.phase = UeAuthState::Phase::Done;
+    // ADR-0393: this UlNasTransport just consumed uplink_count=2, so this association's next
+    // secured uplink message (a Deregistration, the only procedure reachable from Phase::Done)
+    // must verify against uplink_count=3.
+    auth_state.next_uplink_count = 3;
 
     if (!outcome->dnn.has_value() || !outcome->snssai_sst.has_value()) {
         spdlog::error("amf-ngap: UlNasTransport for SUPI {} is missing DNN and/or S-NSSAI -- this "
@@ -1939,6 +2040,215 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
                  auth_state.supi,
                  outcome->pdu_session_id,
                  sm_context_ref.empty() ? "<none>" : sm_context_ref);
+}
+
+// ADR-0393: TS 23.502 §4.2.2.3.2 UE-initiated Deregistration -- the last procedure of the staged
+// NGAP/NAS plan, and the prerequisite ADR-0440 named for the LI programme's remaining
+// Deregistration/IdentifierDeassociation events. Reached only from Phase::Done (this file's
+// dispatch switch below), so the message is decoded against auth_state.next_uplink_count, which
+// the two paths that can reach Done each set for real (see that field's own comment) rather than a
+// hardcoded literal that would silently fail the MAC on whichever path did not set it.
+//
+// Procedure implemented, in order (TS 23.502 §4.2.2.3.2 as far as this AMF's own scope reaches):
+//   1. Decode + MAC-verify the DEREGISTRATION REQUEST.
+//   2. Unless switchOff is set, send DEREGISTRATION ACCEPT (TS 24.501 §5.5.2.2.2 forbids it for
+//      switchOff -- clause 6.2.2.2.3's own two distinct LI trigger bullets make the same split).
+//   3. Release every PDU session this UE has a real smContextRef for
+//      (Nsmf_PDUSession_ReleaseSMContext), best-effort -- matches SMF's OWN release handler's
+//      stated discipline (local release must not get stuck on a peer being unreachable): a UE
+//      that is deregistering must not be left hung waiting on this AMF's own call to a peer NF.
+//   4. Terminate the PCF AM Policy Association this UE's registration created
+//      (Npcf_AMPolicyControl DeleteIndividualAMPolicyAssociation), same best-effort discipline.
+//      Disclosed gap if pol_asso_id was never captured -- see its own capture site's comment.
+//   5. Send a real, AMF-INITIATED NGAP UEContextReleaseCommand (Cause=nas/deregister) -- the
+//      direction handle_ue_context_release_request's own header comment used to say this lab had
+//      no trigger for.
+//   6. LI IRI-POI hooks: AMFDeregistration (TS 33.128 6.2.2.2.3) and AMFIdentifierDeassociation
+//      (6.2.2.2.7 -- ADR-0440 named this exact procedure as its only conformant trigger).
+//   7. Drop this UE's ue_contexts entry and mark auth_state.deregistered so
+//      handle_ue_context_release_complete, once the gNB confirms the release this function just
+//      triggered, also removes the persisted UeSecurityContextStore/AmfUeIdIndexStore entries --
+//      the real "identifier deassociation": a later ServiceRequest with this UE's old 5G-TMSI
+//      must no longer be accepted.
+//
+// Real, disclosed scope boundaries. Network-initiated deregistration (the AMF deciding on its own
+// to deregister a UE) is NOT implemented -- there is no trigger for it anywhere in this build.
+// Nudm_UECM has no registration/deregistration call anywhere in this AMF either -- a separate,
+// pre-existing gap this procedure does not touch (nothing was ever registered with UDM to
+// deregister). A Deregistration arriving in Phase::AwaitingPduSessionEstablishmentRequest (before
+// this UE ever established a PDU session) is not handled -- this dispatch switch only reaches this
+// function from Phase::Done, matching this project's existing single-fixed-order-per-association
+// scope (ADR-0031); a UE that deregisters before any PDU session exists is a real, disclosed gap,
+// not a silently mishandled one.
+void handle_uplink_nas_transport_deregistration(const PeerEndpoints& peers,
+                                                sbi_core::http2::Client& smf_client,
+                                                sbi_core::OAuth2Client& smf_oauth,
+                                                sbi_core::http2::Client& pcf_client,
+                                                sbi_core::OAuth2Client& pcf_oauth,
+                                                ngap_core::SctpSocket& assoc,
+                                                UeContextStore& ue_contexts,
+                                                NgapUeRegistry& ue_ngap_registry,
+                                                UeAuthState& auth_state,
+                                                const InitiatingMessage_t& msg) {
+    const auto nas_pdu_bytes_opt = extract_uplink_nas_pdu(msg);
+    if (!nas_pdu_bytes_opt.has_value()) {
+        return;
+    }
+    if (!auth_state.knas_int.has_value() || !auth_state.knas_enc.has_value()) {
+        spdlog::warn("amf-ngap: received a post-registration UplinkNASTransport with no NAS "
+                     "security context (out-of-order message or lost association state), ignoring");
+        return;
+    }
+
+    const auto outcome = amf::nas::decode_deregistration_request(*auth_state.knas_int,
+                                                                 *auth_state.knas_enc,
+                                                                 auth_state.next_uplink_count,
+                                                                 *nas_pdu_bytes_opt);
+    if (!outcome.has_value()) {
+        spdlog::warn("amf-ngap: received an UplinkNASTransport in Phase::Done that is not a "
+                     "decodable DeregistrationRequest -- the only procedure this AMF implements "
+                     "from this phase (out of scope: no second PDU session or other "
+                     "post-establishment NAS procedure), ignoring");
+        return;
+    }
+    if (!outcome->mac_valid) {
+        spdlog::warn("amf-ngap: DeregistrationRequest MAC verification FAILED for SUPI {} -- "
+                     "wrong keys, a tampered/replayed message, or a NAS COUNT desync",
+                     auth_state.supi);
+        return;
+    }
+
+    spdlog::info("amf-ngap: DeregistrationRequest verified OK for SUPI {} (switchOff={})",
+                 auth_state.supi,
+                 outcome->switch_off);
+
+    // TS 24.501 §5.5.2.2.2: the network shall not send DEREGISTRATION ACCEPT when switchOff was
+    // set. TS 33.128 6.2.2.2.3's own two UE-initiated LI trigger bullets make the identical split
+    // (sends ACCEPT / receives REQUEST-with-switch-off).
+    if (!outcome->switch_off) {
+        if (!ue_ngap_registry.send_deregistration_accept(auth_state.supi)) {
+            spdlog::warn("amf-ngap: no live registry entry for SUPI {} -- DeregistrationAccept "
+                         "could not be delivered (association state desync)",
+                         auth_state.supi);
+        } else {
+            spdlog::info("amf-ngap: sent DownlinkNASTransport with DeregistrationAccept for SUPI "
+                         "{}",
+                         auth_state.supi);
+        }
+    } else {
+        spdlog::info("amf-ngap: switchOff deregistration for SUPI {} -- no DEREGISTRATION ACCEPT "
+                     "sent, per TS 24.501 §5.5.2.2.2",
+                     auth_state.supi);
+    }
+
+    // Nsmf_PDUSession_ReleaseSMContext for every PDU session this UE has a real smContextRef for.
+    if (const auto ue_ctx = ue_contexts.get(auth_state.supi);
+        ue_ctx.has_value() && ue_ctx->contains("smContextRefs")) {
+        auto smf_token = smf_oauth.get_bearer_token();
+        if (!smf_token.has_value()) {
+            spdlog::warn("amf-ngap: could not obtain SMF bearer token for SUPI {}'s "
+                         "ReleaseSMContext calls: {} -- {} PDU session(s) left unreleased on SMF",
+                         auth_state.supi,
+                         smf_token.error(),
+                         (*ue_ctx)["smContextRefs"].size());
+        } else {
+            for (const auto& [pdu_session_id, ref] : (*ue_ctx)["smContextRefs"].items()) {
+                const auto sm_context_ref = ref.get<std::string>();
+                sbi_core::http2::ClientRequest release_req;
+                release_req.method = "POST";
+                release_req.url = peers.smf_base + "/nsmf-pdusession/v1/sm-contexts/" +
+                                  sm_context_ref + "/release";
+                release_req.headers.emplace("authorization", "Bearer " + *smf_token);
+                auto release_resp = smf_client.send(release_req);
+                if (!release_resp.has_value()) {
+                    spdlog::warn("amf-ngap: SMF ReleaseSMContext call failed for SUPI {}, "
+                                 "pduSessionId={}, smContextRef={}: {}",
+                                 auth_state.supi,
+                                 pdu_session_id,
+                                 sm_context_ref,
+                                 release_resp.error());
+                } else if (release_resp->status != 204 && release_resp->status != 404) {
+                    // 404 means SMF already has no session there (a race, or a session already
+                    // released some other way) -- not a real failure to report.
+                    spdlog::warn("amf-ngap: SMF ReleaseSMContext returned unexpected status {} "
+                                 "for SUPI {}, pduSessionId={}, smContextRef={}",
+                                 release_resp->status,
+                                 auth_state.supi,
+                                 pdu_session_id,
+                                 sm_context_ref);
+                }
+            }
+        }
+    }
+
+    // Npcf_AMPolicyControl DeleteIndividualAMPolicyAssociation, same best-effort discipline.
+    if (auth_state.pol_asso_id.has_value()) {
+        auto pcf_token = pcf_oauth.get_bearer_token();
+        if (!pcf_token.has_value()) {
+            spdlog::warn("amf-ngap: could not obtain PCF bearer token for SUPI {}'s "
+                         "DeleteIndividualAMPolicyAssociation: {} -- left unreleased on PCF",
+                         auth_state.supi,
+                         pcf_token.error());
+        } else {
+            sbi_core::http2::ClientRequest delete_req;
+            delete_req.method = "DELETE";
+            delete_req.url =
+                peers.pcf_base + "/npcf-am-policy-control/v1/policies/" + *auth_state.pol_asso_id;
+            delete_req.headers.emplace("authorization", "Bearer " + *pcf_token);
+            auto delete_resp = pcf_client.send(delete_req);
+            if (!delete_resp.has_value()) {
+                spdlog::warn("amf-ngap: PCF DeleteIndividualAMPolicyAssociation call failed for "
+                             "SUPI {}, polAssoId={}: {}",
+                             auth_state.supi,
+                             *auth_state.pol_asso_id,
+                             delete_resp.error());
+            } else if (delete_resp->status != 204 && delete_resp->status != 404) {
+                spdlog::warn("amf-ngap: PCF DeleteIndividualAMPolicyAssociation returned "
+                             "unexpected status {} for SUPI {}, polAssoId={}",
+                             delete_resp->status,
+                             auth_state.supi,
+                             *auth_state.pol_asso_id);
+            }
+        }
+    } else {
+        spdlog::warn("amf-ngap: no polAssoId was ever captured for SUPI {} -- its AM Policy "
+                     "Association (if PCF's own 201 lost the Location header, see the capture "
+                     "site's comment) is left orphaned on PCF",
+                     auth_state.supi);
+    }
+
+    // Real, AMF-INITIATED NGAP UEContextReleaseCommand -- the direction
+    // handle_ue_context_release_request's own header comment used to say this lab had no trigger
+    // for. The gNB's own UEContextReleaseComplete confirms it, reaching
+    // handle_ue_context_release_complete through the SAME dispatch path the RAN-initiated round
+    // trip already uses.
+    send_ue_context_release_command(
+        assoc, static_cast<unsigned long>(auth_state.amf_ue_id), CauseNas_deregister);
+
+    // LI IRI-POI hooks. No-op unless LI is enabled and this SUPI is a provisioned target.
+    if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {
+        const auto location =
+            user_location_from_ies(msg.value.choice.UplinkNASTransport.protocolIEs);
+        if (!location) {
+            spdlog::warn("amf-li-poi: UplinkNASTransport UserLocationInformation is absent or an "
+                         "unmodelled branch -- AMFDeregistration/AMFIdentifierDeassociation "
+                         "location (C) not populated");
+        }
+        g_li_poi->report_deregistration(
+            auth_state.supi, outcome->switch_off, auth_state.guti, location);
+        if (auth_state.guti.has_value()) {
+            g_li_poi->report_identifier_deassociation(auth_state.supi, *auth_state.guti, location);
+        } else {
+            spdlog::warn("amf-li-poi: no gUTI persisted on this association (a ServiceRequest "
+                         "reconnect's own disclosed gap, see UeAuthState::guti) -- "
+                         "AMFIdentifierDeassociation (gUTI M) not emitted");
+        }
+    }
+
+    ue_contexts.remove(auth_state.supi);
+    auth_state.deregistered = true;
+
+    spdlog::info("amf-ngap: Deregistration procedure complete for SUPI {}", auth_state.supi);
 }
 
 void handle_association(const PeerEndpoints& peers,
@@ -2119,12 +2429,20 @@ void handle_association(const PeerEndpoints& peers,
                         *pdu->choice.initiatingMessage);
                     break;
                 case UeAuthState::Phase::Done:
-                    spdlog::warn(
-                        "amf-ngap: received an UplinkNASTransport after this association's "
-                        "one PDU session was already established for SUPI {}, ignoring (out "
-                        "of scope: no second PDU session or other post-establishment NAS "
-                        "procedure implemented yet)",
-                        auth_state.supi);
+                    // ADR-0393: the one post-establishment NAS procedure this AMF implements --
+                    // UE-originating Deregistration. Its own decode call is what actually
+                    // recognizes whether this really is one; a message that isn't logs and is
+                    // ignored from inside that function, same discipline as every other phase.
+                    handle_uplink_nas_transport_deregistration(peers,
+                                                               smf_client,
+                                                               smf_oauth,
+                                                               pcf_client,
+                                                               pcf_oauth,
+                                                               assoc,
+                                                               ue_contexts,
+                                                               ue_ngap_registry,
+                                                               auth_state,
+                                                               *pdu->choice.initiatingMessage);
                     break;
             }
         } else if (pdu->present == NGAP_PDU_PR_initiatingMessage &&
@@ -2133,8 +2451,11 @@ void handle_association(const PeerEndpoints& peers,
             handle_ue_context_release_request(assoc, auth_state, *pdu->choice.initiatingMessage);
         } else if (pdu->present == NGAP_PDU_PR_successfulOutcome &&
                    pdu->choice.successfulOutcome->procedureCode == 41 /* id-UEContextRelease */) {
-            handle_ue_context_release_complete(
-                ue_ngap_registry, auth_state, *pdu->choice.successfulOutcome);
+            handle_ue_context_release_complete(ue_ngap_registry,
+                                               ue_security_contexts,
+                                               amf_ue_id_index,
+                                               auth_state,
+                                               *pdu->choice.successfulOutcome);
         } else if (pdu->present == NGAP_PDU_PR_initiatingMessage &&
                    pdu->choice.initiatingMessage->procedureCode == 25 /* id-PathSwitchRequest */) {
             // Arrives on a brand new association (the target gNB), not this association's own
@@ -2176,6 +2497,20 @@ bool NgapUeRegistry::send_dl_nas_transport(const std::string& supi,
     Entry& entry = it->second;
     const auto nas_bytes = amf::nas::encode_dl_nas_transport(
         entry.knas_int, entry.knas_enc, entry.next_downlink_count, pdu_session_id, n1_sm_container);
+    send_downlink_nas_transport(*entry.socket, entry.amf_ue_id, entry.ran_ue_id, nas_bytes);
+    entry.next_downlink_count += 1;
+    return true;
+}
+
+bool NgapUeRegistry::send_deregistration_accept(const std::string& supi) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = entries_.find(supi);
+    if (it == entries_.end() || it->second.socket == nullptr) {
+        return false;
+    }
+    Entry& entry = it->second;
+    const auto nas_bytes = amf::nas::encode_deregistration_accept(
+        entry.knas_int, entry.knas_enc, entry.next_downlink_count);
     send_downlink_nas_transport(*entry.socket, entry.amf_ue_id, entry.ran_ue_id, nas_bytes);
     entry.next_downlink_count += 1;
     return true;

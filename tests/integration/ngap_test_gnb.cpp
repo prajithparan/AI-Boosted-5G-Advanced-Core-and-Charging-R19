@@ -49,6 +49,8 @@ extern "C" {
 #include <TargetID.h>
 #include <TargetRANNodeID.h>
 #include <TargetToSource-TransparentContainer.h>
+#include <UEContextReleaseCommand.h>
+#include <UEContextReleaseComplete.h>
 #include <UPTransportLayerInformation.h>
 #include <UnsuccessfulOutcome.h>
 #include <UplinkNASTransport.h>
@@ -456,6 +458,38 @@ NgapTestGnb::build_handover_request_acknowledge(std::uint64_t amf_ue_id,
     return bytes;
 }
 
+std::vector<std::uint8_t> NgapTestGnb::build_ue_context_release_complete(std::uint64_t amf_ue_id,
+                                                                         std::uint32_t ran_ue_id) {
+    UEContextReleaseComplete_t complete{};
+
+    AMF_UE_NGAP_ID_t amf_id{};
+    asn_ulong2INTEGER(&amf_id, static_cast<unsigned long>(amf_ue_id));
+    ::ngap::add_ie(
+        complete.protocolIEs,
+        ::ngap::make_ie(
+            10 /* id-AMF-UE-NGAP-ID */, Criticality_ignore, &asn_DEF_AMF_UE_NGAP_ID, &amf_id));
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_AMF_UE_NGAP_ID, &amf_id);
+
+    RAN_UE_NGAP_ID_t ran_id = static_cast<RAN_UE_NGAP_ID_t>(ran_ue_id);
+    ::ngap::add_ie(
+        complete.protocolIEs,
+        ::ngap::make_ie(
+            85 /* id-RAN-UE-NGAP-ID */, Criticality_ignore, &asn_DEF_RAN_UE_NGAP_ID, &ran_id));
+
+    NGAP_PDU_t pdu{};
+    pdu.present = NGAP_PDU_PR_successfulOutcome;
+    pdu.choice.successfulOutcome =
+        static_cast<SuccessfulOutcome_t*>(std::calloc(1, sizeof(SuccessfulOutcome_t)));
+    pdu.choice.successfulOutcome->procedureCode = kProcUeContextRelease;
+    pdu.choice.successfulOutcome->criticality = Criticality_reject;
+    pdu.choice.successfulOutcome->value.present =
+        SuccessfulOutcome__value_PR_UEContextReleaseComplete;
+    pdu.choice.successfulOutcome->value.choice.UEContextReleaseComplete = complete;
+    const auto bytes = ::ngap::encode_pdu(pdu);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_PDU, &pdu);
+    return bytes;
+}
+
 bool NgapTestGnb::parse_handover_command(const std::vector<std::uint8_t>& pdu_bytes,
                                          std::vector<std::uint8_t>& switched_pdu_session_ids) {
     switched_pdu_session_ids.clear();
@@ -640,6 +674,35 @@ bool NgapTestGnb::parse_handover_preparation_failure_cause(
         if (cause != nullptr) {
             if (cause->present == Cause_PR_radioNetwork) {
                 radio_network_cause = cause->choice.radioNetwork;
+                ok = true;
+            }
+            ASN_STRUCT_FREE(asn_DEF_Cause, cause);
+        }
+    }
+    ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
+    return ok;
+}
+
+bool NgapTestGnb::parse_ue_context_release_command_nas_cause(
+    const std::vector<std::uint8_t>& pdu_bytes, long& nas_cause) {
+    NGAP_PDU_t* pdu = ::ngap::decode_pdu(pdu_bytes);
+    if (pdu == nullptr) {
+        return false;
+    }
+    if (pdu->present != NGAP_PDU_PR_initiatingMessage ||
+        pdu->choice.initiatingMessage->procedureCode != kProcUeContextRelease) {
+        ASN_STRUCT_FREE(asn_DEF_NGAP_PDU, pdu);
+        return false;
+    }
+    const auto& container =
+        pdu->choice.initiatingMessage->value.choice.UEContextReleaseCommand.protocolIEs;
+    bool ok = false;
+    const auto* cause_ie = ::ngap::find_ie(container, 15 /* id-Cause */);
+    if (cause_ie != nullptr) {
+        auto* cause = static_cast<Cause_t*>(::ngap::decode_ie_value(&asn_DEF_Cause, *cause_ie));
+        if (cause != nullptr) {
+            if (cause->present == Cause_PR_nas) {
+                nas_cause = cause->choice.nas;
                 ok = true;
             }
             ASN_STRUCT_FREE(asn_DEF_Cause, cause);

@@ -55,6 +55,7 @@ add_executable(integration_tests
     test_smf_handover_n2sminfo.cpp
     test_smf_n2sminfo_dispatch.cpp
     test_amf_ngap_handover.cpp
+    test_amf_deregistration.cpp
     test_ngap_codec_presence.cpp
     test_nsacf_slice_admission.cpp
     test_tps_spike_protection.cpp
