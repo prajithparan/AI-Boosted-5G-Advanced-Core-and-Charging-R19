@@ -135,6 +135,7 @@
 // surface is large enough to be its own increment).
 #include "nf_config/nf_config.hpp"
 #include "nf_config/redis.hpp"
+#include "nf_config/redis_router.hpp"
 
 // TS29594_Nchf_SpendingLimitControl's own types now live in TS26510_CommonData_grp.hpp -- see
 // stores.hpp's own comment (ADR-0072).
@@ -254,6 +255,14 @@ constexpr const char* kNrfInstanceId = "5ba9a927-1d31-4c8e-8a10-000000000001";
 // before, so deploy/docker/docker-compose.yml and .github/workflows/ci.yml are unaffected.
 std::string chf_redis_conninfo(const nlohmann::json& config) {
     return nf_config::require<std::string>(config, "redis_url", "CHF_REDIS_URL");
+}
+
+// docs/DECISIONS.md ADR-0444: "single" (default, byte-identical behaviour, ADR-0443's own
+// precedent) or "cluster" -- a real Valkey Cluster, routed by nf_config::RedisRouter (promoted
+// from UDSF's own store.hpp, ADR-0443).
+std::string chf_redis_mode(const nlohmann::json& config) {
+    return nf_config::optional<std::string>(config, "redis_mode", "CHF_REDIS_MODE")
+        .value_or("single");
 }
 
 // P4.4/ADR-0058, migrated ADR-0192: real Doris connection options for CdrWriter. ADR-0245
@@ -463,7 +472,29 @@ int main() {
     // (ADR-0054), since libpqxx::connection has no such built-in pooling.
     // sw::redis::Redis connects lazily on first command, so connect_redis_or_die PINGs now and
     // terminates the process if the store is unreachable (architecture-bonded fail-fast rule).
-    auto redis = nf_config::connect_redis_or_die(chf_redis_conninfo(config), "chf");
+    //
+    // docs/DECISIONS.md ADR-0444: cluster mode sizes its own connection pool explicitly (same real
+    // reason UDSF's own main.cpp does, ADR-0443: ConnectionPoolOptions::size defaults to 1, which
+    // would serialise a whole shard's traffic through one connection if left unset). Single mode
+    // is deliberately left untouched -- no pool_size is ever appended there, so its behaviour is
+    // byte-identical to before this ADR.
+    const auto chf_redis_mode_value = chf_redis_mode(config);
+    if (chf_redis_mode_value != "single" && chf_redis_mode_value != "cluster") {
+        nf_config::fatal("chf: redis_mode must be \"single\" or \"cluster\", got \"" +
+                         chf_redis_mode_value + "\"");
+    }
+    auto chf_redis_url = chf_redis_conninfo(config);
+    std::optional<nf_config::RedisRouter> chf_redis_router_opt;
+    if (chf_redis_mode_value == "cluster") {
+        const auto redis_pool_size =
+            nf_config::optional<int>(config, "redis_pool_size", "CHF_REDIS_POOL_SIZE").value_or(8);
+        chf_redis_url += (chf_redis_url.find('?') == std::string::npos ? "?" : "&") +
+                         std::string("pool_size=") + std::to_string(redis_pool_size);
+        chf_redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(chf_redis_url, "chf"));
+    } else {
+        chf_redis_router_opt.emplace(nf_config::connect_redis_or_die(chf_redis_url, "chf"));
+    }
+    nf_config::RedisRouter& redis = *chf_redis_router_opt;
     chf::ChargingDataStore charging_data_store(redis);
     chf::IdempotencyStore idempotency_store(
         redis,

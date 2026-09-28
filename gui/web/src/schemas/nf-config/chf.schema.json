@@ -52,6 +52,12 @@
       "x-env-override": "CHF_REDIS_URL",
       "x-cpp-type": "std::string"
     },
+    "redis_mode": {
+      "type": "string"
+    },
+    "redis_pool_size": {
+      "type": "integer"
+    },
     "doris_host": {
       "type": "string",
       "x-env-override": "CHF_DORIS_HOST",
@@ -153,6 +159,8 @@
   "x-review": [
     "product_catalog_base_url: present in the file but no source line visibly reads it",
     "balance_management_base_url: present in the file but no source line visibly reads it",
+    "redis_mode: present in the file but no source line visibly reads it",
+    "redis_pool_size: present in the file but no source line visibly reads it",
     "cdr_event_bus_brokers: present in the file but no source line visibly reads it",
     "cdr_event_bus_topic: present in the file but no source line visibly reads it",
     "cdr_direct_insert: present in the file but no source line visibly reads it"

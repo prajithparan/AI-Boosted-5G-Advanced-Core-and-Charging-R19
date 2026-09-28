@@ -9,6 +9,8 @@
   "idempotency_wait_poll_ms": 20,
   "idempotency_wait_max_ms": 2000,
   "redis_url": "tcp://127.0.0.1:6379",
+  "redis_mode": "single",
+  "redis_pool_size": 8,
   "doris_host": "127.0.0.1",
   "doris_port": 9030,
   "doris_user": "root",

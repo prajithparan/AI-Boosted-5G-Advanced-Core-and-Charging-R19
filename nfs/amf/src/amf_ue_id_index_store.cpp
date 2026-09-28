@@ -4,18 +4,22 @@ namespace amf {
 
 namespace {
 
-std::string index_key(unsigned long amf_ue_id) {
-    return "amf:ueidindex:" + std::to_string(amf_ue_id);
+// docs/DECISIONS.md ADR-0444: tagged by amf_ue_id itself (this store's own real identity), not by
+// tmsi -- see this file's own header comment for why tagging by tmsi would be a real bug here.
+std::string index_key(const nf_config::RedisRouter& router, unsigned long amf_ue_id) {
+    return "amf:ueidindex:" + router.tag(std::to_string(amf_ue_id));
 }
 
 } // namespace
 
 void AmfUeIdIndexStore::put(unsigned long amf_ue_id, std::uint32_t tmsi) {
-    redis_->set(index_key(amf_ue_id), std::to_string(tmsi));
+    const auto key = index_key(redis_, amf_ue_id);
+    redis_.with([&](auto& r) { r.set(key, std::to_string(tmsi)); });
 }
 
 std::optional<std::uint32_t> AmfUeIdIndexStore::get(unsigned long amf_ue_id) {
-    const auto value = redis_->get(index_key(amf_ue_id));
+    const auto key = index_key(redis_, amf_ue_id);
+    const auto value = redis_.with([&](auto& r) { return r.get(key); });
     if (!value) {
         return std::nullopt;
     }
@@ -23,7 +27,8 @@ std::optional<std::uint32_t> AmfUeIdIndexStore::get(unsigned long amf_ue_id) {
 }
 
 void AmfUeIdIndexStore::remove(unsigned long amf_ue_id) {
-    redis_->del(index_key(amf_ue_id));
+    const auto key = index_key(redis_, amf_ue_id);
+    redis_.with([&](auto& r) { r.del(key); });
 }
 
 } // namespace amf
