@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "nf_config/redis_router.hpp"
+
 // TS29594_Nchf_SpendingLimitControl's own real types (SpendingLimitContext/Status/
 // PolicyCounterInfo/etc.) now live in TS26510_CommonData_grp.hpp -- adding
 // TS29519_Policy_Data.yaml as a codegen pilot file (ADR-0072) created a new file-level cross-
@@ -78,10 +80,7 @@ class IdempotencyStore {
 public:
     // poll_ms / max_wait_ms: how a duplicate waits for the original to publish. Config, not
     // literals (user mandate: every tunable changeable without a rebuild).
-    IdempotencyStore(std::shared_ptr<sw::redis::Redis> redis,
-                     int ttl_seconds,
-                     int poll_ms,
-                     int max_wait_ms)
+    IdempotencyStore(nf_config::RedisRouter redis, int ttl_seconds, int poll_ms, int max_wait_ms)
         : redis_(std::move(redis)), ttl_seconds_(ttl_seconds), poll_ms_(poll_ms),
           max_wait_ms_(max_wait_ms) {}
 
@@ -99,16 +98,19 @@ public:
     bool enabled() const { return ttl_seconds_ > 0; }
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
     int ttl_seconds_;
     int poll_ms_;
     int max_wait_ms_;
 };
 
+// docs/DECISIONS.md ADR-0444: Redis-cluster-capable, same real routing UDSF's own store already
+// uses (ADR-0443) and the same as AMF's own stores. Every operation on every class in this file
+// is single-key (ADR-0443's own survey: "none" under multi-key ops for CHF), so
+// RedisRouter::with(f) is used throughout, never with(hash_tag, f)/transaction(...).
 class ChargingDataStore {
 public:
-    explicit ChargingDataStore(std::shared_ptr<sw::redis::Redis> redis)
-        : redis_(std::move(redis)) {}
+    explicit ChargingDataStore(nf_config::RedisRouter redis) : redis_(std::move(redis)) {}
 
     // Allocates a new ChargingDataRef, marks it active, and records the real per-session content
     // P4.3's real ABMF integration needs (nfs/chf/src/main.cpp's own header comment): which
@@ -165,7 +167,7 @@ public:
     double get_granted_service_units(const std::string& ref);
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 // P4.2 (ADR-0055): Nchf_OfflineOnlyCharging's own OfflineChargingDataRef resource collection --
@@ -175,15 +177,14 @@ private:
 // ChargingDataResponse schema carrying no multipleUnitInformation/grantedUnit field at all.
 class OfflineChargingDataStore {
 public:
-    explicit OfflineChargingDataStore(std::shared_ptr<sw::redis::Redis> redis)
-        : redis_(std::move(redis)) {}
+    explicit OfflineChargingDataStore(nf_config::RedisRouter redis) : redis_(std::move(redis)) {}
 
     std::string create();
     bool release(const std::string& ref);
     bool is_active(const std::string& ref);
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 // P4.2 (ADR-0055): Nchf_SpendingLimitControl's subscriptionId resource collection (TS 29.594).
@@ -194,7 +195,7 @@ private:
 // policyCounterIds to enumerate.
 class SpendingLimitSubscriptionStore {
 public:
-    explicit SpendingLimitSubscriptionStore(std::shared_ptr<sw::redis::Redis> redis)
+    explicit SpendingLimitSubscriptionStore(nf_config::RedisRouter redis)
         : redis_(std::move(redis)) {}
 
     // Server-assigned subscriptionId, matching every other resource-creation convention in this
@@ -217,7 +218,7 @@ public:
     std::vector<std::pair<std::string, sbi_gen::SpendingLimitContext>> list_all();
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 // ADR-0072 (gap-closure: real N28 end-to-end). Real, THIS-PROJECT-OWNED configuration surface for
@@ -230,14 +231,14 @@ private:
 // main.cpp's own admin/config route.
 class PolicyCounterConfigStore {
 public:
-    explicit PolicyCounterConfigStore(std::shared_ptr<sw::redis::Redis> redis);
+    explicit PolicyCounterConfigStore(nf_config::RedisRouter redis);
 
     void set_status(const std::string& policy_counter_id, const std::string& status);
     // std::nullopt if never configured -- caller falls back to a real, disclosed default.
     std::optional<std::string> get_status(const std::string& policy_counter_id);
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 // P4.8 (CHARGING_PROMPT.md Angle 1a, ADR-0074): rolling per-SUPI/per-ratingGroup consumption
@@ -255,8 +256,7 @@ struct QuotaHistorySnapshot {
 
 class QuotaFeatureStore {
 public:
-    explicit QuotaFeatureStore(std::shared_ptr<sw::redis::Redis> redis)
-        : redis_(std::move(redis)) {}
+    explicit QuotaFeatureStore(nf_config::RedisRouter redis) : redis_(std::move(redis)) {}
 
     // std::nullopt only when there is truly no prior history for this SUPI+ratingGroup (the
     // real, disclosed cold-start case: charging_engine.cpp skips AI-adjusted sizing entirely and
@@ -273,7 +273,7 @@ public:
                       std::int64_t invocation_unix_sec);
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 } // namespace chf
