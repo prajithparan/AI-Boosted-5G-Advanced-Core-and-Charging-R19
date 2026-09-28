@@ -7,6 +7,7 @@
 #include <sw/redis++/redis++.h>
 
 #include "aka_crypto/kdf.hpp"
+#include "nf_config/redis_router.hpp"
 
 // Private to nfs/amf -- not shared with any other NF, per CLAUDE.md's "no NF includes another
 // NF's private headers" rule.
@@ -58,10 +59,14 @@ struct UeSecurityContext {
     std::vector<std::uint8_t> ue_security_capability;
 };
 
+// docs/DECISIONS.md ADR-0444: Redis-cluster-capable, same real routing UDSF's own store already
+// uses (ADR-0443) -- every operation below is single-key (put/get/next_uplink_count/
+// next_downlink_count/remove all key off one tmsi's own hash; allocate_tmsi is a single global
+// counter), so this store uses RedisRouter::with(f) (no hash tag, no pinned connection), never
+// with(hash_tag, f)/transaction(...).
 class UeSecurityContextStore {
 public:
-    explicit UeSecurityContextStore(std::shared_ptr<sw::redis::Redis> redis)
-        : redis_(std::move(redis)) {}
+    explicit UeSecurityContextStore(nf_config::RedisRouter redis) : redis_(std::move(redis)) {}
 
     // tmsi: the real 5G-TMSI (4 octets, TS 23.003 §2.10) this context is keyed by -- assigned by
     // put_with_fresh_tmsi below at registration time, looked up by decode_service_request's own
@@ -87,7 +92,7 @@ public:
     std::uint32_t allocate_tmsi();
 
 private:
-    std::shared_ptr<sw::redis::Redis> redis_;
+    nf_config::RedisRouter redis_;
 };
 
 } // namespace amf

@@ -108,6 +108,7 @@
 #include "li_poi.hpp"
 #include "nf_config/nf_config.hpp"
 #include "nf_config/redis.hpp"
+#include "nf_config/redis_router.hpp"
 #include "ngap_task.hpp"
 #include "subscriptions.hpp"
 #include "ue_context_store.hpp"
@@ -335,7 +336,17 @@ int main() {
         nf_config::require<std::string>(config, "metrics_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AMF_NRF_BASE_URL");
-    const auto redis_url = nf_config::require<std::string>(config, "redis_url", "AMF_REDIS_URL");
+    auto redis_url = nf_config::require<std::string>(config, "redis_url", "AMF_REDIS_URL");
+    // docs/DECISIONS.md ADR-0444: "single" (default, byte-identical behaviour, ADR-0443's own
+    // precedent) or "cluster" -- a real Valkey Cluster, seeded from redis_url, routed by
+    // nf_config::RedisRouter (promoted from UDSF's own store.hpp, ADR-0443).
+    const auto redis_mode =
+        nf_config::optional<std::string>(config, "redis_mode", "AMF_REDIS_MODE").value_or("single");
+    if (redis_mode != "single" && redis_mode != "cluster") {
+        spdlog::critical("amf: redis_mode must be \"single\" or \"cluster\", got \"{}\"",
+                         redis_mode);
+        return 1;
+    }
     const auto ngap_bind_address = nf_config::require<std::string>(config, "ngap_bind_address");
     const auto ngap_bind_port = nf_config::require<std::uint16_t>(config, "ngap_bind_port");
     // Real, disclosed lab AMF identity (TS 24.501 §9.11.3.4's own 5G-GUTI structure) -- MUST
@@ -384,12 +395,30 @@ int main() {
     // security context -- see ue_security_context_store.hpp's own header for why this was a
     // real, load-bearing prerequisite for ServiceRequest support. Same real, fail-fast PING
     // discipline every other NF's own Redis connection already uses (e.g. CHF's own).
-    auto redis = nf_config::connect_redis_or_die(redis_url, "amf");
-    amf::UeSecurityContextStore ue_security_contexts(redis);
+    //
+    // docs/DECISIONS.md ADR-0444: cluster mode sizes its own connection pool explicitly --
+    // ConnectionPoolOptions::size defaults to 1 in the library (ADR-0443's own finding), which
+    // would serialise a whole shard's traffic through one connection if left unset. Single mode is
+    // deliberately left untouched (no pool_size ever appended) so its behaviour is byte-identical
+    // to before this ADR -- this NF's own existing single-node deployments never asked for a
+    // sized pool, and this ADR does not retroactively decide that for them.
+    std::optional<nf_config::RedisRouter> redis_router_opt;
+    if (redis_mode == "cluster") {
+        const auto redis_pool_size =
+            nf_config::optional<int>(config, "redis_pool_size", "AMF_REDIS_POOL_SIZE").value_or(8);
+        redis_url += (redis_url.find('?') == std::string::npos ? "?" : "&") +
+                     std::string("pool_size=") + std::to_string(redis_pool_size);
+        redis_router_opt.emplace(nf_config::connect_redis_cluster_or_die(redis_url, "amf"));
+    } else {
+        redis_router_opt.emplace(nf_config::connect_redis_or_die(redis_url, "amf"));
+    }
+    nf_config::RedisRouter& redis_router = *redis_router_opt;
+    amf::UeSecurityContextStore ue_security_contexts(redis_router);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0090): real cross-association
     // amf_ue_ngap_id -> tmsi index -- see amf_ue_id_index_store.hpp's own header for why
-    // PathSwitchRequest needs it. Shares the same Redis connection as ue_security_contexts above.
-    amf::AmfUeIdIndexStore amf_ue_id_index(redis);
+    // PathSwitchRequest needs it. Shares the same Redis connection(s) as ue_security_contexts
+    // above (RedisRouter wraps the same shared_ptr<Redis>/shared_ptr<RedisCluster> either way).
+    amf::AmfUeIdIndexStore amf_ue_id_index(redis_router);
     // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #100, ADR-0095): real cross-association
     // relay registry a genuine N2-based handover needs -- see gnb_association_registry.hpp's own
     // header for why. In-process only (no Redis backing), matching NgapUeRegistry's own scope:

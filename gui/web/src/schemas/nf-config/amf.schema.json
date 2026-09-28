@@ -48,6 +48,12 @@
       "x-env-override": "AMF_REDIS_URL",
       "x-cpp-type": "std::string"
     },
+    "redis_mode": {
+      "type": "string"
+    },
+    "redis_pool_size": {
+      "type": "integer"
+    },
     "ngap_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -136,6 +142,8 @@
   ],
   "x-apply": "restart",
   "x-review": [
+    "redis_mode: present in the file but no source line visibly reads it",
+    "redis_pool_size: present in the file but no source line visibly reads it",
     "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

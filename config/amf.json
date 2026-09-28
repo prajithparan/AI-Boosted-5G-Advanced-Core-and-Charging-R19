@@ -8,6 +8,8 @@
   "smf_base_url": "https://127.0.0.1:7779",
   "nsacf_base_url": "https://127.0.0.1:7797",
   "redis_url": "tcp://127.0.0.1:6379",
+  "redis_mode": "single",
+  "redis_pool_size": 8,
   "ngap_bind_address": "127.0.0.5",
   "ngap_bind_port": 38412,
   "amf_region_id": 0,
