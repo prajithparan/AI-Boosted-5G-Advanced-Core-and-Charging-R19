@@ -184,12 +184,245 @@ collect_charging_attributes(const sbi_gen::ChargingDataRequest_Nchf_ConvergedCha
     return attributes;
 }
 
+namespace {
+
+// One (offering, price) pair's outcome against a single rating request -- extracted so the EXACT
+// same business rule (isSellable/Active/ratingGroup/chargingScope/unitOfMeasure, then grant
+// building) applies whether the pair came from a live per-candidate HTTP fetch or from
+// CatalogSnapshot's cached copy (ADR-0446). `matched` false means "keep scanning the next
+// candidate" (the old code's `continue`); `matched` true with an empty `result` means "stop
+// scanning, grant nothing" (the old code's early `return {}` for a ratingGroup/scope match with no
+// usable `unitOfMeasure` -- a real, pre-existing short-circuit, preserved exactly, not relaxed into
+// "try the next candidate instead").
+struct MatchAttempt {
+    bool matched = false;
+    std::optional<RatingResult> result;
+};
+
+MatchAttempt try_rate_against(const bss_sid::ProductOffering& offering,
+                              const bss_sid::ProductOfferingPrice& price,
+                              std::int64_t rating_group,
+                              const std::string& supi,
+                              AiQuotaSizer* ai_quota_sizer,
+                              QuotaFeatureStore* quota_feature_store,
+                              const nlohmann::json& attributes) {
+    if (!offering.isSellable.value_or(false) || offering.lifecycleStatus.value_or("") != "Active") {
+        return {false, std::nullopt};
+    }
+
+    // ADR-0309: a single integer, or an ARRAY meaning any-of -- which is what lets ONE
+    // offering price cover voice and data rating groups as a single combined bundle.
+    const auto rg_value = find_characteristic_value(price.prodSpecCharValueUse, "ratingGroup");
+    if (!rg_value.has_value() || !rating_group_matches(*rg_value, rating_group)) {
+        return {false, std::nullopt};
+    }
+
+    // ADR-0303: the offering's own attribute scope, from the catalog. An offering priced for
+    // one slice, one UPF or one visited PLMN is skipped for a request that does not match it,
+    // so the NEXT matching offering is used instead -- which is what makes "10 GB on slice 1
+    // OR 5 GB on slice 10" two real, separately-priced products rather than one.
+    const auto scope = find_characteristic_value(price.prodSpecCharValueUse, "chargingScope");
+    if (scope.has_value() && !charging_scope_matches(*scope, attributes)) {
+        spdlog::debug("chf: ProductOfferingPrice {} matches ratingGroup {} but its "
+                      "chargingScope does not match this request's attributes",
+                      price.id.value_or(""),
+                      rating_group);
+        return {false, std::nullopt};
+    }
+
+    if (!price.unitOfMeasure.has_value() || !price.unitOfMeasure->amount.has_value()) {
+        spdlog::info("chf: ProductOfferingPrice {} matches ratingGroup {} but has no "
+                     "unitOfMeasure, granting nothing",
+                     *price.id,
+                     rating_group);
+        return {true, std::nullopt};
+    }
+
+    RatingResult result;
+    // ADR-0330: the operator's own exchange rate between units, if this price declares one.
+    // Parsed here, next to chargingScope, because it is the same kind of thing: a commercial
+    // term 3GPP leaves to the operator, carried as catalog data rather than decided in code.
+    const auto pooling =
+        parse_unit_pooling(find_characteristic_value(price.prodSpecCharValueUse, "unitPooling"));
+    result.poolOctetsPerSecond = pooling.octets_per_second.value_or(0.0);
+    result.poolOctetsPerServiceUnit = pooling.octets_per_service_unit.value_or(0.0);
+    sbi_gen::GrantedUnit grant{};
+    const auto amount = *price.unitOfMeasure->amount;
+    const auto units = price.unitOfMeasure->units.value_or("");
+    // ADR-0304 (C2 of ADR-0300): DURATION units produce a real `GrantedUnit.time`.
+    //
+    // Until now every non-GB/MB unit fell into `serviceSpecificUnits`, so a per-minute voice
+    // price silently became a service-unit grant and `GrantedUnit.time` was NEVER populated
+    // anywhere in this project. Three separately-disclosed gaps all traced back to that one
+    // fact: CAP's `maxCallPeriodDuration` is derived from `grant->time` and was therefore
+    // always 0 (ADR-0298), CAP's finalization could not be proportional because its report is
+    // in time while its grant was in volume (ADR-0297), and time-based bundles were listed as
+    // Partial in README's product table. This closes all three at the source.
+    //
+    // Units are matched case-insensitively against the real TM Forum `unitOfMeasure.units`
+    // string an operator configures. `GrantedUnit.time` is Uint32 SECONDS per TS 32.291, so
+    // every duration unit converts to seconds here rather than being carried in its own scale.
+    std::string unit_upper;
+    unit_upper.reserve(units.size());
+    for (const char c : units) {
+        unit_upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    if (unit_upper == "GB") {
+        grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000'000.0);
+    } else if (unit_upper == "MB") {
+        grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000.0);
+    } else if (unit_upper == "SEC" || unit_upper == "SECOND" || unit_upper == "SECONDS" ||
+               unit_upper == "S") {
+        grant.time = static_cast<std::uint32_t>(amount);
+    } else if (unit_upper == "MIN" || unit_upper == "MINUTE" || unit_upper == "MINUTES") {
+        grant.time = static_cast<std::uint32_t>(amount * 60.0);
+    } else if (unit_upper == "HOUR" || unit_upper == "HOURS" || unit_upper == "HR" ||
+               unit_upper == "H") {
+        grant.time = static_cast<std::uint32_t>(amount * 3600.0);
+    } else if (unit_upper == "DAY" || unit_upper == "DAYS") {
+        grant.time = static_cast<std::uint32_t>(amount * 86400.0);
+    } else {
+        grant.serviceSpecificUnits = static_cast<std::uint64_t>(amount);
+    }
+    result.grant = grant;
+    result.cost = price.price;
+    result.tariffId = price.id;
+    result.tariffVersion = price.version;
+    result.offeringName = offering.name;
+    result.priceName = price.name;
+
+    if (const auto v = find_characteristic_value(price.prodSpecCharValueUse, "validityTime");
+        v.has_value() && v->is_number_integer()) {
+        result.validityTimeSec = v->get<std::int64_t>();
+    }
+    if (const auto v = find_characteristic_value(price.prodSpecCharValueUse, "quotaHoldingTime");
+        v.has_value() && v->is_number_integer()) {
+        result.quotaHoldingTimeSec = v->get<std::int64_t>();
+    }
+    if (const auto v =
+            find_characteristic_value(price.prodSpecCharValueUse, "volumeQuotaThreshold");
+        v.has_value() && v->is_number_integer()) {
+        result.volumeQuotaThreshold = v->get<std::int64_t>();
+    }
+    if (const auto v = find_characteristic_value(price.prodSpecCharValueUse, "timeQuotaThreshold");
+        v.has_value() && v->is_number_integer()) {
+        result.timeQuotaThreshold = v->get<std::int64_t>();
+    }
+    if (const auto v = find_characteristic_value(price.prodSpecCharValueUse, "unitQuotaThreshold");
+        v.has_value() && v->is_number_integer()) {
+        result.unitQuotaThreshold = v->get<std::int64_t>();
+    }
+
+    // P4.8 (CHARGING_PROMPT.md Angle 1a, ADR-0074): predictive quota sizing. Real, disclosed
+    // scope: only totalVolume (GB/MB) grants are AI-adjustable -- serviceSpecificUnits has no
+    // meaningful "predicted usage" quantity to compare against in this project's own schema.
+    // "This model informs the decision. The deterministic rating engine makes it." -- the
+    // model below only ever SUGGESTS a usage figure; the actual grant is always the
+    // price-configured base multiplied by a clamp to [0.5x, 2.0x], never the raw prediction.
+    if (grant.totalVolume.has_value() && *grant.totalVolume > 0 && !supi.empty() &&
+        ai_quota_sizer != nullptr && ai_quota_sizer->is_enabled() &&
+        quota_feature_store != nullptr) {
+        if (const auto snapshot = quota_feature_store->get(supi, rating_group);
+            snapshot.has_value() && !snapshot->recentUsedVolumes.empty()) {
+            QuotaSizingFeatures features{};
+            double sum = 0.0;
+            for (const auto v : snapshot->recentUsedVolumes) {
+                sum += v;
+            }
+            features[0] = sum / static_cast<double>(snapshot->recentUsedVolumes.size());
+            features[1] = snapshot->recentUsedVolumes.size() >= 2
+                              ? snapshot->recentUsedVolumes[0] - snapshot->recentUsedVolumes[1]
+                              : 0.0;
+            const auto now_unix =
+                static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                              std::chrono::system_clock::now().time_since_epoch())
+                                              .count());
+            features[2] = snapshot->lastInvocationUnixSec.has_value()
+                              ? static_cast<double>(now_unix - *snapshot->lastInvocationUnixSec)
+                              : 0.0;
+            features[3] = snapshot->lastGrantedTotalVolume.value_or(0.0);
+
+            if (const auto predicted = ai_quota_sizer->predict(features); predicted.has_value()) {
+                const double base = static_cast<double>(*grant.totalVolume);
+                const double raw_multiplier = *predicted / base;
+                const double multiplier = std::clamp(raw_multiplier, 0.5, 2.0);
+                grant.totalVolume = static_cast<std::uint64_t>(base * multiplier);
+                result.grant = grant;
+                result.aiAdvisory = json{
+                    {"model_version", ai_quota_sizer->model_version()},
+                    {"features",
+                     json{{kQuotaSizingFeatureNames[0], features[0]},
+                          {kQuotaSizingFeatureNames[1], features[1]},
+                          {kQuotaSizingFeatureNames[2], features[2]},
+                          {kQuotaSizingFeatureNames[3], features[3]}}},
+                    {"predicted_usage_octets", *predicted},
+                    {"base_grant_octets", base},
+                    {"raw_multiplier", raw_multiplier},
+                    {"applied_multiplier", multiplier},
+                    {"clamped_low", raw_multiplier < 0.5},
+                    {"clamped_high", raw_multiplier > 2.0},
+                    {"deterministic_bound", "[0.5x, 2.0x] of price-configured grant"},
+                };
+                spdlog::info("chf: AI quota sizing adjusted grant for SUPI={} ratingGroup={} "
+                             "by {:.3f}x (raw {:.3f}x, base {} octets -> {} octets)",
+                             supi,
+                             rating_group,
+                             multiplier,
+                             raw_multiplier,
+                             static_cast<std::uint64_t>(base),
+                             *grant.totalVolume);
+            }
+        }
+    }
+
+    spdlog::info("chf: rating engine granted {} from ProductOffering '{}' / ProductOfferingPrice "
+                 "'{}' (ratingGroup={})",
+                 units == "GB" || units == "MB"
+                     ? std::to_string(*grant.totalVolume) + " octets"
+                     : std::to_string(*grant.serviceSpecificUnits) + " service-specific units",
+                 offering.name.value_or(""),
+                 price.name.value_or(""),
+                 rating_group);
+    return {true, result};
+}
+
+} // namespace
+
 RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
                                 std::int64_t rating_group,
                                 const std::string& supi,
                                 AiQuotaSizer* ai_quota_sizer,
                                 QuotaFeatureStore* quota_feature_store,
-                                const nlohmann::json& attributes) {
+                                const nlohmann::json& attributes,
+                                CatalogSnapshot* catalog_snapshot) {
+    // ADR-0446: the snapshot path. Real match semantics identical to the live-fetch path below --
+    // same try_rate_against, same "first candidate in collection order that matches" rule -- the
+    // only difference is the (offering, price) pairs come from an in-memory copy instead of one SBI
+    // call per offering.
+    if (catalog_snapshot != nullptr && catalog_snapshot->ready()) {
+        for (const auto& candidate : catalog_snapshot->candidates()) {
+            const auto attempt = try_rate_against(candidate.offering,
+                                                  candidate.price,
+                                                  rating_group,
+                                                  supi,
+                                                  ai_quota_sizer,
+                                                  quota_feature_store,
+                                                  attributes);
+            if (attempt.matched) {
+                return attempt.result.value_or(RatingResult{});
+            }
+        }
+        spdlog::info(
+            "chf: no Active/isSellable ProductOfferingPrice configures ratingGroup {}, granting "
+            "nothing this call",
+            rating_group);
+        return {};
+    }
+
+    // Live-fetch fallback -- byte-identical to this function's own pre-ADR-0446 behaviour (no
+    // snapshot passed, e.g. an existing caller or a not-yet-warmed-up snapshot): one
+    // GET /productOffering, then one GET /productOfferingPrice/{id} PER CANDIDATE, stopping at the
+    // first match exactly as before -- no extra fetches introduced by this refactor.
     sbi_core::http2::ClientRequest offerings_req;
     offerings_req.method = "GET";
     offerings_req.url = product_catalog_base() + kProductCatalogApiRoot + "/productOffering";
@@ -207,14 +440,8 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
         return {};
     }
 
-    // Real match: the FIRST Active/isSellable offering whose price's own real `ratingGroup`
-    // characteristic equals the request's ratingGroup -- see this function's own header comment
-    // for why "first Active/isSellable, ratingGroup ignored" (this project's own earlier behavior)
-    // was a real correctness gap, not a documented simplification.
     for (const auto& offering : offerings) {
-        if (!offering.isSellable.value_or(false) ||
-            offering.lifecycleStatus.value_or("") != "Active" ||
-            offering.productOfferingPrice.empty()) {
+        if (offering.productOfferingPrice.empty()) {
             continue;
         }
 
@@ -233,185 +460,11 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
             continue;
         }
 
-        // ADR-0309: a single integer, or an ARRAY meaning any-of -- which is what lets ONE
-        // offering price cover voice and data rating groups as a single combined bundle.
-        const auto rg_value = find_characteristic_value(price.prodSpecCharValueUse, "ratingGroup");
-        if (!rg_value.has_value() || !rating_group_matches(*rg_value, rating_group)) {
-            continue;
+        const auto attempt = try_rate_against(
+            offering, price, rating_group, supi, ai_quota_sizer, quota_feature_store, attributes);
+        if (attempt.matched) {
+            return attempt.result.value_or(RatingResult{});
         }
-
-        // ADR-0303: the offering's own attribute scope, from the catalog. An offering priced for
-        // one slice, one UPF or one visited PLMN is skipped for a request that does not match it,
-        // so the NEXT matching offering is used instead -- which is what makes "10 GB on slice 1
-        // OR 5 GB on slice 10" two real, separately-priced products rather than one.
-        const auto scope = find_characteristic_value(price.prodSpecCharValueUse, "chargingScope");
-        if (scope.has_value() && !charging_scope_matches(*scope, attributes)) {
-            spdlog::debug("chf: ProductOfferingPrice {} matches ratingGroup {} but its "
-                          "chargingScope does not match this request's attributes",
-                          price.id.value_or(""),
-                          rating_group);
-            continue;
-        }
-
-        if (!price.unitOfMeasure.has_value() || !price.unitOfMeasure->amount.has_value()) {
-            spdlog::info("chf: ProductOfferingPrice {} matches ratingGroup {} but has no "
-                         "unitOfMeasure, granting nothing",
-                         *price.id,
-                         rating_group);
-            return {};
-        }
-
-        RatingResult result;
-        // ADR-0330: the operator's own exchange rate between units, if this price declares one.
-        // Parsed here, next to chargingScope, because it is the same kind of thing: a commercial
-        // term 3GPP leaves to the operator, carried as catalog data rather than decided in code.
-        const auto pooling = parse_unit_pooling(
-            find_characteristic_value(price.prodSpecCharValueUse, "unitPooling"));
-        result.poolOctetsPerSecond = pooling.octets_per_second.value_or(0.0);
-        result.poolOctetsPerServiceUnit = pooling.octets_per_service_unit.value_or(0.0);
-        sbi_gen::GrantedUnit grant{};
-        const auto amount = *price.unitOfMeasure->amount;
-        const auto units = price.unitOfMeasure->units.value_or("");
-        // ADR-0304 (C2 of ADR-0300): DURATION units produce a real `GrantedUnit.time`.
-        //
-        // Until now every non-GB/MB unit fell into `serviceSpecificUnits`, so a per-minute voice
-        // price silently became a service-unit grant and `GrantedUnit.time` was NEVER populated
-        // anywhere in this project. Three separately-disclosed gaps all traced back to that one
-        // fact: CAP's `maxCallPeriodDuration` is derived from `grant->time` and was therefore
-        // always 0 (ADR-0298), CAP's finalization could not be proportional because its report is
-        // in time while its grant was in volume (ADR-0297), and time-based bundles were listed as
-        // Partial in README's product table. This closes all three at the source.
-        //
-        // Units are matched case-insensitively against the real TM Forum `unitOfMeasure.units`
-        // string an operator configures. `GrantedUnit.time` is Uint32 SECONDS per TS 32.291, so
-        // every duration unit converts to seconds here rather than being carried in its own scale.
-        std::string unit_upper;
-        unit_upper.reserve(units.size());
-        for (const char c : units) {
-            unit_upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
-        }
-        if (unit_upper == "GB") {
-            grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000'000.0);
-        } else if (unit_upper == "MB") {
-            grant.totalVolume = static_cast<std::uint64_t>(amount * 1'000'000.0);
-        } else if (unit_upper == "SEC" || unit_upper == "SECOND" || unit_upper == "SECONDS" ||
-                   unit_upper == "S") {
-            grant.time = static_cast<std::uint32_t>(amount);
-        } else if (unit_upper == "MIN" || unit_upper == "MINUTE" || unit_upper == "MINUTES") {
-            grant.time = static_cast<std::uint32_t>(amount * 60.0);
-        } else if (unit_upper == "HOUR" || unit_upper == "HOURS" || unit_upper == "HR" ||
-                   unit_upper == "H") {
-            grant.time = static_cast<std::uint32_t>(amount * 3600.0);
-        } else if (unit_upper == "DAY" || unit_upper == "DAYS") {
-            grant.time = static_cast<std::uint32_t>(amount * 86400.0);
-        } else {
-            grant.serviceSpecificUnits = static_cast<std::uint64_t>(amount);
-        }
-        result.grant = grant;
-        result.cost = price.price;
-        result.tariffId = price.id;
-        result.tariffVersion = price.version;
-        result.offeringName = offering.name;
-        result.priceName = price.name;
-
-        if (const auto v = find_characteristic_value(price.prodSpecCharValueUse, "validityTime");
-            v.has_value() && v->is_number_integer()) {
-            result.validityTimeSec = v->get<std::int64_t>();
-        }
-        if (const auto v =
-                find_characteristic_value(price.prodSpecCharValueUse, "quotaHoldingTime");
-            v.has_value() && v->is_number_integer()) {
-            result.quotaHoldingTimeSec = v->get<std::int64_t>();
-        }
-        if (const auto v =
-                find_characteristic_value(price.prodSpecCharValueUse, "volumeQuotaThreshold");
-            v.has_value() && v->is_number_integer()) {
-            result.volumeQuotaThreshold = v->get<std::int64_t>();
-        }
-        if (const auto v =
-                find_characteristic_value(price.prodSpecCharValueUse, "timeQuotaThreshold");
-            v.has_value() && v->is_number_integer()) {
-            result.timeQuotaThreshold = v->get<std::int64_t>();
-        }
-        if (const auto v =
-                find_characteristic_value(price.prodSpecCharValueUse, "unitQuotaThreshold");
-            v.has_value() && v->is_number_integer()) {
-            result.unitQuotaThreshold = v->get<std::int64_t>();
-        }
-
-        // P4.8 (CHARGING_PROMPT.md Angle 1a, ADR-0074): predictive quota sizing. Real, disclosed
-        // scope: only totalVolume (GB/MB) grants are AI-adjustable -- serviceSpecificUnits has no
-        // meaningful "predicted usage" quantity to compare against in this project's own schema.
-        // "This model informs the decision. The deterministic rating engine makes it." -- the
-        // model below only ever SUGGESTS a usage figure; the actual grant is always the
-        // price-configured base multiplied by a clamp to [0.5x, 2.0x], never the raw prediction.
-        if (grant.totalVolume.has_value() && *grant.totalVolume > 0 && !supi.empty() &&
-            ai_quota_sizer != nullptr && ai_quota_sizer->is_enabled() &&
-            quota_feature_store != nullptr) {
-            if (const auto snapshot = quota_feature_store->get(supi, rating_group);
-                snapshot.has_value() && !snapshot->recentUsedVolumes.empty()) {
-                QuotaSizingFeatures features{};
-                double sum = 0.0;
-                for (const auto v : snapshot->recentUsedVolumes) {
-                    sum += v;
-                }
-                features[0] = sum / static_cast<double>(snapshot->recentUsedVolumes.size());
-                features[1] = snapshot->recentUsedVolumes.size() >= 2
-                                  ? snapshot->recentUsedVolumes[0] - snapshot->recentUsedVolumes[1]
-                                  : 0.0;
-                const auto now_unix = static_cast<std::int64_t>(
-                    std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count());
-                features[2] = snapshot->lastInvocationUnixSec.has_value()
-                                  ? static_cast<double>(now_unix - *snapshot->lastInvocationUnixSec)
-                                  : 0.0;
-                features[3] = snapshot->lastGrantedTotalVolume.value_or(0.0);
-
-                if (const auto predicted = ai_quota_sizer->predict(features);
-                    predicted.has_value()) {
-                    const double base = static_cast<double>(*grant.totalVolume);
-                    const double raw_multiplier = *predicted / base;
-                    const double multiplier = std::clamp(raw_multiplier, 0.5, 2.0);
-                    grant.totalVolume = static_cast<std::uint64_t>(base * multiplier);
-                    result.grant = grant;
-                    result.aiAdvisory = json{
-                        {"model_version", ai_quota_sizer->model_version()},
-                        {"features",
-                         json{{kQuotaSizingFeatureNames[0], features[0]},
-                              {kQuotaSizingFeatureNames[1], features[1]},
-                              {kQuotaSizingFeatureNames[2], features[2]},
-                              {kQuotaSizingFeatureNames[3], features[3]}}},
-                        {"predicted_usage_octets", *predicted},
-                        {"base_grant_octets", base},
-                        {"raw_multiplier", raw_multiplier},
-                        {"applied_multiplier", multiplier},
-                        {"clamped_low", raw_multiplier < 0.5},
-                        {"clamped_high", raw_multiplier > 2.0},
-                        {"deterministic_bound", "[0.5x, 2.0x] of price-configured grant"},
-                    };
-                    spdlog::info("chf: AI quota sizing adjusted grant for SUPI={} ratingGroup={} "
-                                 "by {:.3f}x (raw {:.3f}x, base {} octets -> {} octets)",
-                                 supi,
-                                 rating_group,
-                                 multiplier,
-                                 raw_multiplier,
-                                 static_cast<std::uint64_t>(base),
-                                 *grant.totalVolume);
-                }
-            }
-        }
-
-        spdlog::info(
-            "chf: rating engine granted {} from ProductOffering '{}' / ProductOfferingPrice "
-            "'{}' (ratingGroup={})",
-            units == "GB" || units == "MB"
-                ? std::to_string(*grant.totalVolume) + " octets"
-                : std::to_string(*grant.serviceSpecificUnits) + " service-specific units",
-            offering.name.value_or(""),
-            price.name.value_or(""),
-            rating_group);
-        return result;
     }
 
     spdlog::info(
@@ -701,14 +754,16 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                  chf::AiQuotaSizer* ai_quota_sizer,
                  chf::QuotaFeatureStore* quota_feature_store,
                  std::optional<std::time_t> invocation_time_stamp,
-                 const nlohmann::json& attributes) {
+                 const nlohmann::json& attributes,
+                 chf::CatalogSnapshot* catalog_snapshot) {
     ChargeUsageResult result;
     result.rating = build_rating_grant(catalog_client,
                                        static_cast<std::int64_t>(usage.ratingGroup),
                                        supi,
                                        ai_quota_sizer,
                                        quota_feature_store,
-                                       attributes);
+                                       attributes,
+                                       catalog_snapshot);
 
     if (result.rating.cost.has_value() && !supi.empty()) {
         result.reserved =

@@ -80,6 +80,10 @@ public:
                    OfflineChargingDataStore& offline_charging_data_store,
                    SpendingLimitSubscriptionStore& spending_limit_store,
                    PolicyCounterConfigStore& policy_counter_config_store,
+                   // ADR-0446: the same CatalogSnapshot instance main() passes to the HTTP
+                   // handlers -- Gy shares build_rating_grant's rating path (CHARGING_PROMPT P4.5's
+                   // single-code-path property), so it shares the snapshot that path now consults.
+                   CatalogSnapshot& catalog_snapshot,
                    opentelemetry::metrics::Counter<std::uint64_t>* grant_counter,
                    opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter,
                    opentelemetry::metrics::Counter<std::uint64_t>* ccr_initial_counter,
@@ -127,6 +131,7 @@ private:
     OfflineChargingDataStore& offline_charging_data_store_;
     SpendingLimitSubscriptionStore& spending_limit_store_;
     PolicyCounterConfigStore& policy_counter_config_store_;
+    CatalogSnapshot& catalog_snapshot_;
     opentelemetry::metrics::Counter<std::uint64_t>* grant_counter_;
     opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter_;
     opentelemetry::metrics::Counter<std::uint64_t>* ccr_initial_counter_;

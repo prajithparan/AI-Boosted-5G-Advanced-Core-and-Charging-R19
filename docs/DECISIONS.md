@@ -32676,14 +32676,19 @@ clang-format clean. Full detail in that commit's own message. Deliberately does 
    refreshed in, or truly nonexistent) is indistinguishable from today's live-lookup miss and gets
    the same, already-correct, already-disclosed treatment. No new "stale vs. missing" distinction
    is invented.
-6. **Readiness: CHF must not serve a charging request before its first snapshot load succeeds.**
-   No readiness/health endpoint exists for CHF today (checked: no Compose healthcheck, no `/ready`
-   route) -- COMPLIANCE_P1_P15.md blocker 0a's broader "health/readiness semantics for every
-   datastore" ask is real, separate, larger work, not fully built here. This increment's minimal
-   version: the charging-request handler returns the same `503` `ProblemDetails` shape ADR-0280's
-   TPS-shedding already established (reusing a real precedent, not inventing a new error shape)
-   until the snapshot has loaded once, with a clear log line and a Prometheus gauge for snapshot
-   age/generation so "not ready yet" and "stale" are both observable, not silent.
+6. **Readiness: revised during implementation -- graceful fallback, not a 503 gate.** The plan above
+   (503 until the first snapshot load succeeds) was reconsidered while building step 3 and changed,
+   because a real alternative turned out to be strictly better: `build_rating_grant` already falls
+   back to the exact pre-ADR-0446 live-fetch behaviour whenever `catalog_snapshot` is null or not
+   yet `ready()` (see `try_rate_against`'s extraction, same function, same match semantics, used by
+   both paths). A snapshot that has not warmed up yet therefore costs latency, not availability --
+   CHF serves every request correctly from the moment it starts, exactly as it always has, and
+   transparently switches to the fast path the instant the first refresh succeeds. This avoids
+   adding a new crash/refuse-on-startup class of failure (COMPLIANCE_P1_P15.md blocker 0a already
+   names enough of those) for a pure performance optimization that does not need one. Observability
+   instead of a gate: `chf_catalog_snapshot_generation` (bumped per successful refresh) and
+   `chf_catalog_snapshot_age_seconds` (-1 until the first refresh) are real Prometheus gauges, so
+   "never refreshed" and "stale" are both visible without refusing service over either.
 7. **Replica skew, disclosed rather than solved.** Round-robin CHF replicas (the existing
    comma-separated peer-base mechanism, `project_autoscaling_mandate`) can briefly hold different
    snapshot generations after a refresh. Not a new problem this increment introduces -- today's
@@ -32744,3 +32749,39 @@ request latency (c1, no contention) is the catalog N+1 calls specifically versus
 round-trip versus the synchronous client. The snapshot (step 3) removes the catalog N+1 calls only;
 the honest comparison once it exists is this same script run again, same provisioning, same
 machine state as close to idle as this one was -- not a claim that the whole gap above will close.
+
+**Step 3, done (2026-10-02): the snapshot itself.** `nfs/chf/src/catalog_snapshot.{hpp,cpp}` -- a
+dumb cache of the real `GET /productOffering`/`GET /productOfferingPrice` collections, preserving
+collection order. `build_rating_grant` (`charging_engine.cpp`) refactored to extract its entire
+matching+grant-building body (isSellable/Active/ratingGroup/chargingScope/unitOfMeasure, AI quota
+sizing) into a shared `try_rate_against` helper, used identically by a new snapshot-backed path and
+the original live-fetch path -- a null or not-yet-`ready()` snapshot falls back to the exact
+pre-existing behaviour byte-for-byte, no extra fetches, no new crash/503 path (see the revised
+item 6 above). Wired through all three real call sites sharing `charge_one_usage`
+(`main.cpp`'s Nchf Create/Update, `diameter_server.cpp`'s Gy CCR-I/U, `cap_server.cpp`'s CAP
+InitialDP/renewal), each passing the same CHF-wide `CatalogSnapshot` instance, kept warm by its own
+dedicated background thread (own `sbi_core::http2::Client`, never sharing the route handlers'
+thread-confined one -- same discipline `run_nrf_lifecycle` already established). Two Prometheus
+gauges (`chf_catalog_snapshot_generation`, `chf_catalog_snapshot_age_seconds`) for observability.
+Config: `catalog_snapshot_refresh_interval_seconds` (default 30s, `config/chf.json`).
+
+**Verification.** Every touched file compiles clean under `-Wall -Wextra -Wpedantic -Wshadow
+-Wconversion -Wsign-conversion` and clang-format-18. A real build of `chf` and `integration_tests`
+succeeded (0 `FAILED:` lines). `CapScopedCharging.AnInitialDpRatesAgainstTheOfferingScopedToItsServiceKey`
+-- the test that specifically proves ratingGroup+chargingScope matching with decoy-offering
+ordering -- passed on 5 separate runs (real timing non-determinism between this test's request and
+the background refresh thread's own first attempt means different runs could exercise either code
+path; it was not pinned to one). Both `ChaosCharging.*` tests passed, including a real, informative
+log line confirming the designed-for degradation: with no product-catalog process running at all,
+`catalog_snapshot.refresh()` logged "could not reach product-catalog... keeping previous snapshot"
+and `build_rating_grant` fell back to live-fetch, producing the identical pre-existing "could not
+reach bss/product-catalog for rating, granting nothing" outcome -- not a crash, not a hang.
+Three unrelated tests (`N28SyEndToEnd`, `PcfN28Integration`, `PcfChfN28Integration`) failed in this
+local run on a UDR OAuth2 token issue -- confirmed unrelated: that feature area (Nchf_
+SpendingLimitControl/N28) does not call `build_rating_grant`/`charge_one_usage` at all, and
+`postgres-udr` was simply never brought up in this local session (a local environment gap, not
+exercised or explained by anything this ADR changed).
+
+**Not yet done:** the "after" run of `scripts/run-chf-rating-baseline.sh` for the real before/after
+comparison against the 2026-10-02 baseline above -- next action, on a machine not sharing CPU with
+an in-progress CI job, same discipline as the baseline itself.

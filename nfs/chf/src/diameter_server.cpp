@@ -643,6 +643,7 @@ DiameterServer::DiameterServer(
     OfflineChargingDataStore& offline_charging_data_store,
     SpendingLimitSubscriptionStore& spending_limit_store,
     PolicyCounterConfigStore& policy_counter_config_store,
+    CatalogSnapshot& catalog_snapshot,
     opentelemetry::metrics::Counter<std::uint64_t>* grant_counter,
     opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter,
     opentelemetry::metrics::Counter<std::uint64_t>* ccr_initial_counter,
@@ -661,7 +662,8 @@ DiameterServer::DiameterServer(
       cdr_writer_(cdr_writer), rating_decision_store_(rating_decision_store),
       offline_charging_data_store_(offline_charging_data_store),
       spending_limit_store_(spending_limit_store),
-      policy_counter_config_store_(policy_counter_config_store), grant_counter_(grant_counter),
+      policy_counter_config_store_(policy_counter_config_store),
+      catalog_snapshot_(catalog_snapshot), grant_counter_(grant_counter),
       reserve_rejected_counter_(reserve_rejected_counter),
       ccr_initial_counter_(ccr_initial_counter), ccr_update_counter_(ccr_update_counter),
       ccr_termination_counter_(ccr_termination_counter), acr_event_counter_(acr_event_counter),
@@ -1221,7 +1223,8 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                                           // attributes. Without this a Gy session could only ever
                                           // match an unscoped offering, so 4G voice, data, SMS and
                                           // content were unproductisable.
-                                          chf::gy_attributes(*next_avps, ccr->supi));
+                                          chf::gy_attributes(*next_avps, ccr->supi),
+                                          &catalog_snapshot_);
                 granted.emplace_back(mscc.rating_group,
                                      charged.reserved ? charged.rating.grant : std::nullopt);
             }
@@ -1296,7 +1299,8 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                                           // attributes. Without this a Gy session could only ever
                                           // match an unscoped offering, so 4G voice, data, SMS and
                                           // content were unproductisable.
-                                          chf::gy_attributes(*next_avps, ccr->supi));
+                                          chf::gy_attributes(*next_avps, ccr->supi),
+                                          &catalog_snapshot_);
                 granted.emplace_back(mscc.rating_group,
                                      charged.reserved ? charged.rating.grant : std::nullopt);
             }

@@ -29,6 +29,7 @@
 #include "ai_inference.hpp"
 #include "bss_sid/balance.hpp"
 #include "bss_sid/product.hpp"
+#include "catalog_snapshot.hpp"
 #include "cdr.hpp"
 #include "rating_decision_store.hpp"
 #include "stores.hpp"
@@ -182,12 +183,23 @@ bool charging_scope_matches(const nlohmann::json& scope, const nlohmann::json& a
 // expensive way. A single integer keeps working exactly as before.
 bool rating_group_matches(const nlohmann::json& characteristic, std::int64_t rating_group);
 
+// ADR-0446 (increment 1, step 3): `catalog_snapshot`, when non-null AND `ready()`, is consulted
+// INSTEAD of making the live `GET /productOffering` + per-candidate `GET /productOfferingPrice/
+// {id}` calls this function made unconditionally before -- removing the N+1 SBI round-trips
+// ADR-0445 found (finding #1), without changing which offering/price wins or what gets granted.
+// Every business rule (isSellable/Active/ratingGroup/chargingScope/unitOfMeasure) is applied by the
+// same `try_rate_against` helper regardless of where the (offering, price) pair came from, so the
+// snapshot cannot silently change a rating outcome, only how the catalog data for it was fetched.
+// A null or not-yet-`ready()` snapshot falls back to the exact pre-existing live-fetch behaviour,
+// byte-for-byte unchanged (including its own short-circuiting -- no extra fetches, no behaviour
+// change for a caller that passes no snapshot at all, e.g. an existing test).
 RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
                                 std::int64_t rating_group,
                                 const std::string& supi = "",
                                 AiQuotaSizer* ai_quota_sizer = nullptr,
                                 QuotaFeatureStore* quota_feature_store = nullptr,
-                                const nlohmann::json& attributes = nlohmann::json::object());
+                                const nlohmann::json& attributes = nlohmann::json::object(),
+                                CatalogSnapshot* catalog_snapshot = nullptr);
 
 // P4.3 (ADR-0057): CHF as a real HTTP client of bss/balance-management (ADR-0056) -- reserves
 // `cost` against the real per-subscriber Bucket keyed by SUPI (this project's own disclosed
@@ -333,7 +345,13 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
                  // passes the InitialDP's own parameters (ADR-0351). A call site that passed
                  // nothing would silently match only unscoped offerings -- which is exactly the
                  // bug ADR-0351 found in the CAP path.
-                 const nlohmann::json& attributes = nlohmann::json::object());
+                 const nlohmann::json& attributes = nlohmann::json::object(),
+                 // ADR-0446: forwarded to build_rating_grant unchanged. All three real call sites
+                 // (main.cpp's Nchf Create/Update, diameter_server.cpp's Gy CCR-I/U,
+                 // cap_server.cpp's InitialDP) pass the same CHF-wide snapshot -- the
+                 // single-shared-code-path property this function already exists for means they
+                 // could not reasonably each wire it differently.
+                 chf::CatalogSnapshot* catalog_snapshot = nullptr);
 
 // P4.2/ADR-0055, TS 29.594 (Nchf_SpendingLimitControl): builds the real SpendingLimitStatus both
 // Subscribe/Update return, per the real confirmed schema. Extracted from main.cpp (was anonymous-

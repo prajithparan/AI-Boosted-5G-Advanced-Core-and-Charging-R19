@@ -419,6 +419,29 @@ void run_nrf_lifecycle(const std::string& chf_instance_id, const std::string& nr
     }
 }
 
+// ADR-0446 (increment 1, step 3): keeps `chf::CatalogSnapshot` warm. Own dedicated
+// `sbi_core::http2::Client` -- same "one Client per thread, never shared across threads" discipline
+// `run_nrf_lifecycle` above already established; the route handlers' own `catalog_client` runs on
+// the server's io_context thread and must not be touched from here. Refreshes immediately on entry
+// (the real startup warm-up: by the time the first real charging request can possibly arrive, this
+// thread has already had a head start fetching) and then on a bounded interval forever -- "a
+// bounded refresh strategy" per ADR-0445's own plan, not an invented push/version-diff mechanism
+// (no TM Forum Hub notification exists to build one against, see ADR-0446).
+void run_catalog_snapshot_refresh(chf::CatalogSnapshot& snapshot, int interval_seconds) {
+    sbi_core::http2::TlsConfig client_tls{
+        .cert_path = CERTS_DIR "/chf/cert.pem",
+        .key_path = CERTS_DIR "/chf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    };
+    sbi_core::http2::Client refresh_client(std::move(client_tls));
+    while (true) {
+        if (snapshot.refresh(refresh_client)) {
+            spdlog::info("chf: catalog snapshot refreshed (generation={})", snapshot.generation());
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(interval_seconds));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -615,6 +638,21 @@ int main() {
     };
     sbi_core::http2::Client catalog_client(std::move(catalog_client_tls));
 
+    // ADR-0446 (increment 1, step 3): removes build_rating_grant's own N+1
+    // GET /productOfferingPrice/{id} loop (ADR-0445 finding #1). Kept warm by its own dedicated
+    // background thread (run_catalog_snapshot_refresh, below main()) -- never refreshed from a
+    // route handler, so a slow/failed catalog fetch can never block a charging request. A not-yet-
+    // ready snapshot is not a startup gate: build_rating_grant falls back to the exact pre-ADR-0446
+    // live-fetch behaviour until the first refresh succeeds (see its own comment) -- deliberately
+    // NOT another crash-or-503-on-startup path (COMPLIANCE_P1_P15.md blocker 0a already names this
+    // class of gap).
+    chf::CatalogSnapshot catalog_snapshot;
+    const auto catalog_snapshot_refresh_interval_seconds =
+        nf_config::optional<std::int64_t>(config,
+                                          "catalog_snapshot_refresh_interval_seconds",
+                                          "CHF_CATALOG_SNAPSHOT_REFRESH_INTERVAL_SECONDS")
+            .value_or(30);
+
     // P4.3 (ADR-0056/0057): CHF's own client to bss/balance-management -- same mTLS-only, no-OAuth2
     // reasoning as catalog_client above (balance-management, like product-catalog, has no
     // NRF-issued token source).
@@ -638,6 +676,37 @@ int main() {
     sbi_core::http2::Client notify_client(std::move(notify_client_tls));
 
     auto meter = sbi_core::get_meter("chf");
+
+    // ADR-0446: observability for the catalog snapshot -- generation proves the background refresh
+    // is actually turning over, not silently frozen; age is the real staleness bound a reader can
+    // compare against catalog_snapshot_refresh_interval_seconds. -1 age means no refresh has ever
+    // succeeded yet (same "not ready" state build_rating_grant's own live-fetch fallback already
+    // handles gracefully -- these gauges are for observability, not a readiness gate).
+    auto catalog_snapshot_generation_gauge = meter->CreateInt64ObservableGauge(
+        "chf_catalog_snapshot_generation",
+        "Number of successful catalog/policy snapshot refreshes since startup");
+    catalog_snapshot_generation_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* snapshot = static_cast<chf::CatalogSnapshot*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(snapshot->generation()));
+            }
+        },
+        &catalog_snapshot);
+    auto catalog_snapshot_age_gauge = meter->CreateDoubleObservableGauge(
+        "chf_catalog_snapshot_age_seconds",
+        "Seconds since the catalog/policy snapshot last refreshed successfully, -1 if never");
+    catalog_snapshot_age_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* snapshot = static_cast<chf::CatalogSnapshot*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<double>>>(&observer_result)) {
+                (*obs)->Observe(snapshot->age_seconds());
+            }
+        },
+        &catalog_snapshot);
+
     auto create_counter = meter->CreateUInt64Counter("chf_charging_data_create_total",
                                                      "Total Nchf_ConvergedCharging_Create calls");
     // P12 (ADR-0282): a business-level alarm signal, not an operational one -- each increment is a
@@ -752,6 +821,7 @@ int main() {
                                         offline_charging_data_store,
                                         spending_limit_store,
                                         policy_counter_config_store,
+                                        catalog_snapshot,
                                         grant_counter.get(),
                                         reserve_rejected_counter.get(),
                                         ccr_initial_counter.get(),
@@ -805,6 +875,7 @@ int main() {
                               charging_data_store,
                               cdr_writer,
                               rating_decision_store,
+                              catalog_snapshot,
                               grant_counter.get(),
                               reserve_rejected_counter.get(),
                               cap_initial_dp_counter.get(),
@@ -980,6 +1051,7 @@ int main() {
          &idempotency_store,
          &create_counter,
          &catalog_client,
+         &catalog_snapshot,
          &balance_client,
          &grant_counter,
          &reserve_rejected_counter,
@@ -1075,7 +1147,8 @@ int main() {
                         sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp),
                         // ADR-0303: the request's own attributes, so an offering scoped to a
                         // slice, a UPF, a DNN or a visited PLMN can be matched or skipped.
-                        chf::collect_charging_attributes(*body, usage));
+                        chf::collect_charging_attributes(*body, usage),
+                        &catalog_snapshot);
                     if (charged.reserved && charged.rating.grant.has_value()) {
                         info.grantedUnit = charged.rating.grant;
                         // ADR-0072 (gap-closure: real N40 product-configurability): real
@@ -1121,6 +1194,7 @@ int main() {
          &idempotency_store,
          &update_counter,
          &catalog_client,
+         &catalog_snapshot,
          &balance_client,
          &grant_counter,
          &reserve_rejected_counter,
@@ -1225,7 +1299,8 @@ int main() {
                         sbi_core::parse_rfc3339_to_time_t(body->invocationTimeStamp),
                         // ADR-0303: the request's own attributes, so an offering scoped to a
                         // slice, a UPF, a DNN or a visited PLMN can be matched or skipped.
-                        chf::collect_charging_attributes(*body, usage));
+                        chf::collect_charging_attributes(*body, usage),
+                        &catalog_snapshot);
                     if (charged.reserved && charged.rating.grant.has_value()) {
                         info.grantedUnit = charged.rating.grant;
                         // ADR-0072 (gap-closure: real N40 product-configurability): real
@@ -1777,6 +1852,10 @@ int main() {
         });
 
     std::thread(run_nrf_lifecycle, chf_instance_id, nrf_base_url).detach();
+    std::thread(run_catalog_snapshot_refresh,
+                std::ref(catalog_snapshot),
+                static_cast<int>(catalog_snapshot_refresh_interval_seconds))
+        .detach();
 
     server.start();
     spdlog::info("chf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);

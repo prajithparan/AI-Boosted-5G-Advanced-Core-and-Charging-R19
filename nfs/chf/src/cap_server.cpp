@@ -153,14 +153,16 @@ CapServer::CapServer(std::uint16_t port,
                      ChargingDataStore& charging_data_store,
                      CdrWriter& cdr_writer,
                      RatingDecisionStore& rating_decision_store,
+                     CatalogSnapshot& catalog_snapshot,
                      opentelemetry::metrics::Counter<std::uint64_t>* grant_counter,
                      opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter,
                      opentelemetry::metrics::Counter<std::uint64_t>* initial_dp_counter,
                      opentelemetry::metrics::Counter<std::uint64_t>* apply_charging_counter)
     : client_tls_(std::move(client_tls)), charging_data_store_(charging_data_store),
       cdr_writer_(cdr_writer), rating_decision_store_(rating_decision_store),
-      grant_counter_(grant_counter), reserve_rejected_counter_(reserve_rejected_counter),
-      initial_dp_counter_(initial_dp_counter), apply_charging_counter_(apply_charging_counter) {
+      catalog_snapshot_(catalog_snapshot), grant_counter_(grant_counter),
+      reserve_rejected_counter_(reserve_rejected_counter), initial_dp_counter_(initial_dp_counter),
+      apply_charging_counter_(apply_charging_counter) {
     listener_.bind_and_listen("0.0.0.0", port);
     accept_thread_ = std::thread(&CapServer::accept_loop, this);
 }
@@ -326,7 +328,8 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                                                    nullptr,
                                                                    nullptr,
                                                                    std::nullopt,
-                                                                   current_attributes);
+                                                                   current_attributes,
+                                                                   &catalog_snapshot_);
 
                         std::int32_t renewed_duration = 0;
                         if (renewed.reserved && renewed.rating.grant.has_value() &&
@@ -550,7 +553,8 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                                    nullptr,
                                                    nullptr,
                                                    std::nullopt,
-                                                   current_attributes);
+                                                   current_attributes,
+                                                   &catalog_snapshot_);
 
         std::int32_t max_call_period_duration = 0; // 100ms units, real ApplyChargingArg field
         if (charged.reserved && charged.rating.grant.has_value() &&

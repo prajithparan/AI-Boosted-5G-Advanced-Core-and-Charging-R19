@@ -71,6 +71,9 @@ public:
               ChargingDataStore& charging_data_store,
               CdrWriter& cdr_writer,
               RatingDecisionStore& rating_decision_store,
+              // ADR-0446: the same CatalogSnapshot instance main() passes to the HTTP handlers --
+              // CAP shares build_rating_grant's rating path too (CHARGING_PROMPT P4.5).
+              CatalogSnapshot& catalog_snapshot,
               opentelemetry::metrics::Counter<std::uint64_t>* grant_counter,
               opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter,
               opentelemetry::metrics::Counter<std::uint64_t>* initial_dp_counter,
@@ -97,6 +100,7 @@ private:
     ChargingDataStore& charging_data_store_;
     CdrWriter& cdr_writer_;
     RatingDecisionStore& rating_decision_store_;
+    CatalogSnapshot& catalog_snapshot_;
     opentelemetry::metrics::Counter<std::uint64_t>* grant_counter_;
     opentelemetry::metrics::Counter<std::uint64_t>* reserve_rejected_counter_;
     opentelemetry::metrics::Counter<std::uint64_t>* initial_dp_counter_;
