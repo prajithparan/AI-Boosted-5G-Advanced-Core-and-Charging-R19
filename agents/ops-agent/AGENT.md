@@ -13,11 +13,12 @@ An ops agent answers two kinds of question:
 **Only the first is built into this agent's own tool set.** The second is NWDAF's job. **Corrected
 2026-10-02 (docs-audit)**: `nfs/nwdaf` now exists (with real `Nnwdaf_AnalyticsInfo`/
 `Nnwdaf_EventsSubscription` endpoints and in-process ONNX inference) -- the "there is no `nfs/nwdaf`
-directory" premise is stale. Not verified in this pass: whether NEF's `AnalyticsExposure`/
-`ReportingNetworkStatus` routes still answer 501, or whether this agent's MCP tool server has been
-given any NWDAF-backed tool yet (a separate integration step from NWDAF merely existing as an NF).
-Until that integration is confirmed, this agent must still not attempt the second kind of question
-by reasoning over the first -- the restraint below holds regardless of NWDAF's own build status.
+directory" premise is stale, and so is "NWDAF's job" as the blocker. **Confirmed by reading the
+code**: NEF's `FetchAnalyticsInfo` still hardcodes `501` ("requires NWDAF, which is not deployed in
+this core" -- `nfs/nef/src/main.cpp` ADR-0325), never updated now that NWDAF exists. The real
+blocker is NEF -> NWDAF wiring plus giving this agent's MCP tool server an NWDAF-backed tool, not
+NWDAF's own build status. This agent must still not attempt the second kind of question by
+reasoning over the first -- the restraint below holds regardless.
 
 That restraint is the whole reason this file exists. An agent handed live inventory and asked "is
 anything wrong?" will produce a confident-sounding answer from nothing, and an operator has no way

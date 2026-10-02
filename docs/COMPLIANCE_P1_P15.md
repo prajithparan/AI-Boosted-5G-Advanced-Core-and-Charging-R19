@@ -8,10 +8,13 @@ user decision and is recorded here as deferred, not as done or failed.
 
 **2026-10-02 docs-audit correction (two items verified stale, the rest of this snapshot not
 re-audited row-by-row in this pass -- disclosed, not implied otherwise):**
-- **P9's "498 tests" is stale.** `ctest -N` against the current `build/` tree reports **813** total
-  tests today. Not re-verified: whether every one of those 813 is a genuinely new test versus
-  build-tree/counting differences from how the 498 figure was originally produced -- flagged as the
-  more defensible current number, not re-derived from scratch.
+- **P9's "498 tests" is stale.** `ctest -N` against the local `build/` tree reports **813** total
+  tests today (`build-asan` separately reports 475; `build-release` reports only 12, clearly a
+  partial/stale configuration, not used for this figure). This project's own build-skill rule is
+  never to quote a ctest total not actually measured -- 813 is a real, measured number, but from a
+  local tree, **not independently confirmed against a green CI run in this pass** (CI's own log for
+  this was not successfully pulled before this pass ended). Treat 813 as the best locally-measured
+  figure, not a CI-confirmed one.
 - **P10/blocker-3's "no comparison against free5GC or anything else has ever been run" is stale.**
   ADR-0329 (2026-09-10, after this document's date) added one real, narrow benchmark: NRF
   `SearchNFInstances` only, against free5GC v3.4.4, method fixed before results existed
