@@ -32559,13 +32559,40 @@ the Reality Check section of CLAUDE.md.
 4. **Valkey Cluster cutover decision, migration framework, HA compose profiles** -- only after 1-3
    are measured, per the PDF's own ordering and ADR-0049's "measure before claiming."
 
-### Open decisions -- put to the user, not decided here
+### Open decisions -- put to the user, answered 2026-10-02
 
-Six items below are genuine choices this ADR deliberately does not make unilaterally, consistent
-with this project's "stop and ask" rule for anything that changes balance consistency semantics,
+Four items were genuine choices this ADR deliberately did not make unilaterally, consistent with
+this project's "stop and ask" rule for anything that changes balance consistency semantics,
 fail-open behavior, schema source-of-truth, or deployment scope (the PDF's own closing line, and
-CLAUDE.md's guardrails independently). See the chat turn that follows this ADR for the actual
-questions and the user's answers, to be appended here once given.
+CLAUDE.md's guardrails independently). Asked via `AskUserQuestion`; answers below are binding on
+every increment from here on.
+
+1. **Money precision/scale: fixed-point minor units (int64 scaled integer), not a decimal/bignum
+   type and not double-with-rounding.** Binds increment 1 (the catalog/policy snapshot must hold
+   prices in this representation from the start) and increment 2/3 (balance-management's columns
+   and `bss_sid::Quantity`/`Money` (de)serialization must round-trip through it without ever
+   routing an exact value through a C++ `double`, including at the JSON parse boundary -- nlohmann
+   parses JSON numbers to `double` by default, so the wire (de)serializer for money fields needs
+   its own exact-integer path, not the library default). Scale (how many minor units per major
+   currency unit) is implementation detail for that increment, not decided here; it must be at
+   least as fine as the finest real per-unit tariff this project rates (sub-ISO-4217-minor-unit
+   per-KB/per-second rates), confirmed against real catalog data before being fixed.
+2. **Atomic settle: keep the two real TMF654 calls (`ReserveBalance` then `AdjustBalance`), no
+   proprietary non-TMF settle endpoint.** balance-management's public API stays strictly
+   spec-shaped; the ODA swap-for-a-commercial-stack property is fully preserved. The unreserve/
+   debit failure window from finding #3 is **not removed** by this decision -- it is addressed
+   instead by a reconciliation mechanism (detect a bucket whose `reserved_value_amount` is non-zero
+   with no live `ChargingDataRef` holding it -- made possible by Decision B's `charging_data_ref`
+   correlator column -- and repair it), scoped as part of increment 2 alongside that column.
+3. **Fail-open/closed: no fixed global default yet -- expose the real TS 32.291 `FailureHandling`
+   enum (`TERMINATE`/`CONTINUE`/`RETRY_AND_TERMINATE`) as a per-rating-group/operator config knob.**
+   No value is hardcoded as "the" default in this ADR; CHF's config schema gains the field (sourced
+   from the real R19 YAML enum, not invented), and which value ships as the *config default* (as
+   opposed to a mandatory value) is deferred again to the increment that wires it in, once there is
+   an operator policy requirement to point to.
+4. **Push:** yes -- `main` (the ADR-0444 merge plus this ADR's own documentation commit) was pushed
+   to `origin/main` once this decision was given; see the process notes below for the pre-push
+   state.
 
 ### Process notes
 
