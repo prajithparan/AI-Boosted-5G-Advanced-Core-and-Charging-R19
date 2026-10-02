@@ -10,6 +10,7 @@ add_library(bss_sid STATIC
     src/balance.cpp
     src/rating.cpp
     src/agreement.cpp
+    src/money_exact.cpp
 )
 
 target_include_directories(bss_sid PUBLIC
