@@ -88,7 +88,17 @@ public:
     // TMF654 spec text names both "Reserve" and "Unreserve" as real operations on this same
     // resource but does not document the mechanism distinguishing them (see
     // bss_sid/balance.hpp's own file header).
-    MutationResult<bss_sid::ReserveBalance> reserve(bss_sid::ReserveBalance request);
+    // ADR-0445/0446 increment 2: charging_data_ref is NOT part of the real TMF654 ReserveBalance
+    // wire shape (confirmed against the real swagger, see libs/bss-sid/balance.hpp) -- it travels
+    // as the `x-chf-charging-data-ref` HTTP header (main.cpp's own route handler reads it) and is
+    // stored in `reserve_balance.charging_data_ref`, a column that has existed in the schema since
+    // deploy/db/charging/40-balance.sql with its own index but was never populated by any code
+    // before this change. Optional and nullable: a reserve/unreserve call that doesn't come from
+    // CHF's own real charging path (a manual operator action, a future consumer) has no session to
+    // tie to, and that is a real, valid state, not an error.
+    MutationResult<bss_sid::ReserveBalance>
+    reserve(bss_sid::ReserveBalance request,
+            std::optional<std::string> charging_data_ref = std::nullopt);
     std::optional<bss_sid::ReserveBalance> get_reserve(const std::string& id);
 
 private:

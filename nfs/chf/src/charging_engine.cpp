@@ -499,7 +499,8 @@ std::string resolve_bucket_id(sbi_core::http2::Client& balance_client, const std
 bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
                                 const std::string& supi,
                                 const bss_sid::Money& cost,
-                                const std::string& description) {
+                                const std::string& description,
+                                const std::string& charging_data_ref) {
     if (!cost.value.has_value() || *cost.value <= 0.0) {
         // A real, valid TMF620 state (price with no monetary value, or a zero-cost promotional
         // price) -- nothing to reserve, not a failure.
@@ -522,6 +523,8 @@ bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
     req.method = "POST";
     req.url = balance_management_base() + kBalanceManagementApiRoot + "/reserveBalance";
     req.headers.emplace("content-type", "application/json");
+    // ADR-0445/0446 increment 2: NOT a TMF654 field -- see this function's own header comment.
+    req.headers.emplace("x-chf-charging-data-ref", charging_data_ref);
     req.body = json(reserve_req).dump();
 
     auto resp = balance_client.send(req);
@@ -561,7 +564,8 @@ void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
                                  const std::string& supi,
                                  double total_reserved,
                                  double amount_to_debit,
-                                 const std::string& description) {
+                                 const std::string& description,
+                                 const std::string& charging_data_ref) {
     if (total_reserved <= 0.0) {
         return;
     }
@@ -584,6 +588,8 @@ void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
     unreserve_http_req.url =
         balance_management_base() + kBalanceManagementApiRoot + "/reserveBalance";
     unreserve_http_req.headers.emplace("content-type", "application/json");
+    // ADR-0445/0446 increment 2: NOT a TMF654 field -- see this function's own header comment.
+    unreserve_http_req.headers.emplace("x-chf-charging-data-ref", charging_data_ref);
     unreserve_http_req.body = json(unreserve_req).dump();
     auto unreserve_resp = balance_client.send(unreserve_http_req);
     if (!unreserve_resp.has_value() || unreserve_resp->status != 201) {
@@ -770,7 +776,8 @@ charge_one_usage(sbi_core::http2::Client& catalog_client,
             reserve_subscriber_balance(balance_client,
                                        supi,
                                        *result.rating.cost,
-                                       "Nchf_ConvergedCharging_" + operation + " " + ref);
+                                       "Nchf_ConvergedCharging_" + operation + " " + ref,
+                                       ref);
         if (result.reserved) {
             charging_data_store.add_reserved(ref, *result.rating.cost->value);
             // ADR-0297: record what those units WERE, in the same place and at the same moment as

@@ -1493,7 +1493,8 @@ int main() {
                                                  *supi,
                                                  reserved_total,
                                                  amount_to_debit,
-                                                 "Nchf_ConvergedCharging_Release " + ref);
+                                                 "Nchf_ConvergedCharging_Release " + ref,
+                                                 ref);
             }
 
             // P4.4/ADR-0058: a real, final CDR row for this session -- reserved_cost here is the

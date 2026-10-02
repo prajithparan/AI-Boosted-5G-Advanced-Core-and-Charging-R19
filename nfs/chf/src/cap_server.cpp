@@ -423,7 +423,8 @@ void CapServer::handle_connection(ss7_core::SctpSocket socket) {
                                                      reserved_total,
                                                      amount_to_debit,
                                                      "CAP-gsmSSF ApplyChargingReport " +
-                                                         *current_ref);
+                                                         *current_ref,
+                                                     *current_ref);
 
                     // Real Q.773/TS 29.078 fact: applyChargingReport's real operation definition
                     // is "RESULT FALSE" (Class 2, only ERROR is defined) -- there is no real

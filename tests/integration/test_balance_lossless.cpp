@@ -181,6 +181,55 @@ TEST_F(BalanceLossless, AProvisionedBucketCanBeReservedAgainst) {
     EXPECT_DOUBLE_EQ(*b->reservedValue->value, 2.0) << "reserved must not be NULL-poisoned";
 }
 
+// ADR-0445/0446 increment 2: `charging_data_ref` has existed in `reserve_balance` (with its own
+// index) since the original 40-balance.sql, never populated by any code until this change -- found
+// while building this increment, not assumed. This test proves the gap is actually closed: the
+// column is queryable and SUMs correctly per session, which is exactly what a reconciliation sweep
+// (not yet built) needs to recover "how much has this session reserved" from PostgreSQL alone,
+// without trusting Valkey's HINCRBYFLOAT as the only record.
+TEST_F(BalanceLossless, ChargingDataRefIsStoredAndSumsPerSession) {
+    provisioned_bucket("test-bal-cdr", 100.0);
+    // SetUp only clears `bucket` rows (`WHERE id LIKE 'test-bal-%'`), not the reserve_balance
+    // ledger rows a prior run of this same test left behind -- without this, repeated local runs
+    // accumulate and the SUMs below silently multiply. Found by running this test twice.
+    {
+        pqxx::connection c(conninfo());
+        pqxx::work t(c);
+        t.exec("DELETE FROM balance_mgmt.reserve_balance WHERE bucket_id = 'test-bal-cdr'");
+        t.commit();
+    }
+    const auto reserve = [&](double amount, std::optional<std::string> ref) {
+        bss_sid::ReserveBalance r;
+        r.bucket = bss_sid::BucketRef{"test-bal-cdr", std::nullopt, std::nullopt};
+        r.amount = bss_sid::Quantity{amount, "USD"};
+        return store.reserve(r, ref);
+    };
+    ASSERT_TRUE(reserve(10.0, "ref-session-A").succeeded);
+    ASSERT_TRUE(reserve(5.0, "ref-session-A").succeeded); // same session, a second Update grant
+    ASSERT_TRUE(reserve(7.0, "ref-session-B").succeeded); // a different, concurrent session
+    ASSERT_TRUE(reserve(20.0, std::nullopt).succeeded);   // no session -- a real, valid state
+
+    pqxx::connection c(conninfo());
+    pqxx::work t(c);
+    const auto sum_a =
+        t.exec("SELECT COALESCE(SUM(amount_value), 0) FROM balance_mgmt.reserve_balance "
+               "WHERE charging_data_ref = $1",
+               pqxx::params{"ref-session-A"})[0][0]
+            .as<double>();
+    const auto sum_b =
+        t.exec("SELECT COALESCE(SUM(amount_value), 0) FROM balance_mgmt.reserve_balance "
+               "WHERE charging_data_ref = $1",
+               pqxx::params{"ref-session-B"})[0][0]
+            .as<double>();
+    const auto null_count = t.exec("SELECT COUNT(*) FROM balance_mgmt.reserve_balance WHERE "
+                                   "bucket_id = 'test-bal-cdr' AND charging_data_ref IS NULL")[0][0]
+                                .as<long long>();
+    EXPECT_DOUBLE_EQ(sum_a, 15.0) << "two reserves under the same session ref must sum correctly";
+    EXPECT_DOUBLE_EQ(sum_b, 7.0);
+    EXPECT_EQ(null_count, 1) << "a reserve with no charging_data_ref must store NULL, not corrupt "
+                                "or default to an empty string that would collide with a real ref";
+}
+
 TEST_F(BalanceLossless, ParallelReservesNeverOverdraw) {
     provisioned_bucket("test-bal-race", 100.0);
     std::atomic<int> ok{0};

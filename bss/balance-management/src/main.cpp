@@ -294,7 +294,15 @@ int main() {
                              return sbi_core::http2::problem_response(
                                  400, "Bad Request", "bucket.id is required");
                          }
-                         const auto result = store.reserve(*body);
+                         // ADR-0445/0446 increment 2: NOT a TMF654 field -- see
+                         // BalanceStore::reserve's own header comment. Absent on any caller that
+                         // isn't CHF's own real charging path, a real, valid state.
+                         std::optional<std::string> charging_data_ref;
+                         if (const auto it = req.headers.find("x-chf-charging-data-ref");
+                             it != req.headers.end()) {
+                             charging_data_ref = it->second;
+                         }
+                         const auto result = store.reserve(*body, charging_data_ref);
                          reserve_counter->Add(1);
                          if (!result.succeeded) {
                              reserve_rejected_counter->Add(1);

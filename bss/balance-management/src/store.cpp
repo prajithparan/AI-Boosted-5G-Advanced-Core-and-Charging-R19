@@ -506,7 +506,9 @@ std::optional<bss_sid::AdjustBalance> BalanceStore::get_adjust(const std::string
     return v;
 }
 
-MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBalance request) {
+MutationResult<bss_sid::ReserveBalance>
+BalanceStore::reserve(bss_sid::ReserveBalance request,
+                      std::optional<std::string> charging_data_ref) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
 
@@ -539,9 +541,10 @@ MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBa
     txn.exec("INSERT INTO balance_mgmt.reserve_balance (id, href, description, bucket_id, "
              "party_account_id, party_account, reason, amount_value, amount_units, channel, "
              "logical_resource, product, related_party, requestor, status, usage_type, "
-             "confirmation_date, requested_date, valid_for_start, valid_for_end) VALUES ($1,$2,$3,"
+             "confirmation_date, requested_date, valid_for_start, valid_for_end, "
+             "charging_data_ref) VALUES ($1,$2,$3,"
              "$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15,"
-             "$16,$17::timestamptz,$18::timestamptz,$19::timestamptz,$20::timestamptz)",
+             "$16,$17::timestamptz,$18::timestamptz,$19::timestamptz,$20::timestamptz,$21)",
              pqxx::params{reserve_id,
                           request.href,
                           request.description,
@@ -561,7 +564,8 @@ MutationResult<bss_sid::ReserveBalance> BalanceStore::reserve(bss_sid::ReserveBa
                           ts_in(request.confirmationDate, "confirmationDate"),
                           ts_in(request.requestedDate, "requestedDate"),
                           vf_start(request.validFor),
-                          vf_end(request.validFor)});
+                          vf_end(request.validFor),
+                          charging_data_ref});
     write_audit(txn, "RESERVE_BALANCE", reserve_id, "balance.reserve", json(request).dump());
     txn.commit();
     return {request, succeeded};

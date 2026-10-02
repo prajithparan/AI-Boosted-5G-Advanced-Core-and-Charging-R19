@@ -1365,7 +1365,8 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                                                  *supi,
                                                  reserved_total,
                                                  amount_to_debit,
-                                                 "Diameter-Gy CCR-Termination " + ref);
+                                                 "Diameter-Gy CCR-Termination " + ref,
+                                                 ref);
             }
             // ADR-0192: CdrWriter::write() catches every real Doris error surface internally and
             // logs a warning -- it never throws, so no try/catch is needed here (unlike the

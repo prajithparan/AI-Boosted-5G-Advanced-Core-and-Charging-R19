@@ -224,10 +224,20 @@ RatingResult build_rating_grant(sbi_core::http2::Client& catalog_client,
 // family's bucket, which is the outcome that would be unrecoverable.
 std::string resolve_bucket_id(sbi_core::http2::Client& balance_client, const std::string& supi);
 
+// ADR-0445/0446 increment 2: `charging_data_ref` is sent as the `x-chf-charging-data-ref` HTTP
+// header (never a TMF654 body field -- bss_sid::ReserveBalance's real wire shape has no
+// characteristics/extension-point array the way ProductOfferingPrice does, so there is no
+// spec-conformant body field to carry it in). balance-management stores it in
+// `reserve_balance.charging_data_ref` -- a column that has existed in the schema since
+// deploy/db/charging/40-balance.sql with its own index, genuinely never populated by any code
+// until this change (found while building this increment, not assumed). This is what makes
+// "how much has this session reserved so far" (today: ChargingDataStore's Valkey HINCRBYFLOAT
+// only) recoverable from PostgreSQL: SUM(amount_value) WHERE charging_data_ref = ref.
 bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
                                 const std::string& supi,
                                 const bss_sid::Money& cost,
-                                const std::string& description);
+                                const std::string& description,
+                                const std::string& charging_data_ref);
 
 // P4.3 (ADR-0057): Release-time finalization -- unreserves everything this session held and turns
 // `amount_to_debit` of it into a real, permanent debit. See charging_engine.cpp's own comment for
@@ -238,11 +248,15 @@ bool reserve_subscriber_balance(sbi_core::http2::Client& balance_client,
 // 5 GB reservation was charged for 5 GB. The reservation must still be released in full (it is
 // what the subscriber's balance is actually holding), but only what was consumed may be debited.
 // A caller that genuinely cannot measure consumption passes the full reserved total and says why.
+// ADR-0445/0446 increment 2: charging_data_ref sent as x-chf-charging-data-ref on the unreserve
+// call (the debit call below it doesn't carry one -- adjust_balance has no such column, and a
+// permanent debit is not what the recovery query above needs to find).
 void finalize_subscriber_balance(sbi_core::http2::Client& balance_client,
                                  const std::string& supi,
                                  double total_reserved,
                                  double amount_to_debit,
-                                 const std::string& description);
+                                 const std::string& description,
+                                 const std::string& charging_data_ref);
 
 // ADR-0297: what fraction of a session's grant was actually consumed, and therefore what part of
 // its reservation may be debited.
