@@ -32618,3 +32618,96 @@ every increment from here on.
 - **The source PDF.** `specs/GPT6-Model-Recommendation.pdf` is currently untracked
   (`git status`). Whether it belongs committed to a public Apache-2.0 repository is the user's call,
   not assumed here.
+
+## ADR-0446: CHF's catalog/policy snapshot -- increment 1 of ADR-0445, design + baseline
+
+**Date:** 2026-10-02. **Status:** in progress -- the fixed-point money type (step 1) is built and
+tested; the baseline measurement (step 2) and the snapshot itself (step 3) are this ADR's remaining
+work, recorded incrementally rather than written up only after everything is done, per this
+project's own "small, reviewable increments" rule.
+
+**Step 1, done:** `bss_sid::Micros` (`libs/bss-sid/include/bss_sid/money_exact.hpp`/`.cpp`), a
+fixed-point int64 micro-unit type, exact for decimal-text input, documented-lossy for the
+`double`-typed wire boundary it has to interoperate with today. 8 unit tests including a
+2000-iteration property-based round-trip, 21/21 `bss_sid` tests pass (no regressions),
+clang-format clean. Full detail in that commit's own message. Deliberately does NOT change
+`bss_sid::Money`/`Quantity`'s field types (still real TMF620/654 `double`) -- that ripples into
+`gui/schema-gen`'s derived schemas, `bill_run`, `billing_items`, `rating_decision_store` and
+`balance-management`, out of scope for this increment per ADR-0445.
+
+**Snapshot design decisions, resolved by checking the real code rather than assuming:**
+
+1. **Bulk routes already exist -- no new product-catalog endpoint needed.** Checked directly:
+   `bss/product-catalog/src/main.cpp` already serves `GET /productOffering` (collection, no ID) and
+   `GET /productOfferingPrice` (collection, no ID) -- the second one is what closes finding #1's
+   N+1 loop (`charging_engine.cpp` fetches the offering collection once already; it is the
+   per-price `GET /productOfferingPrice/{id}` loop that is the real N+1 call site). The snapshot's
+   refresh fetches both collections, not individual resources.
+2. **Refresh mechanism: periodic re-fetch + `lastUpdate`/`version` comparison, not an invented
+   endpoint.** Checked: `bss/product-catalog` implements no TMF Hub/listener callback mechanism
+   (disclosed in its own file header as deliberately deferred) -- there is no push notification to
+   build against. `ProductOffering`/`ProductOfferingPrice` both carry a real `lastUpdate` field
+   (confirmed TMF620 field, already modeled in `bss_sid`). The snapshot polls on a bounded interval
+   (config-driven, default TBD at implementation time) and compares `lastUpdate` per resource to
+   decide whether to replace its cached copy -- no catalog-version endpoint invented.
+3. **ADR-0330 pinning is already satisfied at the price level -- no new schema needed.**
+   `RatingDecisionRecord.tariffVersion` (`nfs/chf/src/rating_decision_store.hpp`) is already
+   populated from the real `ProductOfferingPrice.version` field at rating time
+   (`charging_engine.cpp:313`, `result.tariffVersion = price.version`) and already written to
+   `rating_decision` (`:663`). As long as the snapshot preserves each cached price's own `.version`
+   field unchanged, this guarantee carries over automatically -- a session rated against snapshot
+   generation N keeps exactly the price version it was actually rated against, which is a tighter,
+   more precise pin than a single whole-snapshot version number would have been. No new column on
+   `rating_decision` is needed for this.
+4. **No regression found against CHARGING_PROMPT P4.7's "new tariff, no code change, no restart"
+   requirement -- but it has never actually been tested, and the snapshot must still honor it.**
+   Searched `tests/` for an existing test proving this specific behavior against an
+   already-running, already-warmed CHF process: none exists. The integration tests that do
+   provision-then-charge (`test_cap_scoped_charging.cpp`, `test_chaos_charging.cpp`-style) seed
+   catalog data directly into Postgres *before* spawning `chf`, so a startup-time snapshot would
+   see that data at warm-up with no staleness window -- these tests do not regress. The underlying
+   requirement is still real for a long-lived production CHF process an operator updates live, so
+   the snapshot's bounded refresh interval (item 2) is what keeps this true going forward, not a
+   test that happens to pass today.
+5. **Unknown rating group at request time: grant nothing, log it, same behavior as today.**
+   `charging_engine.cpp` already handles "no Active/isSellable ProductOfferingPrice configures
+   ratingGroup N" by granting nothing (not a fabricated grant) -- the snapshot preserves this
+   exactly; a rating group genuinely absent from the current snapshot (new tariff not yet
+   refreshed in, or truly nonexistent) is indistinguishable from today's live-lookup miss and gets
+   the same, already-correct, already-disclosed treatment. No new "stale vs. missing" distinction
+   is invented.
+6. **Readiness: CHF must not serve a charging request before its first snapshot load succeeds.**
+   No readiness/health endpoint exists for CHF today (checked: no Compose healthcheck, no `/ready`
+   route) -- COMPLIANCE_P1_P15.md blocker 0a's broader "health/readiness semantics for every
+   datastore" ask is real, separate, larger work, not fully built here. This increment's minimal
+   version: the charging-request handler returns the same `503` `ProblemDetails` shape ADR-0280's
+   TPS-shedding already established (reusing a real precedent, not inventing a new error shape)
+   until the snapshot has loaded once, with a clear log line and a Prometheus gauge for snapshot
+   age/generation so "not ready yet" and "stale" are both observable, not silent.
+7. **Replica skew, disclosed rather than solved.** Round-robin CHF replicas (the existing
+   comma-separated peer-base mechanism, `project_autoscaling_mandate`) can briefly hold different
+   snapshot generations after a refresh. Not a new problem this increment introduces -- today's
+   live per-request lookups have zero skew because there is no cache at all -- but a real,
+   disclosed cost of adding one. Bounded by the same refresh interval as item 2; no cross-replica
+   coordination is built to tighten it further in this pass.
+8. **SUPI->bucket resolution stays per-request -- not decided by this ADR, said so rather than left
+   implied.** `charging_engine.cpp`'s `resolve_bucket_id` (ADR-0307, shared/family bucket lookup)
+   is a separate SBI call to balance-management, not a catalog/policy lookup, and this increment's
+   snapshot does not cache it. Caching bucket membership would need its own invalidation story (a
+   subscriber can join/leave a shared bucket at any time) that this ADR has not designed --
+   deferred, explicitly, not silently kept out of scope.
+
+**Baseline measurement (step 2): method fixed here, numbers appended once run.**
+`scripts/run-chf-rating-baseline.sh`, same "method committed before seeing numbers" discipline
+`docs/BENCHMARK_METHOD.md` established for ADR-0329. Measures CHF's real
+`Nchf_ConvergedCharging_Create` path end to end -- real NRF-registered CHF, a real product-catalog
+`ProductOfferingPrice` (`ratingGroup=10`), a real balance-management bucket -- at closed-loop
+concurrency 1/8/32 and open-loop 200 rps, 15s per case after a 2s warmup, asserting every run is
+all-201. Disclosed scope limits, stated before any number exists so they cannot be read as
+after-the-fact excuses: every request in a run carries the same `ChargingDataRequest` (same SUPI,
+same bucket) because `sbi-loadgen` has no per-request body templating -- this measures single-SUPI/
+single-bucket serialized-reservation contention, not independent-subscriber traffic; load generator
+and CHF share one host over loopback (inflates latency, caps throughput, same caveat
+`run-baseline-benchmark.sh` already discloses for NRF); ADR-0009's synchronous HTTP client is still
+open. *Numbers pending -- to be appended to this ADR in a follow-up commit once the run completes
+on a machine not sharing CPU with an in-progress CI job.*
