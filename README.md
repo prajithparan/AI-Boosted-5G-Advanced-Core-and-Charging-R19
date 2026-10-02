@@ -459,6 +459,16 @@ ADR-0238's step (1), mapping measurement points onto TS 28.552 counter families,
 because neither TS 28.552 nor TS 28.554 is vendored in `specs/`, and step (4) needs step (1)
 first.
 
+**Charging data-plane architecture decision (ADR-0445, 2026-10-02):** an external review of
+CHF/UDR/balance-management's persistence design was independently fact-checked against HEAD (every
+claim verified true) before acting on it. Decision: PostgreSQL stays the sole authority for balance
+and the ledger; Valkey carries only non-monetary, rebuildable session state — no cross-store
+balance-consistency redesign, because no benchmark evidence yet shows one is needed. Real gaps this
+surfaced and not yet fixed: CHF's N+1 catalog/price SBI lookups, settlement as two non-atomic calls
+(unreserve, then debit), `double` money arithmetic over `NUMERIC` columns, UDR's ~80 unpooled
+PostgreSQL connections, and an unbounded-wait shared connection pool. Full comparison, the rejected
+alternatives, and the incremental fix order are in `docs/DECISIONS.md` ADR-0445.
+
 <h2 align="center">Repository layout</h2>
 
 ```

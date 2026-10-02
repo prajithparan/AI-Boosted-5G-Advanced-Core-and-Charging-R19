@@ -6,6 +6,20 @@ entity chart and 3GPP disagree, and ask me." This document and `docs/DECISIONS.m
 architecture ADR are those two documents. No BSS/charging implementation code is added or changed
 by this pass.
 
+**2026-10-02 reconciliation note (`docs/DECISIONS.md` ADR-0445), left as DRAFT deliberately rather
+than silently rewritten:** E6's "Persistence" line below (and the polyglot table's "hot balance"
+entry) sketches a two-store design — live balance in Redis/Valkey, durable ledger in PostgreSQL —
+that this document itself deferred to "the architecture ADR, not resolved here." That ADR was never
+written until ADR-0445, and the implementation that actually shipped
+(`bss/balance-management`, ADR-0056/0057/0385) took a different path: **PostgreSQL alone is
+authoritative for `Bucket`/balance, reserve, and the ledger** — no Redis/Valkey balance projection
+was built. ADR-0445 evaluates this gap directly (as "Option 1" against two alternatives that would
+have matched this document's original two-store sketch) and keeps PostgreSQL-only, for reasons
+recorded there (no measured need for a hot-balance cache; the harder atomicity problem is already
+solved by Postgres row locks). This document's E6 sketch is left as the historical P4.1 planning
+artifact it was — not updated to match the ADR line-by-line — so a reader comparing the two sees
+the actual divergence instead of a doc quietly rewritten to agree with the code after the fact.
+
 This document expands CHARGING_PROMPT.md's ten authoritative entities (E1-E10) into concrete
 schema sketches. For each entity: SID entity mapping, 3GPP mapping, persistence store, and
 consistency requirement, as P4.1 requires.
@@ -426,7 +440,9 @@ limit/balance-notification surface.
 
 **Persistence**: **Redis/Valkey** — "hot balance" is explicit in the polyglot table's in-memory
 line — for the live, contended `Balance.remaining_value`/`version` fields debited on every rating
-decision.
+decision. **Not what was built — see this document's 2026-10-02 reconciliation note at the top and
+`docs/DECISIONS.md` ADR-0445: the shipped implementation is PostgreSQL-only for balance, by
+deliberate decision, not yet a drift to fix.**
 **PostgreSQL** for `BalanceTransaction`'s durable ledger (every debit/credit is a financial record
 needing durable, queryable, auditable storage — matches the RDBMS row's "invoice"-adjacent
 reasoning). This is a genuine two-store design (hot mutable state in Redis, durable append-only
