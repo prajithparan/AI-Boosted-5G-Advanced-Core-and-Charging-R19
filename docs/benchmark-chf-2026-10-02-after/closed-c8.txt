@@ -1,0 +1,18 @@
+
+=== sbi-loadgen results ===
+target            : POST https://127.0.0.1:7784/nchf-convergedcharging/v3/chargingdata
+load model        : closed-loop (subject to coordinated omission)
+concurrency       : 8
+measured window   : 15.01 s
+responses         : 7372
+transport errors  : 0
+throughput        : 491.11 req/s
+latency min       : 11.486 ms
+latency mean      : 16.273 ms
+latency p50       : 15.750 ms
+latency p90       : 17.594 ms
+latency p95       : 18.582 ms
+latency p99       : 28.704 ms
+latency p99.9     : 59.722 ms
+latency max       : 75.648 ms
+status codes      : 201=7372

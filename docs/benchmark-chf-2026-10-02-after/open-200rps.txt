@@ -1,0 +1,19 @@
+
+=== sbi-loadgen results ===
+target            : POST https://127.0.0.1:7784/nchf-convergedcharging/v3/chargingdata
+load model        : open-loop, target 200 req/s (latency measured from each slot's scheduled time)
+worker pool       : 32
+measured window   : 15.00 s
+responses         : 3000
+transport errors  : 0
+throughput        : 199.98 req/s
+slots issued late : 1 (pool could not keep up with the target rate -- the delay is included in the latencies above, not hidden)
+latency min       : 4.820 ms
+latency mean      : 9.073 ms
+latency p50       : 7.933 ms
+latency p90       : 12.976 ms
+latency p95       : 16.439 ms
+latency p99       : 25.814 ms
+latency p99.9     : 41.365 ms
+latency max       : 48.221 ms
+status codes      : 201=3000

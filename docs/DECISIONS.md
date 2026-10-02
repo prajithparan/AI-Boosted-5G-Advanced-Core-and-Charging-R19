@@ -32782,6 +32782,46 @@ SpendingLimitControl/N28) does not call `build_rating_grant`/`charge_one_usage` 
 `postgres-udr` was simply never brought up in this local session (a local environment gap, not
 exercised or explained by anything this ADR changed).
 
-**Not yet done:** the "after" run of `scripts/run-chf-rating-baseline.sh` for the real before/after
-comparison against the 2026-10-02 baseline above -- next action, on a machine not sharing CPU with
-an in-progress CI job, same discipline as the baseline itself.
+**"After" result (2026-10-02), raw files in `docs/benchmark-chf-2026-10-02-after/`**, same script,
+same provisioning, same machine, CI idle (waited for a fully clear run, not just a momentary port
+gap -- the self-hosted runner's own tests bind the same loopback ports this script needs):
+
+| Case | Responses | Throughput | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| closed c1 | 3410 | **227.29 req/s** | **4.1 ms** | 4.8 ms | 9.1 ms | 22.2 ms | 38.4 ms |
+| closed c8 | 7372 | **491.11 req/s** | **15.8 ms** | 17.6 ms | 28.7 ms | 59.7 ms | 75.6 ms |
+| closed c32 | 7387 | **490.77 req/s** | **64.6 ms** | 77.4 ms | 108.1 ms | 201.7 ms | 243.1 ms |
+| open 200 rps | 3000 (**199.98** delivered) | 199.98 req/s | **7.9 ms** | 13.0 ms | 25.8 ms | 41.4 ms | 48.2 ms |
+
+All-201 again (21,169 total `Create` responses). CHF's own counters confirm the snapshot was
+actually in use throughout: `chf_catalog_snapshot_generation` = 3 (three successful background
+refreshes during the run, consistent with the 30s default interval), `chf_catalog_snapshot_age_
+seconds` = 8.2 at scrape time -- not a cold/unused snapshot coincidentally doing nothing.
+
+**Before -> after, same machine, same contention pattern:**
+
+| Case | Throughput before | Throughput after | Ratio | p50 before | p50 after | Ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| closed c1 | 51.72 | 227.29 | **4.4x** | 17.7 ms | 4.1 ms | **4.3x** |
+| closed c8 | 98.49 | 491.11 | **5.0x** | 75.7 ms | 15.8 ms | **4.8x** |
+| closed c32 | 104.80 | 490.77 | **4.7x** | 301.0 ms | 64.6 ms | **4.7x** |
+| open 200 rps (delivered) | 93.19 | 199.98 | **2.1x** | 9500.4 ms | 7.9 ms | **~1203x** |
+
+**What this shows, read precisely:** removing the N+1 catalog SBI calls alone (nothing else in
+ADR-0445's plan has been touched -- balance is still a live SBI round-trip, settlement is still
+two calls, the HTTP client is still synchronous) roughly quadrupled throughput and quartered
+latency at every concurrency level. Critically, **c8 and c32 now plateau at the same ~490 req/s**
+(before: c8 and c32 plateaued at ~100 req/s) -- the bottleneck has visibly moved from the catalog
+N+1 calls to the next real constraint in line, the single-bucket PostgreSQL row-lock serialization
+ADR-0445 itself identified (every request in this run contends on the same bucket, by this script's
+own disclosed design). The open-loop case makes the qualitative change unmistakable: at a 200 rps
+offered load, the system went from catastrophically unable to keep up (p50 9.5 **seconds**, queue
+growing for the entire run) to fully sustaining the target rate with single-digit-millisecond p50 --
+not a tuning win, a different regime. This is exactly, and only, what ADR-0445 predicted removing
+finding #1 would do -- it does not and cannot speak to the balance-reservation contention,
+settlement atomicity, or synchronous-client findings the same ADR named as separate, unaddressed
+items.
+
+Increment 1 (ADR-0445/0446) is complete: fixed-point money type, snapshot design decisions, real
+before/after baseline. Increment 2 (atomic settle + the `charging_data_ref` correlator column, per
+ADR-0445's own ordering) is the next piece of work, not started.

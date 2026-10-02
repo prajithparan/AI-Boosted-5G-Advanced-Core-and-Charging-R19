@@ -1,0 +1,10 @@
+date:    2026-10-02T18:10:09+05:30
+kernel:  Linux 7.0.0-34-generic
+cpu:     11th Gen Intel(R) Core(TM) i7-11370H @ 3.30GHz
+cores:   8
+memory:  15.4 GiB
+commit:  4f674d8
+note:    load generator and SUT share this host; all traffic over loopback
+note:    single-SUPI/single-bucket contention run, see this script's own header
+note:    CDR sink pointed at an unreachable Kafka broker (no Doris brought up) -- this
+         run measures rating/reservation only, not CDR persistence, see script header

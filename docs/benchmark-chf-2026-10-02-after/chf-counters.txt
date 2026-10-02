@@ -1,0 +1,4 @@
+chf_catalog_snapshot_generation{otel_scope_name="chf"} 3
+chf_charging_data_create_total{otel_scope_name="chf"} 24036
+chf_catalog_snapshot_age_seconds{otel_scope_name="chf"} 8.186
+chf_rating_grant_total{otel_scope_name="chf"} 24036

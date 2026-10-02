@@ -464,10 +464,24 @@ CHF/UDR/balance-management's persistence design was independently fact-checked a
 claim verified true) before acting on it. Decision: PostgreSQL stays the sole authority for balance
 and the ledger; Valkey carries only non-monetary, rebuildable session state — no cross-store
 balance-consistency redesign, because no benchmark evidence yet shows one is needed. Real gaps this
-surfaced and not yet fixed: CHF's N+1 catalog/price SBI lookups, settlement as two non-atomic calls
-(unreserve, then debit), `double` money arithmetic over `NUMERIC` columns, UDR's ~80 unpooled
-PostgreSQL connections, and an unbounded-wait shared connection pool. Full comparison, the rejected
-alternatives, and the incremental fix order are in `docs/DECISIONS.md` ADR-0445.
+surfaced and not yet fixed: settlement as two non-atomic calls (unreserve, then debit), `double`
+money arithmetic over `NUMERIC` columns, UDR's ~80 unpooled PostgreSQL connections, and an
+unbounded-wait shared connection pool. Full comparison, the rejected alternatives, and the
+incremental fix order are in `docs/DECISIONS.md` ADR-0445.
+
+**Increment 1 closed (ADR-0446, 2026-10-02): CHF's N+1 catalog/price SBI lookups.** An in-memory
+snapshot of `ProductOffering`/`ProductOfferingPrice` (`nfs/chf/src/catalog_snapshot.{hpp,cpp}`),
+kept warm by a background refresh thread, replaces the per-candidate `GET /productOfferingPrice/
+{id}` calls `build_rating_grant` made on every charging request -- with a graceful live-fetch
+fallback (not a 503 gate) whenever the snapshot isn't warm yet, so correctness never depends on
+cache state. Measured, same machine, same contention pattern: throughput **4.4x-5.0x** and p50
+latency **4.3x-4.8x** better at closed-loop concurrency 1/8/32; at an open-loop 200 rps offered
+load the system went from an unbounded, growing backlog (p50 9.5 **seconds**) to fully sustaining
+the target rate (p50 7.9 ms) -- a different regime, not a tuning win. Full before/after tables in
+`docs/DECISIONS.md` ADR-0446; raw runs in `docs/benchmark-chf-2026-10-02/` and
+`docs/benchmark-chf-2026-10-02-after/`. This result is scoped exactly to finding #1 -- balance
+reservation (still a live SBI call), settlement atomicity and the synchronous HTTP client are
+unrelated, unaddressed items ADR-0445 named separately.
 
 <h2 align="center">Repository layout</h2>
 
