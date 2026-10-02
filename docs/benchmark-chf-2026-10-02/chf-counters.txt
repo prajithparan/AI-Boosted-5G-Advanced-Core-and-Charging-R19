@@ -1,0 +1,2 @@
+chf_charging_data_create_total{otel_scope_name="chf"} 7784
+chf_rating_grant_total{otel_scope_name="chf"} 7784

@@ -69,6 +69,8 @@ echo "== environment =="
     echo "commit:  $(cd "$ROOT" && git rev-parse --short HEAD)"
     echo "note:    load generator and SUT share this host; all traffic over loopback"
     echo "note:    single-SUPI/single-bucket contention run, see this script's own header"
+    echo "note:    CDR sink pointed at an unreachable Kafka broker (no Doris brought up) -- this"
+    echo "         run measures rating/reservation only, not CDR persistence, see script header"
 } | tee "$OUT/environment.txt"
 
 PIDS=()
@@ -80,7 +82,16 @@ sleep 2
 "$CATALOG" >"$OUT/product-catalog.log" 2>&1 & PIDS+=($!)
 "$BALANCE" >"$OUT/balance-management.log" 2>&1 & PIDS+=($!)
 sleep 2
-"$CHF" >"$OUT/chf.log" 2>&1 & PIDS+=($!)
+# Doris is CHF's default CDR sink (cdr_direct_insert=true) and this script deliberately does not
+# bring up a Doris cluster just to benchmark the rating path -- CHF treats a disconnected Doris as
+# FATAL by design (a real, correct architecture rule: a persistence failure must terminate, never
+# degrade silently). Routed to a bogus event-bus broker instead: librdkafka's producer does not
+# synchronously connect at construction (confirmed: `cdr_event_producer.cpp`'s constructor only
+# builds a client config), so CHF starts fine and CDRs simply fail to deliver in the background --
+# this run measures the rating/reservation path, not CDR persistence, and says so rather than
+# silently disabling a real architecture guardrail.
+CHF_CDR_DIRECT_INSERT=false CHF_CDR_EVENT_BUS_BROKERS=127.0.0.1:19999 \
+    "$CHF" >"$OUT/chf.log" 2>&1 & PIDS+=($!)
 
 wait_reachable() {
     local url="$1"
@@ -106,7 +117,9 @@ wait_reachable "$CHF_URL" || { echo "chf never came up" >&2; exit 1; }
 echo "== provisioning a real ProductOfferingPrice/ProductOffering (ratingGroup=10) + balance =="
 SUPI="imsi-999700000090001"
 
-PRICE_JSON=$(curl -sf --cacert "$CERTS/ca/ca.crt" -X POST "$CATALOG_BASE/productOfferingPrice" \
+PRICE_JSON=$(curl -sf --cacert "$CERTS/ca/ca.crt" \
+    --cert "$CERTS/hello-nf/cert.pem" --key "$CERTS/hello-nf/key.pem" \
+    -X POST "$CATALOG_BASE/productOfferingPrice" \
     -H "content-type: application/json" \
     -d '{
           "name": "CHF Rating Baseline Price",
@@ -122,7 +135,9 @@ PRICE_JSON=$(curl -sf --cacert "$CERTS/ca/ca.crt" -X POST "$CATALOG_BASE/product
 PRICE_ID=$(echo "$PRICE_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
 echo "price id: $PRICE_ID"
 
-curl -sf --cacert "$CERTS/ca/ca.crt" -X POST "$CATALOG_BASE/productOffering" \
+curl -sf --cacert "$CERTS/ca/ca.crt" \
+    --cert "$CERTS/hello-nf/cert.pem" --key "$CERTS/hello-nf/key.pem" \
+    -X POST "$CATALOG_BASE/productOffering" \
     -H "content-type: application/json" \
     -d "{\"name\": \"CHF Rating Baseline Offering\", \"lifecycleStatus\": \"Active\",
          \"isSellable\": true,
@@ -132,7 +147,9 @@ echo "offering created"
 # Large headroom: every Create in this run reserves against the same bucket with no matching
 # Release, so thousands of requests must not run the bucket dry mid-benchmark and start measuring
 # the insufficient-funds rejection path instead of real rating.
-curl -sf --cacert "$CERTS/ca/ca.crt" -X POST "$BALANCE_BASE/topupBalance" \
+curl -sf --cacert "$CERTS/ca/ca.crt" \
+    --cert "$CERTS/hello-nf/cert.pem" --key "$CERTS/hello-nf/key.pem" \
+    -X POST "$BALANCE_BASE/topupBalance" \
     -H "content-type: application/json" \
     -d "{\"amount\": {\"amount\": 100000000, \"units\": \"monetary\"},
          \"bucket\": {\"id\": \"$SUPI\"}}" >/dev/null

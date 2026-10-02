@@ -32709,5 +32709,38 @@ same bucket) because `sbi-loadgen` has no per-request body templating -- this me
 single-bucket serialized-reservation contention, not independent-subscriber traffic; load generator
 and CHF share one host over loopback (inflates latency, caps throughput, same caveat
 `run-baseline-benchmark.sh` already discloses for NRF); ADR-0009's synchronous HTTP client is still
-open. *Numbers pending -- to be appended to this ADR in a follow-up commit once the run completes
-on a machine not sharing CPU with an in-progress CI job.*
+open.
+
+**Result (2026-10-02), raw files in `docs/benchmark-chf-2026-10-02/`:**
+
+| Case | Responses | Throughput | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| closed c1 | 776 | 51.72 req/s | 17.7 ms | 27.8 ms | 43.7 ms | 71.6 ms | 71.6 ms |
+| closed c8 | 1485 | 98.49 req/s | 75.7 ms | 99.0 ms | 189.3 ms | 264.3 ms | 269.6 ms |
+| closed c32 | 1591 | 104.80 req/s | 301.0 ms | 366.1 ms | 463.6 ms | 517.0 ms | 518.5 ms |
+| open 200 rps | 3000 (93.19 delivered) | 93.19 req/s | 9500.4 ms | 15495.7 ms | 17023.5 ms | 17209.3 ms | 17211.1 ms |
+
+All-201 on every case (7852 total `Create` responses; CHF's own counters after the run:
+`chf_charging_data_create_total` = `chf_rating_grant_total` = 7784 -- the small gap from the
+responses total above is warmup-period traffic, which reaches CHF and increments its counters but
+is excluded from `sbi-loadgen`'s own reported percentiles by design).
+
+**What this shows, read against the disclosed single-bucket-contention scope above, not beyond
+it:** throughput essentially plateaus between c8 (98.5 req/s) and c32 (104.8 req/s) while p50
+latency keeps climbing linearly with concurrency (75.7 ms -> 301.0 ms) -- the signature of a
+system where added concurrency buys queueing delay, not more completed work, because every request
+in this run serializes through the same `balance_mgmt.bucket` row's lock (`reserve()`'s conditional
+`UPDATE`, ADR-0445's own finding). The open-loop case makes the ceiling unambiguous: at an offered
+200 req/s against a ~100 req/s real ceiling, the queue cannot drain within the 32 s it took to
+issue all 3000 scheduled requests, and coordinated-omission-corrected latency (measured from each
+slot's *scheduled* time, not when it was finally sent) correctly reports p50 at 9.5 s rather than
+hiding the backlog in a closed-loop number that would have looked merely "slow."
+
+**What this baseline does NOT yet isolate**, honestly: this run measures the whole
+`Nchf_ConvergedCharging_Create` path -- the N+1 catalog SBI calls (finding #1), the bucket-level
+PostgreSQL serialization, and ADR-0009's synchronous HTTP client -- together, because that is what
+a real request experiences today. It does not, by itself, say what fraction of the ~17.7 ms single-
+request latency (c1, no contention) is the catalog N+1 calls specifically versus the balance
+round-trip versus the synchronous client. The snapshot (step 3) removes the catalog N+1 calls only;
+the honest comparison once it exists is this same script run again, same provisioning, same
+machine state as close to idle as this one was -- not a claim that the whole gap above will close.
