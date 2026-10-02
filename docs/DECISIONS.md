@@ -32573,10 +32573,15 @@ every increment from here on.
    and `bss_sid::Quantity`/`Money` (de)serialization must round-trip through it without ever
    routing an exact value through a C++ `double`, including at the JSON parse boundary -- nlohmann
    parses JSON numbers to `double` by default, so the wire (de)serializer for money fields needs
-   its own exact-integer path, not the library default). Scale (how many minor units per major
-   currency unit) is implementation detail for that increment, not decided here; it must be at
-   least as fine as the finest real per-unit tariff this project rates (sub-ISO-4217-minor-unit
-   per-KB/per-second rates), confirmed against real catalog data before being fixed.
+   its own exact-integer path, not the library default). **Scale, decided 2026-10-02: 6 decimal
+   places (micro-units -- 1 unit = 1/1,000,000 of the major currency unit), the same convention
+   Google Ads API's "micros" and several real telco billing engines use for sub-cent metered
+   rates.** No committed catalog seed data with real per-unit rates exists in this repository to
+   confirm the scale empirically against (searched `bss/product-catalog`, `tools/cdr-traffic-gen`;
+   neither holds one) -- asked rather than guessed, per this project's own "ask, don't invent" rule
+   when a check comes up empty. int64 range at 6dp is approximately ±9.2 * 10^12 major currency
+   units, far beyond any real balance/tariff this project handles, with headroom finer than the old
+   NUMERIC(20,4) constraint for any future sub-$0.0001-per-unit tariff.
 2. **Atomic settle: keep the two real TMF654 calls (`ReserveBalance` then `AdjustBalance`), no
    proprietary non-TMF settle endpoint.** balance-management's public API stays strictly
    spec-shaped; the ODA swap-for-a-commercial-stack property is fully preserved. The unreserve/
