@@ -10,9 +10,14 @@ An ops agent answers two kinds of question:
 1. **"What is the state of the network?"** — which NFs are registered, of what type, where.
 2. **"Is this state abnormal?"** — load prediction, anomaly detection, slice SLA.
 
-**Only the first is built.** The second is NWDAF's job, there is no `nfs/nwdaf` directory, and
-NEF's `AnalyticsExposure` and `ReportingNetworkStatus` routes answer 501 for exactly this reason
-(ADR-0324). This agent must not attempt the second kind of question by reasoning over the first.
+**Only the first is built into this agent's own tool set.** The second is NWDAF's job. **Corrected
+2026-10-02 (docs-audit)**: `nfs/nwdaf` now exists (with real `Nnwdaf_AnalyticsInfo`/
+`Nnwdaf_EventsSubscription` endpoints and in-process ONNX inference) -- the "there is no `nfs/nwdaf`
+directory" premise is stale. Not verified in this pass: whether NEF's `AnalyticsExposure`/
+`ReportingNetworkStatus` routes still answer 501, or whether this agent's MCP tool server has been
+given any NWDAF-backed tool yet (a separate integration step from NWDAF merely existing as an NF).
+Until that integration is confirmed, this agent must still not attempt the second kind of question
+by reasoning over the first -- the restraint below holds regardless of NWDAF's own build status.
 
 That restraint is the whole reason this file exists. An agent handed live inventory and asked "is
 anything wrong?" will produce a confident-sounding answer from nothing, and an operator has no way

@@ -9,6 +9,13 @@ anything grounded in NWDAF**, and the useful models split cleanly by whether the
 already exists in this system. Everything below is checked against the code and schemas, not
 assumed.
 
+**2026-10-02 docs-audit correction: "no for anything grounded in NWDAF" is stale.** `nfs/nwdaf`
+(plus `nfs/dccf`/`nfs/adrf`/`nfs/mfaf`) has been built since this document's original pass, with
+real `Nnwdaf_AnalyticsInfo`/`Nnwdaf_EventsSubscription` endpoints and real in-process ONNX Runtime
+inference. See the "Network-analytics agent" row below for the corrected, still-partial detail --
+this does not mean every NWDAF-blocked item in this document is now unblocked, only that the
+blanket "no directory yet" premise no longer holds.
+
 ## What data this platform actually holds
 
 This is the constraint that decides everything else.
@@ -41,7 +48,7 @@ a restricted tool subset over that one server. That matters because it means "mu
 | **Customer agent** ("how much data is left?", "why was I charged this?", "am I roaming?") | **Yes, fully** | balance buckets, CDRs, rating decisions, catalog | Every answer already exists as a queryable record. "Why was I charged this" is genuinely answerable because `rating_decision` stores the tariff, the rule that fired, and the AI advisory -- an explanation, not a guess |
 | **Technical / operations agent** ("which NFs are unhealthy?", "why did this session fail?") | **Partly** | NRF registry, SM contexts, PFCP state, TS 28.552 counters | The inventory/state half works now. The *analytics* half ("is this abnormal?") needs NWDAF |
 | **Revenue / commercial agent** ("which offerings underperform?") | **Yes** | rating decisions + bills + catalog | Read-only aggregation over data that exists |
-| **Network-analytics agent** | **No** | — | Requires NWDAF (AnLF/MTLF), which is Phase 5 and has no directory yet |
+| **Network-analytics agent** | **Corrected 2026-10-02 (docs-audit): no longer "no directory yet"** | `nfs/nwdaf` exists with real serving infrastructure | `nfs/nwdaf` now has real `Nnwdaf_AnalyticsInfo`/`Nnwdaf_EventsSubscription` endpoints and real in-process ONNX Runtime inference (`nfs/nwdaf/src/model_runtime.cpp`); `nfs/dccf`/`nfs/adrf`/`nfs/mfaf` also exist. **Not verified in this pass**: which specific analytics (load prediction, abnormal-behaviour, SLA) are wired end-to-end versus scaffolded, or whether NEF's `AnalyticsExposure`/`ReportingNetworkStatus` routes still answer 501 -- this agent's real feasibility needs that check before being called "Yes," not assumed from the NF existing |
 | **Care / retention agent** | **No** | — | Needs churn labels and contact history, neither collected |
 
 **Guardrail, non-negotiable:** subscriber-facing agents read PII (SUPI, MSISDN, spend). Tools must
@@ -100,7 +107,7 @@ than forgotten.
 
 | Agent | Blocked on | Build it when |
 |---|---|---|
-| **Network-analytics agent** | NWDAF (AnLF + MTLF) | NWDAF exists and serves real analytics. NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes stop answering 501 at the same moment |
+| **Network-analytics agent** | NWDAF (AnLF + MTLF) | NWDAF exists and serves real analytics. NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes stop answering 501 at the same moment. **Partial update 2026-10-02**: `nfs/nwdaf` now exists with real AnalyticsInfo/EventsSubscription endpoints and ONNX inference (see the agent-feasibility table above) -- whether NEF's routes still answer 501 was not checked in this pass, so this trigger is not confirmed fired |
 | **Technical / ops agent** (full) | NWDAF for the "is this abnormal?" half | the state half can land with the MCP server; the analytics half completes when NWDAF does |
 | **Care / retention agent** | churn labels + contact history, neither collected today | subscription lifecycle events are recorded and a contact-history source exists. **Collecting that data is itself the prerequisite task**, not a precondition someone else supplies |
 

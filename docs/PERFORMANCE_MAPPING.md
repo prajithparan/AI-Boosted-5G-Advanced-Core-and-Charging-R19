@@ -35,7 +35,7 @@ the spec's own `e)` measurement-name fields, not estimated).
 | 5.13 | UDR | **Yes** | `nfs/udr` exists |
 | 5.14/5.15 | ECS / EES | **No** | Edge enablement not built |
 | 5.16 | LMF | **Yes** | `nfs/lmf` exists |
-| 5.18 | NWDAF | **Yes (future)** | Tier-2, not yet built |
+| 5.18 | NWDAF | **Yes** | `nfs/nwdaf` exists (and `nfs/dccf`/`nfs/adrf`/`nfs/mfaf`), built since this document's original pass -- **corrected 2026-10-02, docs-audit**. Per-measurement coverage against clause 5.18 not audited (same "needs audit" status as PCF/UDM/UDR below), not assumed either way |
 
 ### Clause 5.7 "Common performance measurements for NFs" is entirely NOT usable here
 
@@ -115,6 +115,7 @@ and this project's counters mostly count only "it happened".
 | UDR | 5.13 | 150 | Highest local coverage; needs audit |
 | NSSF/SMSF/NEF/LMF | 5.11/5.12/5.9/5.16 | 7 / — / — / — | Needs audit |
 | **CHF** | **none** | 23 | **Not covered by 28.552 at all -- see above** |
+| NWDAF/DCCF/ADRF/MFAF | 5.18 (NWDAF only; DCCF/ADRF/MFAF have no 28.552 clause of their own, same category as CHF) | not counted | Built since this document's original pass (**added 2026-10-02, docs-audit** -- not in scope when this row was last filled in); needs the same per-measurement audit as the rows above, not started |
 
 The per-NF audits beyond NRF are deliberately **not** filled in with guesses. Each needs the same
 line-by-line treatment NRF got, against the spec text, and that is real work rather than a

@@ -24,11 +24,17 @@ license analysis in ADR-0016.
   committed) and builds it there.
 - `vendor/` -- gitignored. Created by `fetch-and-build.sh`. Not part of this repository's git
   history.
-- `config/gnb.yaml`, `config/ue.yaml` -- our lab config for `nr-gnb`/`nr-ue`, pointed at where
-  AMF's future N2 listener will be. **Not functional yet** -- AMF has no NGAP server as of this
-  writing (ADR-0016), so `nr-gnb` will fail to connect (SCTP `ECONNREFUSED`) until that lands.
+- `config/gnb.yaml`, `config/ue.yaml` -- our lab config for `nr-gnb`/`nr-ue`, pointed at AMF's N2
+  listener. **Corrected 2026-10-02 (docs-audit): this section was severely stale.** AMF has had a
+  real NGAP/SCTP server for a long time (`nfs/amf/src/ngap_task.cpp`, logs "listening for NGAP/N2
+  (SCTP)"); registration, PDU session establishment, and N2 handover have all worked end to end
+  since early in this project (CLAUDE.md's Phase 2 end-to-end milestone). This file was apparently
+  never revisited after that landed. Not independently re-verified in this pass: whether this
+  specific `config/gnb.yaml`/`ue.yaml` pair is still the right shape for AMF's current NGAP config,
+  or whether this exact UERANSIM pairing is still the project's live/preferred UE-driving tool
+  versus something that superseded it -- check both before relying on this file to actually run.
 
-## Usage (once AMF has an NGAP listener -- not yet)
+## Usage
 
 ```
 ./fetch-and-build.sh

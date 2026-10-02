@@ -6,6 +6,12 @@ nodes) with a **`{supi}` hash-tag** on per-subscriber keys so one subscriber's k
 slot (enabling multi-key ops + even distribution), TTLs on caches, and replica-per-primary for HA.
 No code may assume a single Valkey node.
 
+**Compliance gap, noted 2026-10-02 (docs-audit, cross-referencing `docs/DECISIONS.md` ADR-0445):**
+this is the target design, not yet the deployed default. ADR-0443/0444 made UDSF/AMF/CHF
+cluster-*capable*, but `deploy/docker/docker-compose.yml`'s default `*_REDIS_URL` for every NF still
+points at the single-node `valkey:6379`, not `valkey-cluster-1` -- no NF sets `_REDIS_MODE=cluster`
+by default today. Flagged, not fixed, in this pass.
+
 ## 1. Hot read caches — offload Postgres for digital-channel reads
 The perf analysis showed per-customer Postgres reads are index-scanned sub-ms; these caches cut even
 that round trip for the hottest reads and absorb read spikes.

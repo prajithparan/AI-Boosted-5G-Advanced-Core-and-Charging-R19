@@ -2,7 +2,9 @@
 
 React + JSON Forms web console (`web/`) served by a C++ backend-for-frontend (`bff/`,
 `oam-gui-bff`). Design: `docs/DECISIONS.md` ADR-0420 (stack), 0421 (derived schemas), 0422
-(transport), 0423 (operator IAM + audit), 0424 (OIDC login), 0425 (NF configuration).
+(transport), 0423 (operator IAM + audit), 0424 (OIDC login), 0425 (NF configuration), 0441 (real
+Keycloak realm, closing 0424's IdP deferral), 0442 (`oam-gui-bff` containerized, closing 0441's
+Compose-side deferral).
 
 ## Layout
 
@@ -44,10 +46,17 @@ ports 28741-28744 only.
    ```
    then insert your org units, users (IdP issuer + subject) and role assignments -- the test seed
    in `bff/tests/test_bff_security.cpp` shows the shape.
-3. An OIDC IdP (Keycloak recommended) with a confidential client `oam-gui`, redirect URI
-   `https://127.0.0.1:8710/auth/callback`, MFA required; put its endpoints in
-   `config/oam-gui-bff.json` and its client secret in `certs/oam-gui-bff/oidc-client-secret`.
-   **Not provided yet** (ADR-0424 deferral): without an IdP the BFF starts but nobody can sign in.
+3. An OIDC IdP: **provided since ADR-0441/ADR-0442** (corrected 2026-10-02, docs-audit -- this step
+   previously said "not provided yet," which is stale). A real, self-hosted Keycloak realm now runs
+   as the `keycloak` Compose service (`quay.io/keycloak/keycloak:26.0`, its own `keycloak` database
+   on `postgres-chf`). Before `docker compose up keycloak`, generate its realm import:
+   `deploy/keycloak/render-realm.sh` writes into `deploy/keycloak/import/` (gitignored, generates
+   its own secrets, same pattern as `certs/`); Keycloak reads it once via `--import-realm` on first
+   boot against an empty `keycloak` database. `oam-gui-bff` also needs its own leaf certificate and
+   trust in Keycloak's TLS server certificate (`gui/scripts/gen-operator-pki.sh terminal-lab-1`,
+   same CA as step 1). The confidential-client/redirect-URI/MFA shape this step originally
+   described is what `render-realm.sh` provisions -- not independently re-verified field-by-field
+   against this paragraph's exact wording in this pass.
 4. `gui/web && npm run build`, then run `build/gui/bff/oam-gui-bff` and open
    `https://127.0.0.1:8710/`. `npm run watch` rebuilds `dist/`; restart the BFF to reload it.
    Another config file: `env 'OAM-GUI-BFF_CONFIG_FILE=/abs/path.json' build/gui/bff/oam-gui-bff`

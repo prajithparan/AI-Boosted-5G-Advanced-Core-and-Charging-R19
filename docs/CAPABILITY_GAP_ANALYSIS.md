@@ -1,16 +1,25 @@
 # Capability gap analysis vs free5GC and open5GS
 
-**Status: first pass COMPLETE for all 9 built NFs, code-free review gate** (same pattern as
+**Status: first pass COMPLETE for the original 9 built NFs, code-free review gate** (same pattern as
 `docs/CHARGING_MAPPING.md`) -- user-directed, full sweep of every built NF against both real
 reference implementations, procedure/behavior-level (not literal line-by-line -- free5GC is Go,
 open5GS is C, this project is C++, so "line by line" is interpreted as exhaustive
 capability/behavior comparison, the real cross-language equivalent). Governed by ADR-0075's
 capability-completeness mandate: every real finding here is tracked to eventual implementation,
-none silently dropped. Nothing has been implemented yet -- this file is the evidence base an
-implementation plan gets built from. `nssf`/`nef`/`scp`/`bsf` (Tier-1 NFs that don't exist in this
-project at all yet) are a separate, larger "whole NF missing" gap, out of this sweep's scope, not
-blended into the per-NF findings below. See the Summary section at the end for the
-cross-NF priority picture.
+none silently dropped. Nothing had been implemented yet *when this pass was written* -- this file
+was the evidence base an implementation plan got built from.
+
+**Stale scope statement, corrected 2026-10-02 (docs-audit pass): `nssf`/`nef`/`scp`/`bsf` have since
+been built and already swept** (all four are real, in `nfs/`, at 100% R19 YAML path coverage per
+`docs/NF_API_COVERAGE_AUDIT.md`) -- the "don't exist in this project at all yet" framing immediately
+below is stale. **This document's own Summary section already has the accurate, later picture** for
+all eight NFs added after this pass (NSSF/BSF/NEF/SCP/5G-EIR/SMSF/GMLC/LMF, "SWEPT, ADR-0294" rows,
+built via ADR-0183 through ADR-0191) -- the intro paragraph below was simply never updated to match
+when that later work landed. Coverage is uneven, stated per-NF in the Summary rather than here: NSSF
+and GMLC/LMF's rows name real reference-comparison findings, while BSF's row states plainly "no
+known real gap identified yet since no reference-source diff has been done" -- not every one of the
+eight got the same free5GC/open5GS depth the original 9 did. See the Summary section at the end for
+the real, current, per-NF picture rather than this paragraph.
 
 ## Method
 

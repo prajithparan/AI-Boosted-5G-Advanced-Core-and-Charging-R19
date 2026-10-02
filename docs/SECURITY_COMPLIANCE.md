@@ -28,13 +28,34 @@ assessed* was not checked and should not be read as either.
 
 ## Findings, most serious first
 
-### F1. Lawful Interception is entirely absent -- TS 33.126 / 33.127 / 33.128
+### F1. Lawful Interception -- STALE as "entirely absent", corrected 2026-10-02 (docs-audit pass)
 
-`grep -rli 'lawful intercept'` across `nfs/`, `libs/` and `docs/` returns nothing. There is no
-Point of Interception, no LI_X1/X2/X3 interface, no ADMF/LIPF client, no SIRF in the NRF.
+**This finding is no longer accurate as originally written and the gap is now narrower, not
+closed.** This document's "entirely absent" framing was true on 2026-09-13; a real LI programme
+has since landed (ADR-0364 through at least ADR-0440, `docs/DECISIONS.md`): `libs/li-core`,
+`libs/li-generated`, a real LI_X1 provisioning interface (libxml2 + runtime XSD), a real LI_X2/X3
+receiving server and delivery client, LI_HI2 mediation with a TS 102 232-1 PS-PDU envelope, and
+`nfs/li-mdf` -- a real MDF2 (Mediation and Delivery Function for IRI) process. AMF has a real
+IRI-POI (`nfs/amf/src/li_poi.hpp`) with its Registration/IdentifierAssociation/LocationUpdate hooks
+wired (default-off).
 
-This is not a peripheral gap. TS 33.127 V19.7.0 places LI requirements on **every control-plane NF
-this project has**:
+**What is verified still missing, checked directly in this pass, not assumed from the above:**
+`grep -rli "li_poi\|lawful.intercept"` against `nfs/chf`, `nfs/smf`, `nfs/udm`, `nfs/nrf`, `nfs/nef`
+source returns **nothing** -- none of these NFs has an IRI-POI yet, including **CHF's clause 7.22
+IRI-POI**, which this document's own table below still correctly identifies as the requirement that
+matters most to this project's commercial core. AMF's own POI coverage is itself partial (per
+project memory: Registration hook done, five further AMF event hooks and a POI functional test
+still open). NRF's SIRF, and UDM/SMSF/NEF/NWDAF IRI-POIs, remain unbuilt.
+
+**Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI2 transport +
+MDF2 + one NF's partial POI coverage), not "no LI exists" and not "LI is done" -- the real remaining
+gap is per-NF POI coverage, CHF's most of all.** This is still a production blocker (same TS 33.126
+§4 / commercialization-mandate reasoning the original F1 gave), just not for the reason originally
+stated.
+
+TS 33.127 V19.7.0 places LI requirements on **every control-plane NF this project has**; the table
+below is unchanged from the original pass and should be read against the corrected status above,
+not against the stale "nothing exists" framing that used to precede it:
 
 | NF | Clause | What the NF *shall* provide |
 |---|---|---|
@@ -159,9 +180,9 @@ content is TS 33.117.
 | 33.501 | Security architecture and procedures for 5G system | V19.7.0 | **Core** | Partial -- F2, F4, F5, F6, F7, F8 |
 | 33.210 | Network Domain Security (NDS); IP network layer security | V19.3.0 | **Core** (TLS profile) | Partial -- F5 |
 | 33.117 | Catalogue of general security assurance requirements | V19.2.0 | **Core** (SCAS) | Partial -- F3; §4.2.3 baseline (RBAC, password policy, security-event logging, log transfer) **not assessed** |
-| 33.126 | Lawful Interception requirements | V19.3.0 | **Core** | **Not implemented** -- F1 |
-| 33.127 | LI architecture and functions | V19.7.0 | **Core** | **Not implemented** -- F1 |
-| 33.128 | LI protocol and procedures, Stage 3 | V19.7.0 | **Core** | **Not implemented** -- F1 |
+| 33.126 | Lawful Interception requirements | V19.3.0 | **Core** | **Partially implemented (corrected 2026-10-02)** -- F1: X1/X2/X3/HI2 transport + MDF2 real, per-NF POI coverage mostly still missing |
+| 33.127 | LI architecture and functions | V19.7.0 | **Core** | **Partially implemented (corrected 2026-10-02)** -- F1, same status |
+| 33.128 | LI protocol and procedures, Stage 3 | V19.7.0 | **Core** | **Partially implemented (corrected 2026-10-02)** -- F1, same status |
 | 33.528 | SCAS for PCF | V19.0.0 | Core | Unapproved shell -- F9 |
 | 33.535 | AKMA | V19.0.0 | In scope, not built (AAnF, Tier 2) | Not implemented |
 | 33.122 | Security of CAPIF | V19.4.0 | In scope, not built (CAPIF, Tier 3) | Not implemented |

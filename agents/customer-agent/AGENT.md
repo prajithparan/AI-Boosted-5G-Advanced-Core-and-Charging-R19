@@ -59,7 +59,10 @@ These are the motto — *Built by AI. Built for AI. Bound by the spec.* — as i
 
 ## What it cannot answer, honestly
 
-- Anything needing network analytics ("is the network slow here?") — NWDAF does not exist.
+- Anything needing network analytics ("is the network slow here?") — no tool exposes it to this
+  agent; that's the network-analytics agent's remit, a different persona (**corrected 2026-10-02**:
+  `nfs/nwdaf` itself now exists, but this customer-facing agent was never meant to have an analytics
+  tool regardless, so the practical answer here is unchanged).
 - Anything needing contact history or churn context — not collected.
 - Future spend projection — no forecasting model is wired in yet (roadmap item 3).
 

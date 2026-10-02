@@ -6,6 +6,24 @@ list: what would still block a production deployment."
 **Date:** 2026-09-05. **Scope note:** P11 (geo-redundant active/active) is deferred by explicit
 user decision and is recorded here as deferred, not as done or failed.
 
+**2026-10-02 docs-audit correction (two items verified stale, the rest of this snapshot not
+re-audited row-by-row in this pass -- disclosed, not implied otherwise):**
+- **P9's "498 tests" is stale.** `ctest -N` against the current `build/` tree reports **813** total
+  tests today. Not re-verified: whether every one of those 813 is a genuinely new test versus
+  build-tree/counting differences from how the 498 figure was originally produced -- flagged as the
+  more defensible current number, not re-derived from scratch.
+- **P10/blocker-3's "no comparison against free5GC or anything else has ever been run" is stale.**
+  ADR-0329 (2026-09-10, after this document's date) added one real, narrow benchmark: NRF
+  `SearchNFInstances` only, against free5GC v3.4.4, method fixed before results existed
+  (`docs/BENCHMARK_METHOD.md`/`docs/BENCHMARK_RESULTS.md`). It does **not** cover AMF registration,
+  PDU sessions, or CHF/charging -- "no comparison against free5GC for any NF/procedure beyond NRF
+  discovery" remains true and is the accurate current claim, not "none has ever been run."
+- Everything else in this matrix (P1-P8, P11-P15, the state-externalisation table, the blocker list
+  below) reflects this document's original 2026-09-05 pass and was **not** independently re-verified
+  against current code in this audit -- a full line-by-line re-audit of a 15-principle compliance
+  matrix was judged disproportionate to a documentation-correctness pass; a real re-audit, if
+  wanted, is its own future turn.
+
 The rule applied throughout: a row says **Done** only when something in this repository actually
 does it and a test or a live run proves it. Everything else says what is really there. This
 project's standing rule — no "carrier-grade" claim without conformance and soak evidence — applies
@@ -92,17 +110,20 @@ Until then, P8 stays honestly **Blocked** in the matrix above, and the productio
 
 Ordered by how hard each would bite:
 
-0. **No Lawful Interception, anywhere** (ADR-0354, `docs/SECURITY_COMPLIANCE.md` F1). Added
-   2026-09-13 at position zero deliberately: every item below is about how *well* the core runs;
-   this one is about whether a licensed operator may run it at all. TS 33.127 V19.7.0 requires an
-   IRI-POI in AMF, SMF, UDM, SMSF, NEF and NWDAF, a CC-POI in UPF, a SIRF in NRF, and -- clause
-   7.22 -- an IRI-POI in the CHF emitting `ChargingDataEvent` on every Nchf/Rf request for a
-   target. `grep -rli 'lawful intercept'` over `nfs/ libs/ docs/` returns nothing. It is on no
-   roadmap in this repository. The same review found four further security non-conformances that
-   bite less hard but are real: mandatory SNOW 3G NAS algorithms missing (33.501 §5.5), duplicate
-   JSON keys silently accepted (33.117 §4.3.6.3 -- an attack surface, verified by experiment), NRF
-   discovery not authorized per producer (33.501 §13.3.1.3), and TLS 1.2 unsupported where 33.210
-   §6.2.1 requires it (an architect's call: the non-conformant choice is the more secure one).
+0. **Lawful Interception -- STALE as written, corrected 2026-10-02 (docs-audit pass): no longer
+   "anywhere absent," still a real blocker.** Originally added 2026-09-13 at position zero because
+   `grep -rli 'lawful intercept'` returned nothing at the time. **That grep now returns real code**:
+   `libs/li-core`, `libs/li-generated`, `nfs/li-mdf` (a real MDF2), real X1/X2/X3/HI2 transport, and
+   AMF's own partial IRI-POI (`nfs/amf/src/li_poi.hpp`, Registration hook done, five more event
+   hooks open) -- see `docs/SECURITY_COMPLIANCE.md` F1's own 2026-10-02 correction for the full,
+   verified detail. **It stays position zero**: CHF's clause-7.22 IRI-POI (the one this project's
+   commercial core specifically needs) is still unbuilt, confirmed by grep against `nfs/chf` this
+   pass, and so are SMF/UDM/NRF/NEF/NWDAF's. The same review found four further security
+   non-conformances that bite less hard but are real (not re-verified in this pass): mandatory
+   SNOW 3G NAS algorithms missing (33.501 §5.5), duplicate JSON keys silently accepted (33.117
+   §4.3.6.3 -- an attack surface, verified by experiment), NRF discovery not authorized per producer
+   (33.501 §13.3.1.3), and TLS 1.2 unsupported where 33.210 §6.2.1 requires it (an architect's call:
+   the non-conformant choice is the more secure one).
 0a. **Every NF aborts on a datastore it cannot reach at startup.** Found while swapping Redis for
    Valkey (ADR-0356): an uncaught `sw::redis::IoError` -> `std::terminate` in CHF and AMF when
    port 6379 was not yet reachable. Postgres and Doris failures degrade with a warning; Redis
