@@ -126,6 +126,78 @@ std::vector<std::uint8_t> build_cea(const Header& request_header,
     return message;
 }
 
+// ADR-0447 (increment 2 of ADR-0445/0446): the real RAR (RFC 6733 §8.3.1, dict_base_proto.c:2859 --
+// quoted in full in dictionary.hpp's own comment). This is CHF's first OUTGOING Diameter REQUEST --
+// every other message CHF builds is an Answer echoing a request's hop-by-hop/end-to-end
+// identifiers; a request CHF originates must generate its own, per RFC 6733 §3's "set by the
+// originator" rule. Destination-Host/Destination-Realm are the PEER's own Origin-Host/Origin-Realm
+// learned from that peer's real CER (the only real, correct way to address an RAR back to the
+// specific access device that opened this session -- inventing a destination would misaddress it).
+// Re-Auth-Request-Type is always AUTHORIZE_ONLY: CHF wants the PCEF to report current usage and
+// re-request a grant, not to re-run authentication, which Gy sessions have no concept of.
+std::vector<std::uint8_t> build_rar(const std::string& session_id,
+                                    const std::string& origin_host,
+                                    const std::string& origin_realm,
+                                    const std::string& destination_host,
+                                    const std::string& destination_realm,
+                                    std::uint32_t hop_by_hop_id,
+                                    std::uint32_t end_to_end_id) {
+    std::vector<std::uint8_t> avps_bytes;
+
+    Avp session_id_avp;
+    session_id_avp.code = dictionary::Avp::kSessionId;
+    session_id_avp.flags = AvpFlag::kMandatory;
+    session_id_avp.data = encode_octet_string(session_id);
+    encode_avp(avps_bytes, session_id_avp);
+
+    Avp origin_host_avp;
+    origin_host_avp.code = dictionary::Avp::kOriginHost;
+    origin_host_avp.flags = AvpFlag::kMandatory;
+    origin_host_avp.data = encode_octet_string(origin_host);
+    encode_avp(avps_bytes, origin_host_avp);
+
+    Avp origin_realm_avp;
+    origin_realm_avp.code = dictionary::Avp::kOriginRealm;
+    origin_realm_avp.flags = AvpFlag::kMandatory;
+    origin_realm_avp.data = encode_octet_string(origin_realm);
+    encode_avp(avps_bytes, origin_realm_avp);
+
+    Avp destination_realm_avp;
+    destination_realm_avp.code = dictionary::Avp::kDestinationRealm;
+    destination_realm_avp.flags = AvpFlag::kMandatory;
+    destination_realm_avp.data = encode_octet_string(destination_realm);
+    encode_avp(avps_bytes, destination_realm_avp);
+
+    Avp destination_host_avp;
+    destination_host_avp.code = dictionary::Avp::kDestinationHost;
+    destination_host_avp.flags = AvpFlag::kMandatory;
+    destination_host_avp.data = encode_octet_string(destination_host);
+    encode_avp(avps_bytes, destination_host_avp);
+
+    Avp auth_app_id_avp;
+    auth_app_id_avp.code = dictionary::Avp::kAuthApplicationId;
+    auth_app_id_avp.flags = AvpFlag::kMandatory;
+    auth_app_id_avp.data = encode_unsigned32(dictionary::Dcc::kApplicationId);
+    encode_avp(avps_bytes, auth_app_id_avp);
+
+    Avp reauth_type_avp;
+    reauth_type_avp.code = dictionary::Avp::kReAuthRequestType;
+    reauth_type_avp.flags = AvpFlag::kMandatory;
+    reauth_type_avp.data = encode_integer32(dictionary::ReAuthRequestType::kAuthorizeOnly);
+    encode_avp(avps_bytes, reauth_type_avp);
+
+    Header request_header;
+    request_header.flags = CommandFlag::kRequest | CommandFlag::kProxiable;
+    request_header.command_code = dictionary::Command::kReAuth;
+    request_header.application_id = dictionary::Dcc::kApplicationId;
+    request_header.hop_by_hop_id = hop_by_hop_id;
+    request_header.end_to_end_id = end_to_end_id;
+
+    auto message = encode_header(request_header, static_cast<std::uint32_t>(avps_bytes.size()));
+    message.insert(message.end(), avps_bytes.begin(), avps_bytes.end());
+    return message;
+}
+
 // P4.5/ADR-0060 Stage 3: real CCR decode (RFC 4006). Only the fields this project's charging
 // engine (charging_engine.hpp) actually consumes are extracted -- Session-Id, CC-Request-Type,
 // CC-Request-Number (all mandatory per dict_dcca.c:1360-1367), an optional Subscription-Id (0+,
@@ -656,7 +728,11 @@ DiameterServer::DiameterServer(
     opentelemetry::metrics::Counter<std::uint64_t>* slr_initial_counter,
     opentelemetry::metrics::Counter<std::uint64_t>* slr_intermediate_counter,
     opentelemetry::metrics::Counter<std::uint64_t>* str_counter)
-    : ioc_(), acceptor_(ioc_, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)),
+    : next_request_id_(
+          static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                         std::chrono::system_clock::now().time_since_epoch())
+                                         .count())),
+      ioc_(), acceptor_(ioc_, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)),
       origin_host_(std::move(origin_host)), origin_realm_(std::move(origin_realm)),
       client_tls_(std::move(client_tls)), charging_data_store_(charging_data_store),
       cdr_writer_(cdr_writer), rating_decision_store_(rating_decision_store),
@@ -704,6 +780,60 @@ void DiameterServer::set_tps_limit(double sustained_tps, double burst_capacity) 
     // Release/acquire, not relaxed: a connection thread that sees this pointer must also see the
     // fully-constructed bucket behind it.
     rate_limit_.store(rate_limit_owner_.get(), std::memory_order_release);
+}
+
+std::optional<std::int32_t> DiameterServer::send_reauth_request(const std::string& session_id,
+                                                                std::chrono::milliseconds timeout) {
+    std::shared_ptr<PeerConnection> conn;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        const auto it = session_to_connection_.find(session_id);
+        if (it == session_to_connection_.end()) {
+            return std::nullopt; // no live connection holds this session -- real, valid, not an
+                                 // error
+        }
+        conn = it->second;
+    }
+
+    const auto hop_by_hop = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+    const auto end_to_end = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+    const auto rar_bytes = build_rar(session_id,
+                                     origin_host_,
+                                     origin_realm_,
+                                     conn->destination_host,
+                                     conn->destination_realm,
+                                     hop_by_hop,
+                                     end_to_end);
+
+    {
+        // Reset any stale result from a prior call before sending -- the write and the wait below
+        // must see only THIS call's own answer, never one left over from an earlier, already-
+        // timed-out attempt.
+        std::lock_guard<std::mutex> result_lock(conn->result_mutex);
+        conn->pending_raa_result.reset();
+    }
+
+    {
+        std::lock_guard<std::mutex> write_lock(conn->write_mutex);
+        boost::system::error_code ec;
+        boost::asio::write(*conn->socket, boost::asio::buffer(rar_bytes), ec);
+        if (ec) {
+            spdlog::warn("chf: RAR write failed for session {}: {}", session_id, ec.message());
+            return std::nullopt; // peer gone -- real, valid outcome
+        }
+    }
+    spdlog::info("chf: real RAR sent for session {} (Re-Auth-Request-Type=AUTHORIZE_ONLY)",
+                 session_id);
+
+    std::unique_lock<std::mutex> result_lock(conn->result_mutex);
+    const bool answered = conn->result_cv.wait_for(
+        result_lock, timeout, [&] { return conn->pending_raa_result.has_value(); });
+    if (!answered) {
+        spdlog::warn(
+            "chf: no RAA received for session {} within {} ms", session_id, timeout.count());
+        return std::nullopt;
+    }
+    return conn->pending_raa_result;
 }
 
 void DiameterServer::accept_loop() {
@@ -816,6 +946,32 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
     // SLR/STR path (ADR-0059 Stage 4) onto Nchf_SpendingLimitControl's own subscriptionId.
     std::unordered_map<std::string, std::string> sl_session_to_id;
 
+    // ADR-0447: this connection's own entry for send_reauth_request's registry -- Destination-
+    // Host/Realm for any RAR sent back on it are this peer's own real Origin-Host/Origin-Realm,
+    // learned above from its real CER, never invented. Registered against a session_id only once
+    // CCR-Initial actually establishes one (below); erased from the shared map, and the socket
+    // pointer cleared, on every real exit path from this function (this connection's own `return`
+    // statements) so send_reauth_request can never be left holding a dangling socket pointer.
+    auto peer_connection = std::make_shared<PeerConnection>();
+    peer_connection->socket = &socket;
+    peer_connection->destination_host = decode_octet_string(peer_origin_host->data).value_or("");
+    peer_connection->destination_realm = decode_octet_string(peer_origin_realm->data).value_or("");
+    std::vector<std::string> my_session_ids; // this connection's own sessions, for cleanup on exit
+    // RAII, not a cleanup call at every one of this function's many `return` paths -- a single
+    // forgotten one would leave send_reauth_request able to look up a session and find a
+    // dangling socket pointer, undefined behaviour on the next RAR this process ever sends.
+    struct SessionCleanupGuard {
+        std::mutex& sessions_mutex;
+        std::unordered_map<std::string, std::shared_ptr<PeerConnection>>& session_to_connection;
+        const std::vector<std::string>& my_session_ids;
+        ~SessionCleanupGuard() {
+            std::lock_guard<std::mutex> lock(sessions_mutex);
+            for (const auto& sid : my_session_ids) {
+                session_to_connection.erase(sid);
+            }
+        }
+    } session_cleanup_guard{sessions_mutex_, session_to_connection_, my_session_ids};
+
     while (!stop_) {
         std::vector<std::uint8_t> next_header_bytes(20);
         boost::asio::read(socket, boost::asio::buffer(next_header_bytes), ec);
@@ -840,6 +996,34 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                              ec.message());
                 return;
             }
+        }
+
+        // ADR-0447: a real RAA (Command-Code 258, R bit CLEAR -- an Answer, not a Request) answers
+        // an RAR send_reauth_request sent earlier on this exact connection. Handled here, before
+        // the generic "unsupported command" rejection below, because an RAA would otherwise match
+        // neither `is_known_command` (RAR/RAA isn't in that list -- it's not a request CHF ever
+        // receives unsolicited) nor the request-flag check, and the connection would be closed on
+        // its own answer to CHF's own question.
+        if (next_header->command_code == dictionary::Command::kReAuth &&
+            (next_header->flags & CommandFlag::kRequest) == 0) {
+            const auto raa_avps = decode_avps(next_avps_bytes);
+            std::optional<std::int32_t> result_code;
+            if (raa_avps.has_value()) {
+                if (const auto* result_code_avp = find_avp(*raa_avps, dictionary::Avp::kResultCode);
+                    result_code_avp != nullptr) {
+                    result_code = decode_integer32(result_code_avp->data);
+                }
+            }
+            {
+                std::lock_guard<std::mutex> lock(peer_connection->result_mutex);
+                // A real, valid "malformed RAA" outcome gets DIAMETER_UNABLE_TO_COMPLY rather than
+                // being silently dropped -- send_reauth_request's own waiter must still wake up.
+                peer_connection->pending_raa_result =
+                    result_code.value_or(dictionary::ResultCode::kDiameterUnableToComply);
+            }
+            peer_connection->result_cv.notify_one();
+            spdlog::info("chf: real RAA received (Result-Code={})", result_code.value_or(-1));
+            continue;
         }
 
         const bool is_known_command =
@@ -1183,6 +1367,13 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
         if (ccr->cc_request_type == dictionary::Dcc::CcRequestType::kInitial) {
             const auto ref = charging_data_store_.create(ccr->supi);
             session_to_ref[ccr->session_id] = ref;
+            // ADR-0447: registers this session against THIS connection's own PeerConnection, so a
+            // later send_reauth_request(ccr->session_id) can find the right live socket.
+            {
+                std::lock_guard<std::mutex> lock(sessions_mutex_);
+                session_to_connection_[ccr->session_id] = peer_connection;
+            }
+            my_session_ids.push_back(ccr->session_id);
             if (ccr_initial_counter_ != nullptr) {
                 ccr_initial_counter_->Add(1);
             }
@@ -1390,6 +1581,13 @@ void DiameterServer::handle_connection(boost::asio::ip::tcp::socket socket) {
                 std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             cdr_writer_.write(cdr);
             session_to_ref.erase(it);
+            // ADR-0447: a terminated session can no longer be the target of a real RAR -- erased
+            // proactively here rather than left for connection teardown, since the connection
+            // itself may stay open for other sessions multiplexed on it.
+            {
+                std::lock_guard<std::mutex> lock(sessions_mutex_);
+                session_to_connection_.erase(ccr->session_id);
+            }
             if (ccr_termination_counter_ != nullptr) {
                 ccr_termination_counter_->Add(1);
             }

@@ -1043,6 +1043,50 @@ int main() {
             return sbi_core::http2::Response::json(201, out.dump());
         });
 
+    // ADR-0448 (increment 2 of ADR-0445/0446, continued): a manual trigger for the real RAR/RAA
+    // mechanism diameter_server.hpp's own header documents as callable "from ANY thread -- the
+    // eventual reconciliation sweep, a manual trigger, a test". No reconciliation sweep exists yet
+    // (ADR-0447 scoped detection-only, staleness threshold still open) and no other internal caller
+    // exists either, so without this endpoint send_reauth_request() would be dead code with no way
+    // to exercise it outside a unit test that constructs DiameterServer directly -- a heavier,
+    // untried pattern in this codebase (every existing Diameter-touching test drives the real
+    // binary over the wire as a fake peer, never links DiameterServer into the test process
+    // itself).
+    //
+    // NOT a real Nchf operation: TS 32.291 has no reauthorization-trigger operation, and RAR/RAA
+    // themselves are RFC 6733 base-protocol Diameter, not an Nchf HTTP operation at all --
+    // inventing an Nchf path for triggering one would fabricate a 3GPP API on top of fabricating
+    // the operation. Placed under `/chf-admin/v1/...` and check_bearer-gated like the
+    // policy-counter route above, NOT left open like /internal-billing/v1/runs: forcing a live Gy
+    // session's real re-authorization is a disruptive action on a session a real PCEF/SGSN is
+    // actively using, closer in risk to an operator action than to a read/aggregate reporting
+    // trigger.
+    server.add_route(
+        "POST",
+        "/chf-admin/v1/sessions/{SessionId}/reauthorize",
+        [&verifier, &diameter_server](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto& session_id = req.path_params.at("SessionId");
+            const auto result = diameter_server.send_reauth_request(session_id);
+            if (!result.has_value()) {
+                // send_reauth_request deliberately does not distinguish "unknown session", "peer
+                // write failed", and "no RAA within timeout" (diameter_server.hpp's own disclosed
+                // simplification) -- so neither does this response.
+                return sbi_core::http2::problem_response(
+                    504,
+                    "Reauthorization request could not be completed",
+                    "No RAA received for session " + session_id +
+                        " -- the session may be unknown, its peer connection gone, or it did not "
+                        "answer within the timeout");
+            }
+            json out;
+            out["sessionId"] = session_id;
+            out["resultCode"] = *result;
+            return sbi_core::http2::Response::json(200, out.dump());
+        });
+
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/chargingdata",

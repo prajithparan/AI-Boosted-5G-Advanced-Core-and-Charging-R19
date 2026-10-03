@@ -24,6 +24,10 @@ constexpr std::uint32_t kSessionTermination = 275; // dict_base_proto.c:2993 (RF
                                                    // -- TS 29.219 Sy's own Final Spending Limit
                                                    // Report Request/Response, real command reuse)
 constexpr std::uint32_t kSpendingLimit = 8388635;  // TS 29.219 §5.6.1/5.6.2 (real Sy SLR/SLA)
+// ADR-0447 (increment 2 of ADR-0445/0446): dict_base_proto.c:2875/2933, RFC 6733 §8.3 RAR/RAA --
+// same literal 258 as Avp::kAuthApplicationId below, a different namespace, real, not a typo (same
+// disclosed pattern as kHostIpAddress's own collision with kCapabilitiesExchange above).
+constexpr std::uint32_t kReAuth = 258;
 } // namespace Command
 
 // Base protocol AVP codes -- dict_base_proto.c. All base AVPs carry AVP_FLAG_VENDOR |
@@ -56,7 +60,15 @@ constexpr std::uint32_t kAccountingRecordNumber = 485;      // dict_base_proto.c
 constexpr std::uint32_t kTerminationCause = 295;            // dict_base_proto.c:2010 (Enumerated)
 constexpr std::uint32_t kExperimentalResult = 297;          // dict_base_proto.c:1640 (Grouped)
 constexpr std::uint32_t kExperimentalResultCode = 298;      // dict_base_proto.c:1606 (Unsigned32)
+// ADR-0447: dict_base_proto.c:1877, RFC 6733 §8.17. Mandatory in a real RAR (Command::kReAuth).
+constexpr std::uint32_t kReAuthRequestType = 285;
 } // namespace Avp
+
+// Re-Auth-Request-Type real enumerated values -- dict_base_proto.c:1871-1872, RFC 6733 §8.17.
+namespace ReAuthRequestType {
+constexpr std::int32_t kAuthorizeOnly = 0;
+constexpr std::int32_t kAuthorizeAuthenticate = 1;
+} // namespace ReAuthRequestType
 
 // Termination-Cause real enumerated values -- dict_base_proto.c:1998-2006. Only DIAMETER_LOGOUT is
 // consumed (TS 29.219's own Table 4.5.3.1/1: "It shall be set to DIAMETER_LOGOUT" for Sy's Final

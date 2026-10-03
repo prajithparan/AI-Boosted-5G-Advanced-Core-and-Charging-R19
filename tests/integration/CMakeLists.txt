@@ -111,6 +111,7 @@ add_executable(integration_tests
     test_product_catalog_postgres.cpp
     test_subscriber_management_postgres.cpp
     test_roaming_interconnect_postgres.cpp
+    test_chf_diameter_rar.cpp
 )
 # ngap_core/ngap_generated (ADR-0260): test_smf_n2sminfo_dispatch.cpp builds REAL PER-encoded
 # NGAP transfers to drive SMF's N2SmInfoType branches. Asserting on bytes SMF returns is not

@@ -7,8 +7,12 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -100,6 +104,53 @@ public:
 
     DiameterServer(const DiameterServer&) = delete;
     DiameterServer& operator=(const DiameterServer&) = delete;
+
+    // ADR-0447 (increment 2 of ADR-0445/0446): sends a real RAR (RFC 6733 §8.3.1) for an active Gy
+    // session and blocks (bounded by `timeout`) for the matching RAA, returning its real
+    // Result-Code. std::nullopt means "could not get an answer" -- the session_id is unknown (no
+    // live connection currently holds it; already disconnected, or never existed), the write
+    // itself failed (peer gone), or no RAA arrived within `timeout` -- three real, valid "can't
+    // reach this peer" outcomes this function does not try to distinguish further, rather than
+    // inventing a code for a distinction the base protocol doesn't make either.
+    //
+    // Real, disclosed simplification: only ONE RAR may be outstanding per CONNECTION (not per
+    // session) at a time -- a second call targeting a different session multiplexed on the same
+    // connection while one is already in flight waits behind it rather than being independently
+    // correlated. Real Diameter deployments support concurrent in-flight requests per connection;
+    // this project's first RAR implementation does not yet need that generality, and building the
+    // full per-request correlation table it would take is deferred, not silently assumed away.
+    std::optional<std::int32_t>
+    send_reauth_request(const std::string& session_id,
+                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+
+private:
+    // ADR-0447: one per live connection that has learned at least one Gy session, so
+    // send_reauth_request (called from ANY thread -- the eventual reconciliation sweep, a manual
+    // trigger, a test) can locate the right socket and inject a real RAR onto it without racing
+    // handle_connection's own CCA/ACA/STA writes on that same socket (two threads writing one TCP
+    // socket concurrently can interleave bytes -- POSIX does not guarantee write() atomicity across
+    // arbitrary sizes). `write_mutex` is held only for the duration of an actual write (by either
+    // side); `result_mutex`/`result_cv` are separate so send_reauth_request's wait for the RAA does
+    // not block handle_connection's own unrelated response writes for the whole RAR round trip.
+    struct PeerConnection {
+        boost::asio::ip::tcp::socket* socket = nullptr;
+        std::string destination_host;  // the peer's own real Origin-Host, learned at CER
+        std::string destination_realm; // the peer's own real Origin-Realm, learned at CER
+        std::mutex write_mutex;
+        std::mutex result_mutex;
+        std::condition_variable result_cv;
+        std::optional<std::int32_t> pending_raa_result;
+    };
+    std::mutex sessions_mutex_;
+    std::unordered_map<std::string, std::shared_ptr<PeerConnection>> session_to_connection_;
+    // RFC 6733 §3: Hop-by-Hop/End-to-End Identifiers are "set by the originator of a Diameter
+    // request" -- every OTHER message CHF builds is an Answer echoing a request's own identifiers;
+    // RAR is CHF's first outgoing Diameter REQUEST, so it is the first time CHF must generate its
+    // own. A monotonic counter seeded from real wall-clock time at construction is a disclosed,
+    // lab-adequate simplification of RFC 6733's own fuller "guaranteed unique at start-up" scheme
+    // (which recommends a wider construction combining boot time with a counter) -- adequate for
+    // this project's own single-process-per-instance deployment, not claimed to be the full scheme.
+    std::atomic<std::uint32_t> next_request_id_;
 
 private:
     // P15 (ADR-0285): a TPS ceiling for the Diameter front door, mirroring the SBI one
