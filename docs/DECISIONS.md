@@ -33196,3 +33196,55 @@ a couple of retries along the way, not a code regression; one retry caught the e
 "terminate called... bind: Address already in use" / "failed to obtain an NRF-issued token"
 signature already diagnosed and disclosed in ADR-0449, confirming it as the same known environmental
 cause rather than a new one.
+
+## ADR-0451: Valkey Cluster cutover for UDSF (deploy/docker/docker-compose.yml only)
+
+ADR-0445's debt list named two things about the 6-node Valkey Cluster `docker-compose.yml` already
+built under ADR-0443: AOF disabled, and no NF actually pointed at it. Re-reading ADR-0443's own
+comments in that file first (not assumed from memory) showed the real reason: UDSF's own store code
+(`RedisRouter`, built on `sw::redis::RedisCluster`, which handles MOVED/ASK redirects) was already
+converted and cluster-ready -- ADR-0443 simply never flipped UDSF's own compose entry over, using a
+standalone harness for its own proof instead. This closes that specific, narrow gap -- not a
+platform-wide migration. Every other NF (AMF, AUSF, CHF, ADRF, NWDAF, DCCF, LI-MDF, MFAF) keeps
+using the single-node `valkey` service unchanged, because their store code talks to Valkey through
+plain `sw::redis::Redis`, which has no redirect handling -- pointing that at one cluster node would
+silently serve only ~1/N of keys. Converting any of those is separate, future, per-NF work.
+
+**Changes, `deploy/docker/docker-compose.yml` only, no application code touched:**
+- The 6 cluster nodes' shared command now uses `--appendonly yes` (was `no`) -- ADR-0445's "AOF
+  disabled" debt item, closed. UDSF's data (PCF/SMF session context, exposure subscriptions) is real
+  operational state a restart must not silently lose; RDB snapshotting alone loses everything since
+  the last snapshot on a crash, AOF does not.
+- UDSF's own service entry: `UDSF_REDIS_URL` changed from `tcp://valkey:6379` to
+  `tcp://valkey-cluster-1:6379`, and a new `UDSF_REDIS_MODE: cluster` env var added (the exact env
+  var `nfs/udsf/src/main.cpp` already reads -- `redis_mode`/`UDSF_REDIS_MODE` -- confirmed by
+  reading the source, not guessed; `config/udsf.json`'s own default stays `"single"` so every
+  existing UDSF integration test that relies on that default config is untouched by this change).
+- `depends_on` changed from `valkey: condition: service_healthy` to
+  `valkey-cluster-init: condition: service_completed_successfully` -- a cluster node reporting
+  healthy only means that one process is up, not that the cluster has been FORMED (slots assigned
+  across all 6 nodes); starting UDSF before `--cluster create` finishes would have every real key
+  operation fail with `CLUSTERDOWN`.
+
+**Verified: cluster formation is real, not assumed.** Brought the 6-node cluster up and ran the
+existing `valkey-cluster-init` one-shot job (`docker compose up -d valkey-cluster-1..6
+valkey-cluster-init`). Its own log is the evidence, not a guess: `[OK] All nodes agree about slots
+configuration.` / `[OK] All 16384 slots covered.`, with the real topology printed -- 3 masters each
+holding a distinct slot range (`0-5460`, `5461-10922`, `10923-16383`) and 3 replicas, one per master.
+This is the real, structural proof the cutover's target is sound.
+
+**Not yet verified, disclosed plainly rather than assumed to work: the live UDSF functional
+check.** The intended next step -- bring up `pki-init`/`nrf`/`udsf` against this real cluster, PUT a
+real record through UDSF's own `Nudsf_DataRepository` API, and GET it back to prove a write/read
+round-trip actually lands in the cluster -- was attempted twice and blocked both times by severe,
+unrelated resource contention on this shared machine: a GitHub Actions self-hosted runner running
+its own heavy sanitizer/build cycles pushed load average into the 30-55 range and available memory
+below 1GB for roughly two hours straight (swap climbed from ~11GB to ~25GB over that window). The
+first attempt was stopped manually when memory hit critical; the second was stopped automatically by
+the harness's own memory-pressure safety reaper. Neither stoppage found or suggested any problem
+with this change itself -- both were the host, not the code, under distress. Rather than keep
+burning session time waiting indefinitely on contention outside this project's control, the
+structurally-verified config change is being committed now, with this functional check left
+explicitly open rather than silently claimed. **Do this before relying on this cutover in anything
+beyond a lab/demo context:** bring the stack up when the machine is quiet and confirm the real
+write/read round-trip, then update this entry with the result.

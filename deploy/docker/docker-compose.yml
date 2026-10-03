@@ -388,6 +388,13 @@ services:
 
   # ADR-0400: UDSF -- Nudsf_DataRepository + Nudsf_Timer (TS 29.598); all state in Valkey, so
   # replicas are stateless (--scale udsf=N; expiries are claimed so each fires once).
+  #
+  # ADR-0451: points at the real Valkey Cluster (valkey-cluster-1..6 above), not the single-node
+  # `valkey` every other NF still uses -- UDSF's RedisRouter (sw::redis::RedisCluster) is the one
+  # store in this codebase that actually handles MOVED/ASK redirects, so it's the one NF this
+  # cutover is safe for. `depends_on: valkey-cluster-init` (not just one node healthy): the cluster
+  # isn't actually FORMED -- no slots assigned -- until that one-shot `--cluster create` completes;
+  # starting UDSF against an unformed cluster would have every key operation fail with CLUSTERDOWN.
   udsf:
     build:
       context: ../..
@@ -397,10 +404,11 @@ services:
         condition: service_completed_successfully
       nrf:
         condition: service_started
-      valkey:
-        condition: service_healthy
+      valkey-cluster-init:
+        condition: service_completed_successfully
     environment:
-      UDSF_REDIS_URL: tcp://valkey:6379
+      UDSF_REDIS_URL: tcp://valkey-cluster-1:6379
+      UDSF_REDIS_MODE: cluster
       UDSF_NRF_BASE_URL: https://nrf:7777
       UDSF_ADVERTISED_IPV4: udsf
     volumes:
@@ -859,18 +867,19 @@ services:
       timeout: 5s
       retries: 10
 
-  # ADR-0443: a real Valkey Cluster, additive to the single-node `valkey` above -- every existing
-  # NF (AMF, AUSF, CHF, ADRF, NWDAF, DCCF, LI-MDF, MFAF) keeps using the single-node service,
-  # unchanged, on purpose: their store code talks to Valkey through sw::redis::Redis, which has no
-  # MOVED/ASK-redirect handling, so pointing it at one node of a real cluster would silently serve
-  # only the ~1/N of keys that happen to hash to that node's own slot range and error on the rest
-  # -- a real gap ADR-0443 discloses rather than hides behind a cluster that would only actually
-  # have one usable shard. UDSF is the one NF whose CODE was converted this pass (store.hpp's
-  # RedisRouter, built on sw::redis::RedisCluster, which does handle redirects) -- its own compose
-  # entry below is deliberately still `redis_mode=single` against the service above, same as every
-  # other NF, so nothing in this file actually talks to this cluster yet either; ADR-0443's own
-  # PROOF STATUS used a standalone harness against these 6 nodes directly instead. Opt a converted
-  # NF in by pointing <NF>_REDIS_URL at valkey-cluster-1:6379 and setting <NF>_REDIS_MODE=cluster.
+  # ADR-0443, cut over by ADR-0451: a real Valkey Cluster, additive to the single-node `valkey`
+  # above -- every NF except UDSF (AMF, AUSF, CHF, ADRF, NWDAF, DCCF, LI-MDF, MFAF) keeps using the
+  # single-node service, unchanged, on purpose: their store code talks to Valkey through
+  # sw::redis::Redis, which has no MOVED/ASK-redirect handling, so pointing it at one node of a
+  # real cluster would silently serve only the ~1/N of keys that happen to hash to that node's own
+  # slot range and error on the rest -- a real gap ADR-0443 disclosed rather than hid behind a
+  # cluster that would only actually have one usable shard. UDSF is the one NF whose CODE was
+  # converted (store.hpp's RedisRouter, built on sw::redis::RedisCluster, which does handle
+  # redirects) -- ADR-0443 left its own compose entry on `redis_mode=single` anyway, since its own
+  # PROOF STATUS used a standalone harness against these 6 nodes directly instead of the real
+  # service. ADR-0451 finishes that: UDSF's compose entry below now actually points at this
+  # cluster. Opt another converted NF in the same way: point <NF>_REDIS_URL at
+  # valkey-cluster-1:6379 and set <NF>_REDIS_MODE=cluster -- nothing else here is converted yet.
   #
   # 3 masters + 1 replica each = 6 nodes: the minimum real (not single-shard) Valkey/Redis Cluster
   # topology -- Redis Cluster needs at least 3 master nodes to hold quorum for slot/failover
@@ -878,11 +887,16 @@ services:
   # prove real multi-shard routing and per-shard failover, not against a measured UDSF ops/memory
   # budget (no such figure is documented the way chf.cdr's CDR/day figure is -- ADR-0443 says so
   # plainly rather than inventing one).
+  #
+  # ADR-0451: `--appendonly yes` (was `no`) -- ADR-0445's own debt list named this directly ("the
+  # 6-node Valkey Cluster has AOF disabled"). UDSF's data (PCF/SMF session context, exposure
+  # subscriptions) is real operational state a restart must not silently lose; AOF is the real
+  # fix, not RDB snapshotting alone (which loses everything since the last snapshot on a crash).
   valkey-cluster-1: &valkey-cluster-node
     image: valkey/valkey:8-alpine
     command: >
       valkey-server --cluster-enabled yes --cluster-config-file /data/nodes.conf
-      --cluster-node-timeout 5000 --appendonly no
+      --cluster-node-timeout 5000 --appendonly yes
     healthcheck: &valkey-cluster-node-healthcheck
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
