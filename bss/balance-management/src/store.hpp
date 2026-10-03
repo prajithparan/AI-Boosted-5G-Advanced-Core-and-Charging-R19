@@ -101,6 +101,10 @@ public:
             std::optional<std::string> charging_data_ref = std::nullopt);
     std::optional<bss_sid::ReserveBalance> get_reserve(const std::string& id);
 
+    // ADR-0450: real observability for ADR-0449's pool hardening.
+    std::size_t pool_in_use() const { return pool_.in_use(); }
+    std::uint64_t pool_exhaustion_count() const { return pool_.exhaustion_count(); }
+
 private:
     std::string resource_base_url_;
     nf_config::PgPool pool_;

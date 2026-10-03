@@ -74,6 +74,11 @@ public:
 
     bool is_connected() const { return pool_ != nullptr; }
 
+    // ADR-0450: real observability for ADR-0449's pool hardening (generation/exhaustion were
+    // previously unobservable from any NF).
+    std::size_t pool_in_use() const { return pool_ ? pool_->in_use() : 0; }
+    std::uint64_t pool_exhaustion_count() const { return pool_ ? pool_->exhaustion_count() : 0; }
+
 private:
     std::unique_ptr<nf_config::PgPool> pool_;
 };

@@ -134,6 +134,31 @@ int main() {
         "balance_management_reserve_rejected_total",
         "Total ReserveBalance creates rejected for insufficient balance");
 
+    // ADR-0450: real observability for ADR-0449's PgPool hardening.
+    auto db_pool_in_use_gauge = meter->CreateInt64ObservableGauge(
+        "balance_management_db_pool_in_use", "Connections currently leased from the DB pool");
+    db_pool_in_use_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* s = static_cast<balance_management::BalanceStore*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(s->pool_in_use()));
+            }
+        },
+        &store);
+    auto db_pool_exhaustion_gauge = meter->CreateInt64ObservableGauge(
+        "balance_management_db_pool_exhaustion_total",
+        "Total times the DB pool had no connection free within its timeout");
+    db_pool_exhaustion_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* s = static_cast<balance_management::BalanceStore*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(s->pool_exhaustion_count()));
+            }
+        },
+        &store);
+
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
 

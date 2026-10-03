@@ -707,6 +707,32 @@ int main() {
         },
         &catalog_snapshot);
 
+    // ADR-0450: real observability for ADR-0449's PgPool hardening -- generation/age had gauges
+    // already; exhaustion/in-use never did, anywhere, before this.
+    auto rating_db_pool_in_use_gauge = meter->CreateInt64ObservableGauge(
+        "chf_rating_db_pool_in_use", "Connections currently leased from the rating-decision pool");
+    rating_db_pool_in_use_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* store = static_cast<chf::RatingDecisionStore*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(store->pool_in_use()));
+            }
+        },
+        &rating_decision_store);
+    auto rating_db_pool_exhaustion_gauge = meter->CreateInt64ObservableGauge(
+        "chf_rating_db_pool_exhaustion_total",
+        "Total times the rating-decision pool had no connection free within its timeout");
+    rating_db_pool_exhaustion_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* store = static_cast<chf::RatingDecisionStore*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(store->pool_exhaustion_count()));
+            }
+        },
+        &rating_decision_store);
+
     auto create_counter = meter->CreateUInt64Counter("chf_charging_data_create_total",
                                                      "Total Nchf_ConvergedCharging_Create calls");
     // P12 (ADR-0282): a business-level alarm signal, not an operational one -- each increment is a

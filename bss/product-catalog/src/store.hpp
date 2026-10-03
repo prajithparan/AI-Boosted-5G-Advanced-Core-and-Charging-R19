@@ -60,6 +60,10 @@ public:
     std::vector<bss_sid::ProductOffering> list();
     bool remove(const std::string& id);
 
+    // ADR-0450: real observability for ADR-0449's pool hardening.
+    std::size_t pool_in_use() const { return pool_.in_use(); }
+    std::uint64_t pool_exhaustion_count() const { return pool_.exhaustion_count(); }
+
 private:
     std::string resource_url_;
     nf_config::PgPool pool_;
@@ -75,6 +79,10 @@ public:
     std::optional<bss_sid::ProductOfferingPrice> get(const std::string& id);
     std::vector<bss_sid::ProductOfferingPrice> list();
     bool remove(const std::string& id);
+
+    // ADR-0450: real observability for ADR-0449's pool hardening.
+    std::size_t pool_in_use() const { return pool_.in_use(); }
+    std::uint64_t pool_exhaustion_count() const { return pool_.exhaustion_count(); }
 
 private:
     std::string resource_url_;
@@ -95,6 +103,10 @@ public:
     std::optional<bss_sid::ProductSpecification> get(const std::string& id);
     std::vector<bss_sid::ProductSpecification> list();
     bool remove(const std::string& id);
+
+    // ADR-0450: real observability for ADR-0449's pool hardening.
+    std::size_t pool_in_use() const { return pool_.in_use(); }
+    std::uint64_t pool_exhaustion_count() const { return pool_.exhaustion_count(); }
 
 private:
     std::string resource_url_;

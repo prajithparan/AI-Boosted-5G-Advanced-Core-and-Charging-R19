@@ -14,15 +14,14 @@
 //
 // Fail-fast (architecture rule): both DB pools connect at construction or the process exits.
 
-#include "udr_adapter.hpp"
-
-#include <nf_config/pg_pool.hpp>
-
 #include <nlohmann/json.hpp>
 
 #include <memory>
+#include <nf_config/pg_pool.hpp>
 #include <optional>
 #include <string>
+
+#include "udr_adapter.hpp"
 
 namespace provisioning {
 
@@ -57,14 +56,27 @@ public:
     // Order + its provisioning tasks (status), for GET.
     std::optional<nlohmann::json> get_order(const std::string& order_id);
 
+    // ADR-0450: real observability for ADR-0449's pool hardening, one pair per pool.
+    std::size_t orch_pool_in_use() const { return orch_ ? orch_->in_use() : 0; }
+    std::uint64_t orch_pool_exhaustion_count() const {
+        return orch_ ? orch_->exhaustion_count() : 0;
+    }
+    std::size_t charging_pool_in_use() const { return charging_ ? charging_->in_use() : 0; }
+    std::uint64_t charging_pool_exhaustion_count() const {
+        return charging_ ? charging_->exhaustion_count() : 0;
+    }
+
 private:
     std::unique_ptr<nf_config::PgPool> orch_;     // orchestration DB
     std::unique_ptr<nf_config::PgPool> charging_; // charging DB (SID entities)
     UdrAdapter& udr_;
 
-    void provision_bss(const nlohmann::json& request, const ProvisionResult& r, const std::string& k);
+    void
+    provision_bss(const nlohmann::json& request, const ProvisionResult& r, const std::string& k);
     // Records a task outcome; attempts is incremented on every run.
-    void record_task(const std::string& task_id, bool ok, const nlohmann::json& response,
+    void record_task(const std::string& task_id,
+                     bool ok,
+                     const nlohmann::json& response,
                      const std::string& error);
 };
 

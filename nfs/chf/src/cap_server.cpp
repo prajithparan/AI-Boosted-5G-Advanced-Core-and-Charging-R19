@@ -193,7 +193,25 @@ void CapServer::accept_loop() {
     while (!stop_) {
         try {
             auto conn = listener_.accept();
-            std::thread(&CapServer::handle_connection, this, std::move(conn)).detach();
+            // ADR-0450: this try/catch only ever guarded accept() itself (SCTP's own throwing
+            // API, unlike Boost.Asio TCP's error_code style) -- handle_connection runs on its own
+            // detached thread below, outside this try entirely, so it had no exception boundary of
+            // its own. Wrapped the same way as DiameterServer::accept_loop: one uncaught exception
+            // from real protocol logic used to call std::terminate() and kill the whole CHF
+            // process over one connection. Wrapping at the spawn site (not inside handle_connection
+            // itself) still lets stack unwinding run every local RAII destructor before this catch.
+            std::thread([this, conn = std::move(conn)]() mutable {
+                try {
+                    handle_connection(std::move(conn));
+                } catch (const std::exception& e) {
+                    spdlog::error("chf: CAP connection handler threw unexpectedly -- closing "
+                                  "this connection only, not the whole process: {}",
+                                  e.what());
+                } catch (...) {
+                    spdlog::error("chf: CAP connection handler threw a non-std::exception -- "
+                                  "closing this connection only, not the whole process");
+                }
+            }).detach();
         } catch (const std::exception& e) {
             if (!stop_) {
                 spdlog::warn("chf: CAP accept() failed: {}", e.what());

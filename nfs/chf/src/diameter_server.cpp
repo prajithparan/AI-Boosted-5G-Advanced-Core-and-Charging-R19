@@ -847,7 +847,27 @@ void DiameterServer::accept_loop() {
             }
             continue;
         }
-        std::thread(&DiameterServer::handle_connection, this, std::move(socket)).detach();
+        // ADR-0450: handle_connection runs ~775 lines of real protocol logic (charging_engine,
+        // rating_decision_store, HTTP clients to product-catalog/balance-management) on its own
+        // detached thread, with no exception boundary of its own -- an uncaught exception from
+        // ANY of that previously called std::terminate() and killed the whole CHF process over one
+        // malformed/unlucky message on one connection, not just that connection. Wrapped here
+        // (where the thread is spawned) rather than inside handle_connection itself: C++ stack
+        // unwinding still runs every local RAII destructor along the way (session_cleanup_guard's
+        // session_to_connection_ erase, the socket's own close) before this catch is reached, so
+        // nothing is skipped by catching one frame up.
+        std::thread([this, socket = std::move(socket)]() mutable {
+            try {
+                handle_connection(std::move(socket));
+            } catch (const std::exception& e) {
+                spdlog::error("chf: Diameter connection handler threw unexpectedly -- closing "
+                              "this connection only, not the whole process: {}",
+                              e.what());
+            } catch (...) {
+                spdlog::error("chf: Diameter connection handler threw a non-std::exception -- "
+                              "closing this connection only, not the whole process");
+            }
+        }).detach();
     }
 }
 

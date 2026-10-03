@@ -148,6 +148,45 @@ int main() {
     auto spec_create_counter = meter->CreateUInt64Counter(
         "product_catalog_specification_create_total", "Total ProductSpecification creates");
 
+    // ADR-0450: real observability for ADR-0449's PgPool hardening. Three stores, three real
+    // PgPool instances (each its own connection set, even though they share one database) --
+    // aggregated into one pair of gauges rather than three, since an operator's real question is
+    // "is this NF's DB pool under pressure," not which of the three internal stores hit it.
+    struct ThreeStores {
+        product_catalog::ProductOfferingStore* offering;
+        product_catalog::ProductOfferingPriceStore* price;
+        product_catalog::ProductSpecificationStore* spec;
+    };
+    ThreeStores three_stores{&offering_store, &price_store, &spec_store};
+    auto db_pool_in_use_gauge = meter->CreateInt64ObservableGauge(
+        "product_catalog_db_pool_in_use",
+        "Connections currently leased, summed across all three product-catalog pools");
+    db_pool_in_use_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* s = static_cast<ThreeStores*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(
+                    s->offering->pool_in_use() + s->price->pool_in_use() + s->spec->pool_in_use()));
+            }
+        },
+        &three_stores);
+    auto db_pool_exhaustion_gauge = meter->CreateInt64ObservableGauge(
+        "product_catalog_db_pool_exhaustion_total",
+        "Total times any of the three product-catalog pools had no connection free within its "
+        "timeout");
+    db_pool_exhaustion_gauge->AddCallback(
+        [](opentelemetry::metrics::ObserverResult observer_result, void* state) {
+            auto* s = static_cast<ThreeStores*>(state);
+            if (auto obs = opentelemetry::nostd::get_if<opentelemetry::nostd::shared_ptr<
+                    opentelemetry::metrics::ObserverResultT<std::int64_t>>>(&observer_result)) {
+                (*obs)->Observe(static_cast<std::int64_t>(s->offering->pool_exhaustion_count() +
+                                                          s->price->pool_exhaustion_count() +
+                                                          s->spec->pool_exhaustion_count()));
+            }
+        },
+        &three_stores);
+
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
 
