@@ -56,6 +56,7 @@ endif()
 
 include(CTest)
 
+add_subdirectory(libs/nf-config) # ADR-0449: sbi-core now links nf_config, so it must exist first
 add_subdirectory(libs/sbi-core)
 add_subdirectory(libs/sbi-generated)
 add_subdirectory(libs/aka-crypto)
@@ -72,7 +73,6 @@ add_subdirectory(libs/cap-core)
 add_subdirectory(libs/map-core)
 add_subdirectory(libs/tbcd-core)
 add_subdirectory(libs/tap3-core)
-add_subdirectory(libs/nf-config)
 add_subdirectory(libs/event-bus)
 add_subdirectory(nfs/nrf)
 add_subdirectory(nfs/amf)

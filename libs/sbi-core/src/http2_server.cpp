@@ -3,6 +3,10 @@
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/rate_limit.hpp"
 
+// ADR-0449: PgPool::acquire() now throws nf_config::PoolExhaustedError (a real, recoverable
+// overload condition) instead of blocking forever. sbi-core already depends on nothing from
+// nf-config; nf-config is lower-level (no sbi_core dependency, acyclic) and header-only, so this
+// adds one new, one-directional include, not a cycle.
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/ssl.hpp>
@@ -21,6 +25,8 @@
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
+
+#include "nf_config/pg_pool.hpp"
 
 namespace {
 
@@ -455,9 +461,25 @@ private:
             // datastore client losing its connection mid-request is the realistic case, ADR-0360
             // -- answers a TS 29.500 ProblemDetails 500 for that one request. Before this, the
             // exception escaped io_context::run() and took the whole NF down with it.
+            //
+            // ADR-0449: PoolExhaustedError is caught FIRST, ahead of the generic std::exception
+            // catch below (it derives from std::runtime_error, so order matters) -- a connection
+            // pool being fully checked out is a real, recoverable overload condition a caller
+            // should back off and retry on, not the generic "something is broken" 500 every other
+            // uncaught exception here still answers.
             Response resp;
             try {
                 resp = handler(*req);
+            } catch (const nf_config::PoolExhaustedError& e) {
+                spdlog::warn("sbi-core: handler for {} {} hit an exhausted connection pool: {}",
+                             req->method,
+                             req->path,
+                             e.what());
+                resp.status = 503;
+                resp.headers.emplace("content-type", "application/problem+json");
+                resp.body = R"({"status":503,"title":"Service Unavailable",)"
+                            R"("detail":"connection pool temporarily exhausted, retry shortly",)"
+                            R"("cause":"SYSTEM_FAILURE"})"; // TS 29.500 Table 5.2.7.2-1
             } catch (const std::exception& e) {
                 spdlog::error(
                     "sbi-core: handler for {} {} threw: {}", req->method, req->path, e.what());

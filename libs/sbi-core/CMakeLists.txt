@@ -50,6 +50,7 @@ target_link_libraries(sbi_core PUBLIC
     opentelemetry-cpp::prometheus_exporter
     tl::expected
     jwt-cpp::jwt-cpp
+    nf_config # ADR-0449: PoolExhaustedError, caught in http2_server.cpp's handler boundary
 )
 
 target_compile_features(sbi_core PUBLIC cxx_std_23)
