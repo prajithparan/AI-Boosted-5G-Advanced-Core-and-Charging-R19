@@ -127,6 +127,9 @@
       "type": "integer",
       "x-env-override": "CHF_RATING_DB_POOL_SIZE",
       "x-cpp-type": "int"
+    },
+    "catalog_snapshot_refresh_interval_seconds": {
+      "type": "integer"
     }
   },
   "required": [
@@ -163,6 +166,7 @@
     "redis_pool_size: present in the file but no source line visibly reads it",
     "cdr_event_bus_brokers: present in the file but no source line visibly reads it",
     "cdr_event_bus_topic: present in the file but no source line visibly reads it",
-    "cdr_direct_insert: present in the file but no source line visibly reads it"
+    "cdr_direct_insert: present in the file but no source line visibly reads it",
+    "catalog_snapshot_refresh_interval_seconds: present in the file but no source line visibly reads it"
   ]
 }
