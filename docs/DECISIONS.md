@@ -33233,18 +33233,40 @@ configuration.` / `[OK] All 16384 slots covered.`, with the real topology printe
 holding a distinct slot range (`0-5460`, `5461-10922`, `10923-16383`) and 3 replicas, one per master.
 This is the real, structural proof the cutover's target is sound.
 
-**Not yet verified, disclosed plainly rather than assumed to work: the live UDSF functional
-check.** The intended next step -- bring up `pki-init`/`nrf`/`udsf` against this real cluster, PUT a
-real record through UDSF's own `Nudsf_DataRepository` API, and GET it back to prove a write/read
-round-trip actually lands in the cluster -- was attempted twice and blocked both times by severe,
-unrelated resource contention on this shared machine: a GitHub Actions self-hosted runner running
-its own heavy sanitizer/build cycles pushed load average into the 30-55 range and available memory
-below 1GB for roughly two hours straight (swap climbed from ~11GB to ~25GB over that window). The
-first attempt was stopped manually when memory hit critical; the second was stopped automatically by
-the harness's own memory-pressure safety reaper. Neither stoppage found or suggested any problem
-with this change itself -- both were the host, not the code, under distress. Rather than keep
-burning session time waiting indefinitely on contention outside this project's control, the
-structurally-verified config change is being committed now, with this functional check left
-explicitly open rather than silently claimed. **Do this before relying on this cutover in anything
-beyond a lab/demo context:** bring the stack up when the machine is quiet and confirm the real
-write/read round-trip, then update this entry with the result.
+**Still not verified as of this update, disclosed plainly rather than assumed to work: the live
+UDSF functional check.** The intended next step -- bring up `pki-init`/`nrf`/`udsf` against this
+real cluster, PUT a real record through UDSF's own `Nudsf_DataRepository` API, and GET it back to
+prove a write/read round-trip actually lands in the cluster -- was attempted **six times** across
+this session and failed every time, never once on a code or config problem:
+
+1-2. Blocked by a GitHub Actions self-hosted runner on this shared machine running its own heavy
+   sanitizer/build cycles, pushing load average into the 30-55 range and available memory below 1GB
+   for roughly two hours straight (swap climbed ~11GB to ~25GB). One stopped manually, one by the
+   harness's own memory-pressure reaper.
+3-4. Retried once the runner's load cleared (load dropped to ~1, confirmed via `uptime`). The build
+   itself turned out to be the real cost here, not contention: every Dockerfile in this repo
+   (`nrf.Dockerfile`, `udsf.Dockerfile`, ...) does its own fully independent `vcpkg install` from a
+   single shared `vcpkg.json` manifest -- confirmed by reading `nrf.Dockerfile`'s own comment on
+   this ("vcpkg.json is one shared manifest, `vcpkg install` pulls in every dependency for ANY
+   target's configure step") -- which means building UDSF's image, by itself, still cold-compiles
+   the *entire* dependency set including ONNX Runtime (a large, slow-to-compile ML library that
+   nothing in UDSF actually calls -- it's pulled in only because the manifest is shared, not because
+   UDSF needs it). Doing this for two images (`nrf` + `udsf`) in parallel, twice, both ran out of
+   memory with the build ~90%+ complete each time (vcpkg package 93-100 of 102, mid-ONNX-Runtime).
+5. Tried building only `udsf` (reusing the NF's own existing, already-built `docker-nrf:latest`
+   image rather than rebuilding it) to halve the ONNX Runtime compile load -- this did NOT help,
+   confirming point 3's finding: the shared-manifest cost is per-image, not per-pair-of-images, so
+   `udsf` alone still needs the full cold bootstrap. Killed manually near the same completion point.
+6. Retried once more, deliberately handing control back to the harness's own memory-pressure reaper
+   (rather than a stricter self-imposed threshold) -- killed again by the harness.
+
+**Decision, made with the user directly after the 6th failure: stop retrying for now.** This is a
+genuine shared-machine capacity constraint (a ~15GB-RAM box cold-compiling ONNX Runtime from source,
+competing with whatever else is running on it), not evidence against the change. What *is* real and
+already verified, independent of this blocker: the cluster itself forms correctly (16384/16384 slots
+covered, 3 masters + 3 replicas, `valkey-cluster-init`'s own log), the compose config is syntactically
+valid (`docker compose config` passes), and `nrf` already starts and runs fine from its own existing
+image with no changes needed. **Before relying on this cutover beyond a lab/demo context:** complete
+the live UDSF write/read round-trip -- either on a machine with more headroom, or by pre-warming
+vcpkg's binary cache outside of memory-constrained conditions first -- and record the real result
+here.
