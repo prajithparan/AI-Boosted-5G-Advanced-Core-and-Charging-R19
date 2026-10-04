@@ -26,6 +26,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m venv /opt/codegen-venv && /opt/codegen-venv/bin/pip install jinja2 pyyaml
 ENV PATH="/opt/codegen-venv/bin:${PATH}"
 
+# ADR-0452: Ubuntu 24.04's apt-packaged cmake (3.28.3) has different $<LINK_LIBRARY:...>
+# generator-expression validation than the 4.4.0 this project's host dev environment and
+# .github/workflows/ci.yml already standardize on -- confirmed, by elimination, as the real
+# cause of a real "Impossible to link target 'chf'... ONNX::onnx... WHOLE_ARCHIVE" CMake
+# configure error this version mismatch produced (nfs/chf/CMakeLists.txt and nfs/nwdaf/
+# CMakeLists.txt both use that feature for ONNX::onnx, for a real, documented reason -- a
+# dropped-operator-schema bug, see their own comments -- not something to work around by
+# changing the project's own CMakeLists.txt). Same official Kitware release tarball vcpkg
+# itself already downloads internally when the system cmake doesn't meet ITS OWN minimum
+# (confirmed via a real build log), just installed where the top-level configure's own cmake
+# invocation picks it up too -- PATH-prepended so it takes precedence over apt's /usr/bin/
+# cmake for the rest of this build, without uninstalling the apt package (nothing else here
+# depends on which cmake wins once this is in effect).
+RUN curl -fsSL https://github.com/Kitware/CMake/releases/download/v4.4.0/cmake-4.4.0-linux-x86_64.tar.gz \
+    | tar -xz -C /opt
+ENV PATH="/opt/cmake-4.4.0-linux-x86_64/bin:${PATH}"
+
 RUN git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg \
     && git -C /opt/vcpkg checkout f1d4bbc72f183441403ba5107cb19d75a5abc2a2 \
     && /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics

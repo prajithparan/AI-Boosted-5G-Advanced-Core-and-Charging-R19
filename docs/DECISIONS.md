@@ -33320,19 +33320,77 @@ confirmed by grep before writing the script), dry-run compared against all 28 fi
 then every file individually validated with `docker buildx build --check -f <file> .` -- all 28
 passed clean, no warnings.
 
-**Verification status, stated plainly rather than overclaimed: syntax-validated, not yet
-timing-proven.** The real point of this fix -- the SECOND and later NF image builds on a host being
-dramatically faster once the cache is warm -- requires actually running two builds back to back and
-comparing wall-clock time. Attempted directly: `docker compose build udsf` was started to populate
-the cache for the first time (expected to take as long as before, since the cache starts empty); it
-was ~20+ minutes into compiling ONNX Runtime (the single slowest package in the manifest) when it was
-stopped by Claude Code's own background-process memory-pressure safety reaper (unrelated to this
-change -- the same reaper that intervened during ADR-0451's own verification attempts). Rather than
-keep retrying against the same contention, the user directed committing the syntax-validated,
-logically-sound Dockerfile changes now and measuring the real before/after timing as a follow-up,
-once a build can run to completion. **Not yet done, explicitly open:** run `docker compose build
-udsf` to completion once (populates the cache), then `docker compose build nrf` and compare its
-wall-clock time against a cold baseline -- the shared packages (boost, openssl, curl, protobuf,
-onnxruntime, ...) should restore from `vcpkg-bincache` near-instantly rather than recompiling,
-cutting the second build down to roughly the cost of configuring + compiling that NF's own ~6 non-
-shared files. Record the real measured numbers here when that run happens.
+**Verification, completed, with a real bug found and fixed along the way.**
+
+First attempts to measure the real before/after timing hit two real, unrelated blockers before
+reaching a useful result: (1) `docker compose build udsf` run to populate the cache for the first
+time was killed twice by Claude Code's own background-process memory-pressure reaper while
+compiling ONNX Runtime (the same reaper that intervened during ADR-0451's own verification), and
+(2) once memory pressure cleared and the build was retried a third time, it **failed outright** --
+not from memory, but from a real CMake configure error:
+
+```
+CMake Error at /opt/vcpkg/scripts/buildsystems/vcpkg.cmake:615 (_add_executable):
+  Impossible to link target 'chf' because the link item 'ONNX::onnx',
+  specified without any feature or 'DEFAULT' feature, has already occurred
+  with the feature 'WHOLE_ARCHIVE', which is not allowed.
+```
+(and identically for `nwdaf`). Both targets' `$<LINK_LIBRARY:WHOLE_ARCHIVE,ONNX::onnx>` usage is
+deliberate and documented (`nfs/chf/CMakeLists.txt`/`nfs/nwdaf/CMakeLists.txt`'s own comments, a
+real fix for ONNX Runtime dropping operator schemas otherwise) -- this was a new failure mode, not
+a known issue, and not obviously caused by the caching change itself. Investigated rather than
+assumed:
+
+- Ruled out `-D5GC_BUILD_TESTS=OFF` (every Dockerfile's own flag): reproduced the exact same
+  `cmake -S . -B build` configure, with real `chf`+`nwdaf`+onnx/onnxruntime all genuinely present,
+  directly on the host -- succeeded cleanly.
+- Ruled out the binary-cache restore itself being corrupted: inspected the actual
+  `vcpkg-bincache` BuildKit cache mount contents directly (via a throwaway diagnostic
+  `docker buildx build` mounting the same cache id) -- all 102 expected package archives present,
+  correctly sized (the `onnxruntime` entry alone is a genuine ~556MB, not truncated), zero
+  zero-byte/tiny files. Also reproduced a **genuine fresh restore-from-binary-cache** (not reusing
+  an already-installed dir) on the host into an empty `VCPKG_INSTALLED_DIR` -- also succeeded
+  cleanly.
+- Ruled out the new `ccache` compiler-launcher flags: added the identical
+  `-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache` to the same host
+  reproduction -- still succeeded cleanly.
+- Found the real difference: `cmake --version` inside the actual failing container reported
+  **3.28.3** (Ubuntu 24.04's apt-packaged version). The host dev environment and
+  `.github/workflows/ci.yml` both explicitly use **4.4.0**, installed via
+  `~/.local/build-tools-venv` and required on `PATH` (`ci.yml`'s own "for t in ninja cmake
+  clang-18 ... " PATH-setup step) -- every real build of this project, anywhere, until tonight,
+  has run its top-level configure under 4.4.0, never 3.28.3. CMake's `$<LINK_LIBRARY:FEATURE,...>`
+  generator-expression validation (a relatively young feature, introduced in CMake 3.24) evidently
+  differs enough between these two versions that 3.28.3 raises this conflict and 4.4.0 does not --
+  a real, pre-existing version sensitivity in this exact ONNX-linking pattern that nothing had ever
+  exercised before, because no Docker build had ever gotten far enough with a populated cache to
+  reach a full successful top-level configure before tonight.
+
+**Fix:** all 28 Dockerfiles now install CMake 4.4.0 directly, via the identical official Kitware
+release tarball (`https://github.com/Kitware/CMake/releases/download/v4.4.0/
+cmake-4.4.0-linux-x86_64.tar.gz`) that vcpkg itself already downloads internally whenever the
+system cmake doesn't meet its own minimum (confirmed via the real build log -- vcpkg was about to
+fetch this exact file for its own internal port-build use when the earlier diagnostic was
+cancelled). `PATH`-prepended ahead of apt's `/usr/bin/cmake`; the apt package is left installed,
+untouched, since nothing else depends on which one wins once this is in effect. Applied
+mechanically via a second one-off script, anchored on the `RUN git clone ... vcpkg.git` line
+already confirmed present verbatim in all 28 files; all 28 re-validated with
+`docker buildx build --check` after this change too -- clean.
+
+**Real measured result, both runs on a quiet host (load ~1-2, confirmed via `uptime` beforehand):**
+
+| Build | What it measures | Real wall-clock time | Result |
+|---|---|---|---|
+| `docker compose build udsf` | Cold: cache starts populated from earlier (killed) attempts, but this is the first build to reach a *successful* configure+link under the CMake fix | **31m12s** | `docker-udsf:latest` built clean, 161/161 ninja targets, real `udsf` binary linked |
+| `docker compose build nrf` | Warm: run immediately after, same host, same warm `vcpkg-bincache`/`ccache` mounts | **1m59s** | `docker-nrf:latest` rebuilt (new image hash), real `nrf` binary linked |
+
+**~15.7x faster** for the second NF. The nrf build's own log confirms why: zero `vcpkg/buildtrees`
+compile activity for any package (no onnxruntime/boost/protobuf/... rebuilding), and every
+`[n/153] Building CXX object ...` line in the log is this project's *own* source
+(`libs/sbi-generated`'s generated DTOs) completing in under 2 seconds each, consistent with a
+`ccache` hit layered on top of an already-fully-restored vcpkg install -- both new caching layers
+measurably doing their job, not just syntactically present.
+
+This closes ADR-0452 as fully verified -- the original BuildKit-cache-mount idea, the real
+CMake-version bug it incidentally surfaced and fixed, and the real before/after numbers proving the
+fix delivers what it was meant to.
