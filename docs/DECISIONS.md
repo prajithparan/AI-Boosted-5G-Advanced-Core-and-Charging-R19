@@ -33270,3 +33270,69 @@ image with no changes needed. **Before relying on this cutover beyond a lab/demo
 the live UDSF write/read round-trip -- either on a machine with more headroom, or by pre-warming
 vcpkg's binary cache outside of memory-constrained conditions first -- and record the real result
 here.
+
+## ADR-0452: BuildKit cache mounts for every NF Dockerfile (vcpkg binary cache + ccache)
+
+User-directed, from a direct question asked mid-ADR-0451's repeated failures: "give me recommendation
+to improve CI faster." Investigated the actual CI setup before recommending anything (not generic
+advice) -- most standard levers (ccache, vcpkg binary caching, single-runner-by-design to prevent the
+box's own 15GB from thrashing, auto-cancel of superseded runs) are already real and already
+documented in `.github/workflows/ci.yml`'s own comments (ADR-0363, ADR-0124/0132, ADR-0138). The one
+confirmed, unaddressed gap: **every one of the 28 `deploy/docker/*.Dockerfile` files does a fully
+cold `vcpkg install` with zero caching of any kind**, confirmed by grepping all of them for
+`ccache`/`cache_from`/`--mount=type=cache` and finding none. Since `vcpkg.json` is one shared
+manifest (already disclosed in `nrf.Dockerfile`'s own comment -- "`vcpkg install` pulls in every
+dependency for ANY target's configure step, not just the one being built here"), this meant every
+single NF image build cold-compiled the *entire* 102-package manifest, including ONNX Runtime
+(large, slow, and not even called by most NFs), from scratch, every time -- directly responsible for
+several of ADR-0451's six failed UDSF verification attempts.
+
+**Fix.** Added BuildKit cache mounts to all 28 Dockerfiles (`postgres-chf.Dockerfile` excluded, not
+a C++ NF build): a `# syntax=docker/dockerfile:1` directive (required to unlock the `--mount=`
+extended `RUN` syntax), a new `RUN apt-get install ccache` step, and the existing `RUN cmake -S . -B
+build ...` step rewritten to mount two caches --
+
+```
+RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,sharing=locked \
+    --mount=type=cache,id=ccache,target=/root/.cache/ccache,sharing=locked \
+    VCPKG_BINARY_SOURCES="clear;files,/root/.cache/vcpkg-bincache,readwrite" \
+    CCACHE_DIR=/root/.cache/ccache \
+    cmake -S . -B build -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+    -DCMAKE_BUILD_TYPE=Release -D5GC_BUILD_TESTS=OFF \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    && cmake --build build --target <nf>
+```
+
+Both mounts use a **stable `id=`, identical across all 28 files** -- deliberately not scoped per
+image -- so the FIRST NF image built on a host populates the cache for every other NF's build
+afterward: `vcpkg-bincache` is the same `VCPKG_BINARY_SOURCES` binary-caching mechanism
+`.github/workflows/ci.yml` already uses for its own native (non-Docker) build, just mounted into the
+Docker build via BuildKit instead of GitHub's `actions/cache`; it skips recompiling any package whose
+exact ABI hash was already built by *any* other NF's image build on that host, not just a prior build
+of the same image. `ccache` does the equivalent for this project's own source. `sharing=locked`:
+vcpkg's binary-cache directory is documented as unsafe for concurrent writers, and `docker compose up
+--build` can build several NF images in parallel.
+
+Applied mechanically via a one-off Python script (not 28 manual edits -- the `RUN apt-get install`
+and `RUN cmake` blocks are byte-identical across every file except the final `--target <nf>` name,
+confirmed by grep before writing the script), dry-run compared against all 28 files before applying,
+then every file individually validated with `docker buildx build --check -f <file> .` -- all 28
+passed clean, no warnings.
+
+**Verification status, stated plainly rather than overclaimed: syntax-validated, not yet
+timing-proven.** The real point of this fix -- the SECOND and later NF image builds on a host being
+dramatically faster once the cache is warm -- requires actually running two builds back to back and
+comparing wall-clock time. Attempted directly: `docker compose build udsf` was started to populate
+the cache for the first time (expected to take as long as before, since the cache starts empty); it
+was ~20+ minutes into compiling ONNX Runtime (the single slowest package in the manifest) when it was
+stopped by Claude Code's own background-process memory-pressure safety reaper (unrelated to this
+change -- the same reaper that intervened during ADR-0451's own verification attempts). Rather than
+keep retrying against the same contention, the user directed committing the syntax-validated,
+logically-sound Dockerfile changes now and measuring the real before/after timing as a follow-up,
+once a build can run to completion. **Not yet done, explicitly open:** run `docker compose build
+udsf` to completion once (populates the cache), then `docker compose build nrf` and compare its
+wall-clock time against a cold baseline -- the shared packages (boost, openssl, curl, protobuf,
+onnxruntime, ...) should restore from `vcpkg-bincache` near-instantly rather than recompiling,
+cutting the second build down to roughly the cost of configuring + compiling that NF's own ~6 non-
+shared files. Record the real measured numbers here when that run happens.

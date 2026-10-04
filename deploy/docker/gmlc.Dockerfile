@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for nfs/gmlc. Mirrors deploy/docker/smsf.Dockerfile -- see amf.Dockerfile's
 # header comment for why this image does NOT generate its own lab PKI at start (must share the
 # same root CA as every other NF; see deploy/docker/docker-compose.yml's pki-init service).
@@ -22,9 +23,32 @@ COPY . .
 
 RUN ./scripts/setup-asn1c.sh
 
-RUN cmake -S . -B build -G Ninja \
+# ADR-0452: ccache, installed as its own step rather than folded into the apt-get block
+# above (which has scattered inline comments per-Dockerfile) -- a separate RUN here is the
+# same one line in every one of the 28 Dockerfiles in this directory, safe to apply
+# mechanically without parsing each file's own package list.
+RUN apt-get update && apt-get install -y --no-install-recommends ccache && rm -rf /var/lib/apt/lists/*
+
+# ADR-0452: BuildKit cache mounts, shared across EVERY NF's Dockerfile via the same id=
+# (not scoped per-image) -- real, confirmed problem: vcpkg.json is one shared manifest (see
+# this project's own Dockerfiles' bison/flex comments), so every NF's image build cold-
+# compiled the ENTIRE dependency set including onnxruntime from scratch, with the manifest's
+# shared majority (boost, openssl, curl, protobuf, ...) never reused across the 28 separate
+# Dockerfiles here. vcpkg-bincache holds vcpkg's own binary cache (skips recompiling a
+# package whose exact ABI hash was already built by ANY other NF's image build on this
+# host, same VCPKG_BINARY_SOURCES mechanism .github/workflows/ci.yml already uses for its
+# own native build); ccache holds this project's OWN compiled object files, keyed by content
+# hash, so an unchanged .cpp recompiling for a different NF target still hits cache.
+# sharing=locked: vcpkg's binary-cache directory is documented not safe for concurrent
+# writers, and `docker compose up --build` can build several NF images in parallel.
+RUN --mount=type=cache,id=vcpkg-bincache,target=/root/.cache/vcpkg-bincache,sharing=locked \
+    --mount=type=cache,id=ccache,target=/root/.cache/ccache,sharing=locked \
+    VCPKG_BINARY_SOURCES="clear;files,/root/.cache/vcpkg-bincache,readwrite" \
+    CCACHE_DIR=/root/.cache/ccache \
+    cmake -S . -B build -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release -D5GC_BUILD_TESTS=OFF \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     && cmake --build build --target gmlc
 
 FROM ubuntu:24.04 AS runtime
