@@ -139,14 +139,25 @@ void run_nrf_lifecycle(const std::string& instance_id,
              json::array({json{{"apiVersionInUri", "v1"}, {"apiFullVersion", version}}})},
             {"scheme", "https"},
             {"nfServiceStatus", "REGISTERED"},
-            {"ipEndPoints", json::array({json{{"ipv4Address", advertised_ipv4}, {"port", port}}})},
+            // Same NRF ipv4Address validation as the top-level ipv4Addresses fix just above --
+            // this field is validated identically and also rejects a hostname.
+            {"ipEndPoints", json::array({json{{"ipv4Address", "127.0.0.1"}, {"port", port}}})},
             {"supportedFeatures", features}};
     };
     const json profile{
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({advertised_ipv4})},
+        // ADR-0453: NRF's own NFProfile validation requires a real dotted-quad IPv4 literal for
+        // both this field and nfServices[].ipEndPoints[].ipv4Address below -- advertised_ipv4 is
+        // a Docker Compose service DNS name ("udsf"), not an IP, so NRF rejected every
+        // registration attempt with 400 "ipv4Addresses contains an invalid IPv4 address"
+        // (confirmed by replaying the exact request directly against NRF). Same placeholder
+        // convention every other working NF's own registration code already uses (e.g.
+        // nfs/chf/src/main.cpp). Real SBI-to-SBI connections in this project use config-provided
+        // base URLs (hostnames), not the IP NRF returns in a discovered NFProfile, so this
+        // placeholder does not break discovery/connection logic.
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
         {"heartBeatTimer", heartbeat_seconds},
         {"udsfInfo", info},
         // info.version of each YAML: DataRepository 1.3.0; Timer 1.3.0 (see the YAML files).
