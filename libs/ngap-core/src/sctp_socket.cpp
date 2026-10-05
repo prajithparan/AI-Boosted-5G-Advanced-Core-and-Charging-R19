@@ -123,7 +123,14 @@ std::optional<SctpSocket> SctpSocket::accept_or_timeout() {
         }
         throw_errno("accept() failed");
     }
-    return SctpSocket(client_fd);
+    // ADR-0459: Linux copies SO_RCVTIMEO from the listening socket to the accepted one. The
+    // listener's timeout exists only to poll for shutdown (ADR-0394); inherited, it made every
+    // association's receive() report "closed" after that much idle time, so the AMF dropped any
+    // gNB that was quiet for 500 ms. An accepted association blocks indefinitely, as before
+    // ADR-0394; its own shutdown path is shutdown_now(), not a timeout.
+    SctpSocket accepted(client_fd);
+    accepted.set_receive_timeout(std::chrono::milliseconds(0));
+    return accepted;
 }
 
 void SctpSocket::shutdown_now() {
