@@ -1,0 +1,2 @@
+rss_kb min=59284 mean=66470 max=70704 (n=17 samples)
+cpu_pct_of_one_core min=73.6 mean=76.6 max=81.6

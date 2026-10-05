@@ -1,0 +1,20 @@
+{
+  "target": "POST https://127.0.0.1:7784/nchf-convergedcharging/v3/chargingdata",
+  "load_model": "closed-loop",
+  "concurrency": 8,
+  "measured_seconds": 15.0122,
+  "responses": 7340,
+  "transport_errors": 0,
+  "throughput_rps": 488.936,
+  "latency_us": {
+    "min": 11951,
+    "mean": 16343,
+    "p50": 15978,
+    "p90": 17666,
+    "p95": 18484,
+    "p99": 26064,
+    "p99_9": 39847,
+    "max": 41465
+  },
+  "status_codes": {"201": 7340}
+}

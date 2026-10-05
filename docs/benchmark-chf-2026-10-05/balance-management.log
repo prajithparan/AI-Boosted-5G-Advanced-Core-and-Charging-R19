@@ -1,0 +1,4 @@
+[2026-10-05 10:03:42.648] [balance-management] [info] balance-management: starting (TM Forum TMF654 Prepay Balance Management)
+[2026-10-05 10:03:42.675] [balance-management] [info] balance-management: connected to PostgreSQL
+[2026-10-05 10:03:42.681] [balance-management] [info] balance-management: listening on https://0.0.0.0:7786 (TLS 1.3 + mTLS)
+[2026-10-05 10:03:42.681] [balance-management] [info] balance-management: Prometheus metrics at http://0.0.0.0:9474/metrics

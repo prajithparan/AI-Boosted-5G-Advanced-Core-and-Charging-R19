@@ -1,0 +1,20 @@
+{
+  "target": "POST https://127.0.0.1:7786/tmf-api/prepayBalanceManagement/v4/reserveBalance",
+  "load_model": "closed-loop",
+  "concurrency": 1,
+  "measured_seconds": 15.0004,
+  "responses": 11592,
+  "transport_errors": 0,
+  "throughput_rps": 772.78,
+  "latency_us": {
+    "min": 950,
+    "mean": 1291,
+    "p50": 1253,
+    "p90": 1428,
+    "p95": 1507,
+    "p99": 1751,
+    "p99_9": 7590,
+    "max": 11551
+  },
+  "status_codes": {"201": 11592}
+}

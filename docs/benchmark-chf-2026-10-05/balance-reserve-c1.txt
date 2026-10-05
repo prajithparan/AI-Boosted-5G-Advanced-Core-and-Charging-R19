@@ -1,0 +1,18 @@
+
+=== sbi-loadgen results ===
+target            : POST https://127.0.0.1:7786/tmf-api/prepayBalanceManagement/v4/reserveBalance
+load model        : closed-loop (subject to coordinated omission)
+concurrency       : 1
+measured window   : 15.00 s
+responses         : 11592
+transport errors  : 0
+throughput        : 772.78 req/s
+latency min       : 0.950 ms
+latency mean      : 1.291 ms
+latency p50       : 1.253 ms
+latency p90       : 1.428 ms
+latency p95       : 1.507 ms
+latency p99       : 1.751 ms
+latency p99.9     : 7.590 ms
+latency max       : 11.551 ms
+status codes      : 201=11592

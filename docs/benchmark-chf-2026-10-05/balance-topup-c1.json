@@ -1,0 +1,20 @@
+{
+  "target": "POST https://127.0.0.1:7786/tmf-api/prepayBalanceManagement/v4/topupBalance",
+  "load_model": "closed-loop",
+  "concurrency": 1,
+  "measured_seconds": 15.007,
+  "responses": 11236,
+  "transport_errors": 0,
+  "throughput_rps": 748.715,
+  "latency_us": {
+    "min": 970,
+    "mean": 1333,
+    "p50": 1272,
+    "p90": 1468,
+    "p95": 1604,
+    "p99": 2184,
+    "p99_9": 7890,
+    "max": 15567
+  },
+  "status_codes": {"201": 11236}
+}

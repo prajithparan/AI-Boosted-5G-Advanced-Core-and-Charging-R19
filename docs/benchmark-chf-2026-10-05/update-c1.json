@@ -1,0 +1,20 @@
+{
+  "target": "POST https://127.0.0.1:7784/nchf-convergedcharging/v3/chargingdata/chg-80853/update",
+  "load_model": "closed-loop",
+  "concurrency": 1,
+  "measured_seconds": 15.0011,
+  "responses": 2315,
+  "transport_errors": 0,
+  "throughput_rps": 154.322,
+  "latency_us": {
+    "min": 5437,
+    "mean": 6473,
+    "p50": 6174,
+    "p90": 7139,
+    "p95": 9096,
+    "p99": 10568,
+    "p99_9": 16612,
+    "max": 21840
+  },
+  "status_codes": {"200": 2315}
+}

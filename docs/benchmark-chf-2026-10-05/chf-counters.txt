@@ -1,0 +1,7 @@
+chf_catalog_snapshot_generation{otel_scope_name="chf"} 5
+chf_charging_data_create_total{otel_scope_name="chf"} 22725
+chf_catalog_snapshot_age_seconds{otel_scope_name="chf"} 16.778
+chf_rating_db_pool_in_use{otel_scope_name="chf"} 0
+chf_rating_db_pool_exhaustion_total{otel_scope_name="chf"} 0
+chf_charging_data_update_total{otel_scope_name="chf"} 2596
+chf_rating_grant_total{otel_scope_name="chf"} 25321

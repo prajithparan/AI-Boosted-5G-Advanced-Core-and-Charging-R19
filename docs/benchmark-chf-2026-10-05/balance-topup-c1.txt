@@ -1,0 +1,18 @@
+
+=== sbi-loadgen results ===
+target            : POST https://127.0.0.1:7786/tmf-api/prepayBalanceManagement/v4/topupBalance
+load model        : closed-loop (subject to coordinated omission)
+concurrency       : 1
+measured window   : 15.01 s
+responses         : 11236
+transport errors  : 0
+throughput        : 748.72 req/s
+latency min       : 0.970 ms
+latency mean      : 1.333 ms
+latency p50       : 1.272 ms
+latency p90       : 1.468 ms
+latency p95       : 1.604 ms
+latency p99       : 2.184 ms
+latency p99.9     : 7.890 ms
+latency max       : 15.567 ms
+status codes      : 201=11236

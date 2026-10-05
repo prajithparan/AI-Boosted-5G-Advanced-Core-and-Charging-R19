@@ -1,0 +1,14 @@
+[2026-10-05 10:03:40.647] [nrf] [info] nrf: starting, nfInstanceId=5ba9a927-1d31-4c8e-8a10-000000000001
+[2026-10-05 10:03:40.653] [nrf] [info] nrf: listening on https://0.0.0.0:7777 (TLS 1.3 + mTLS)
+[2026-10-05 10:03:40.653] [nrf] [info] nrf: Prometheus metrics at http://0.0.0.0:9464/metrics
+[2026-10-05 10:03:44.698] [nrf] [info] nrf: registered new NF instance 021b347d-919c-4987-b3dd-2235f8205de9 (type=CHF, status=REGISTERED)
+[2026-10-05 10:03:59.703] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:04:14.704] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:04:29.705] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:04:44.706] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:04:59.711] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:05:14.712] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:05:29.716] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:05:44.717] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:05:59.722] [nrf] [info] nrf: heartbeat/update for 021b347d-919c-4987-b3dd-2235f8205de9
+[2026-10-05 10:06:01.523] [nrf] [info] sbi: signal 15 received -- stopping every io_context, so buffered state is flushed on the way out
