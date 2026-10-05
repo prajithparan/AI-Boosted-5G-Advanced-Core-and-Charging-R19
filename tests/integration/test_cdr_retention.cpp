@@ -13,10 +13,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mysql.h>
 #include <string>
+#include <thread>
 
 #include "cdr.hpp"
 
@@ -114,4 +118,63 @@ TEST(CdrRetention, ArchivesBeforeDeletingAndTheArchiveReallyContainsTheRows) {
 
     std::error_code ec;
     std::filesystem::remove_all(archive_dir, ec);
+}
+
+// ADR-0458: with batching on, the flush interval must bound how long a CDR waits even when NO
+// further CDR arrives. It used to be checked only inside write(), so the tail of a load -- the last
+// partial batch -- sat in memory indefinitely (found as 60 missing rows after a 10,000-session
+// pipeline warm-up, still missing an hour later).
+TEST(CdrBatching, AnIdleWriterStillFlushesWithinTheInterval) {
+    auto options = doris_options_from_env();
+    options.batch_size = 500;
+    options.flush_interval_ms = 300;
+    chf::CdrWriter writer(options);
+    if (!writer.is_connected()) {
+        GTEST_SKIP() << "no Doris reachable -- runs in CI, which has one";
+    }
+
+    const std::string ref =
+        "batch-idle-test-" + std::to_string(::getpid()) + "-" + std::to_string(std::time(nullptr));
+    for (int seq = 1; seq <= 3; ++seq) {
+        chf::CdrRecord record{};
+        record.charging_data_ref = ref;
+        record.invocation_sequence_number = seq;
+        record.invocation_time_stamp = std::time(nullptr);
+        record.service_type = "ConvergedCharging";
+        record.operation = seq == 1 ? "Create" : (seq == 2 ? "Update" : "Release");
+        record.subscriber_identifier = "imsi-999700000000901";
+        record.nf_consumer_node_functionality = "SMF";
+        writer.write(record);
+    }
+
+    // Count through an independent connection: the writer itself is not asked anything, and no
+    // further write() happens -- only the passage of time may flush these three rows.
+    MYSQL* conn = mysql_init(nullptr);
+    ASSERT_NE(conn, nullptr);
+    my_bool off = 0;
+    mysql_options(conn, MYSQL_OPT_SSL_ENFORCE, &off);
+    mysql_options(conn, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &off);
+    ASSERT_NE(mysql_real_connect(conn,
+                                 options.host.c_str(),
+                                 options.user.c_str(),
+                                 options.password.c_str(),
+                                 options.database.c_str(),
+                                 options.port,
+                                 nullptr,
+                                 0),
+              nullptr)
+        << mysql_error(conn);
+    const std::string query = "SELECT COUNT(*) FROM cdr WHERE charging_data_ref = '" + ref + "'";
+    long long rows = 0;
+    for (int attempt = 0; attempt < 30 && rows < 3; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        ASSERT_EQ(mysql_query(conn, query.c_str()), 0) << mysql_error(conn);
+        MYSQL_RES* res = mysql_store_result(conn);
+        ASSERT_NE(res, nullptr);
+        MYSQL_ROW row = mysql_fetch_row(res);
+        rows = row != nullptr && row[0] != nullptr ? std::atoll(row[0]) : 0;
+        mysql_free_result(res);
+    }
+    mysql_close(conn);
+    EXPECT_EQ(rows, 3) << "an idle batched writer never flushed its last partial batch";
 }

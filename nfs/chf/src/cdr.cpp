@@ -128,9 +128,29 @@ CdrWriter::CdrWriter(const DorisOptions& options) {
         return;
     }
     conn_ = handle;
+    if (batch_size_ > 1) {
+        flusher_ = std::thread([this] {
+            std::unique_lock<std::mutex> lock(mutex_);
+            while (!stopping_) {
+                flusher_cv_.wait_for(lock, flush_interval_);
+                if (!stopping_ && !pending_.empty() &&
+                    std::chrono::steady_clock::now() - last_flush_ >= flush_interval_) {
+                    flush_locked();
+                }
+            }
+        });
+    }
 }
 
 CdrWriter::~CdrWriter() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopping_ = true;
+    }
+    flusher_cv_.notify_all();
+    if (flusher_.joinable()) {
+        flusher_.join();
+    }
     // ADR-0355: the bus first -- events_ is reset by the unique_ptr destructor after this body,
     // but flushing explicitly here keeps the shutdown log honest about what was delivered.
     if (events_) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <ctime>
 #include <memory>
@@ -8,6 +9,7 @@
 #include <mysql.h>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Private to nfs/chf -- not shared with any other NF, per CLAUDE.md's "no NF includes another
@@ -202,6 +204,13 @@ private:
     std::chrono::milliseconds flush_interval_{1000};
     std::vector<std::string> pending_;
     std::chrono::steady_clock::time_point last_flush_ = std::chrono::steady_clock::now();
+
+    // ADR-0458: the flush interval must hold with NO traffic too. write() only checks it when the
+    // next CDR arrives, so on an idle CHF the last partial batch used to sit here indefinitely --
+    // billing records lost on a kill. This thread (batching only) flushes an overdue batch.
+    std::condition_variable flusher_cv_;
+    bool stopping_ = false;
+    std::thread flusher_;
 
     // Caller must hold mutex_. Split out because write(), flush() and the destructor all need it
     // and only one of them may take the lock.
