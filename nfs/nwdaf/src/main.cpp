@@ -86,10 +86,12 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <netdb.h>
 #include <optional>
 #include <string>
 #include <thread>
@@ -536,10 +538,35 @@ compute(const std::string& event_id,
     return std::nullopt; // an analytic this NWDAF does not compute
 }
 
+// Real-IP fix (follow-up to ADR-0453): NRF's NFProfile validation rejects a hostname in
+// ipv4Addresses/ipEndPoints[].ipv4Address, but this NF's own advertised_ipv4 config value IS a
+// Docker Compose hostname (e.g. "nwdaf") -- a real peer (the MTLF, mtlf.cpp:721-724) resolves a
+// discovered AnLF's nnwdaf-mlmodelmonitor endpoint FROM this exact field, so a hardcoded
+// "127.0.0.1" placeholder would silently break that cross-container discovery whenever AnLF and
+// MTLF run as separate instances. Resolved to the real routable IPv4 address once at startup
+// instead -- satisfies NRF's validation and keeps the field genuinely dereferenceable.
+std::string resolve_ipv4_literal(const std::string& host) {
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || res == nullptr) {
+        nf_config::fatal("nwdaf: could not resolve advertised_ipv4 '" + host +
+                         "' to a real IPv4 address");
+    }
+    char buf[INET_ADDRSTRLEN] = {};
+    const auto* addr = reinterpret_cast<const sockaddr_in*>(res->ai_addr);
+    inet_ntop(AF_INET, &addr->sin_addr, buf, sizeof(buf));
+    const std::string resolved(buf);
+    freeaddrinfo(res);
+    return resolved;
+}
+
 // ---- NRF lifecycle (same shape as every other NF, ADR-0006/0019) --------------------------------
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
+                       const std::string& advertised_ipv4,
                        unsigned short port,
                        int heartbeat_seconds,
                        json nwdaf_info,
@@ -561,15 +588,17 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     sbi_core::OAuth2Client oauth(
         http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    const std::string resolved_ipv4 = resolve_ipv4_literal(advertised_ipv4);
     json profile{
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
         // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
-        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
-        // same bug, root-caused live. NRF applies the identical check to ipEndPoints[].ipv4Address
-        // below.
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        // literal here, not a Docker Compose hostname. Resolved from advertised_ipv4 above, not
+        // hardcoded -- the MTLF really dereferences ipEndPoints[].ipv4Address below (ADR-0370,
+        // mtlf.cpp), so this has to stay a genuinely reachable address, unlike NFs nobody
+        // discovers by IP.
+        {"ipv4Addresses", json::array({resolved_ipv4})},
         {"heartBeatTimer", heartbeat_seconds},
         // TS 29.510 NwdafInfo, per role (ADR-0359 #3): the AnLF's eventIds, the MTLF's
         // mlAnalyticsList -- a consumer discovering by analytics or by ML model finds the right
@@ -590,7 +619,7 @@ void run_nrf_lifecycle(const std::string& instance_id,
             {"nfServiceStatus", "REGISTERED"},
             {"ipEndPoints",
              json::array(
-                 {json{{"ipv4Address", "127.0.0.1"}, {"transport", "TCP"}, {"port", port}}})}});
+                 {json{{"ipv4Address", resolved_ipv4}, {"transport", "TCP"}, {"port", port}}})}});
     }
     profile["nfServices"] = services;
     while (true) {
@@ -656,6 +685,8 @@ int main() {
         config, "metrics_bind_address", "NWDAF_METRICS_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "NWDAF_NRF_BASE_URL");
+    const auto advertised_ipv4 =
+        nf_config::require<std::string>(config, "advertised_ipv4", "NWDAF_ADVERTISED_IPV4");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "NWDAF_REDIS_URL");
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "NWDAF_NRF_HEARTBEAT_SECONDS");
@@ -2081,6 +2112,7 @@ int main() {
     std::thread(run_nrf_lifecycle,
                 instance_id,
                 nrf_base,
+                advertised_ipv4,
                 port,
                 heartbeat_seconds,
                 nwdaf_info,
