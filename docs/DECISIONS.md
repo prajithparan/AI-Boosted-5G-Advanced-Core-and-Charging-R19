@@ -33271,6 +33271,84 @@ the live UDSF write/read round-trip -- either on a machine with more headroom, o
 vcpkg's binary cache outside of memory-constrained conditions first -- and record the real result
 here.
 
+**Completed, after ADR-0452's CMake fix made Docker builds reliable.** `docker compose up -d
+--no-deps nrf` then `udsf` (`valkey-cluster-init` correctly refused to re-run against an already-
+clustered set -- real, expected behaviour for a one-shot init container, not a bug -- so started
+the two real NFs directly instead). Both crashed immediately on a real, separate, pre-existing bug
+unrelated to this ADR (`nf_config: could not open config file`) -- see ADR-0453. Once that was
+fixed:
+
+- `udsf`'s own log: `udsf: connected to Valkey Cluster (seed tcp://valkey-cluster-1:6379?
+  pool_size=16)` -- real connection, not the single-node fallback.
+- Real `PUT /nudsf-dr/v1/Realm01/Storage01/records/adr0451-check` (a genuine `multipart/mixed`
+  body matching this project's own `sbi_core::multipart::encode_subtype` wire format, sent over
+  real mTLS using a client cert extracted from the deployment's own `certs_data` volume, not the
+  host's unrelated `certs/` directory) -- **201**, with a real etag.
+- Real `GET` of the same record -- **200**, same etag, same content, byte for byte.
+- Real `DELETE` -- **204**, confirmed gone.
+- Verified at the storage layer directly, not just through the API: `docker exec
+  docker-valkey-cluster-3-1 valkey-cli keys '*'` showed `udsf:{Realm01/Storage01}:rec:
+  adr0451-check` on **both** node 3 (a master) **and** node 4 (its real replica) while the record
+  existed -- proof the write landed in the actual cluster and replicated, not an in-process cache.
+
+ADR-0451 is now fully closed: config change, cluster formation, and the live functional round-trip
+all real and verified. Scope unchanged from the original decision -- UDSF only; every other NF
+still uses the single-node `valkey` service, since their store code isn't cluster-aware.
+
+**Separate, real, honestly-disclosed finding not chased down: NRF registration.** While UDSF was
+up, its own log showed `udsf: NRF registration failed (400), retrying` continuously -- UDSF's
+Nudsf_DataRepository API itself worked regardless (NRF registration is for discoverability by
+other NFs, not a precondition for serving UDSF's own API), so this did not block the functional
+check above, and was not root-caused here. Flagged, not fixed -- a real gap for whoever picks up
+NRF/UDSF registration flow work next.
+
+## ADR-0453: every NF service needs its config file mounted -- found, fixed project-wide, and
+made a standing rule
+
+**Found while finally running ADR-0451's live check.** A fresh `nrf` container, started completely
+independently of anything in this session's own work, crashed immediately:
+```
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  nf_config: could not open config file: /build/config/nrf.json
+```
+`udsf` crashed identically. Checked rather than assumed: **no NF Dockerfile's runtime stage ships
+`config/<nf>.json`**, except `amf`, `li-mdf`, and `oam-gui-bff`, which `COPY` it (a second,
+inconsistent mechanism -- and even those three would go stale on a config edit without an image
+rebuild, unlike every other runtime value in this project, which is designed to be overridable
+without one). No compose service mounted it as a volume either. **This was real latent breakage in
+~25 of 28 NF services' Docker deployment, pre-existing, unrelated to anything built this session --
+only surfaced now because tonight was the first time in a while a genuinely fresh container start
+(not a long-lived one from days ago) was exercised for `nrf`/`udsf` specifically.**
+
+**Fix, applied uniformly to every one of the 28 NF/BSS services in `docker-compose.yml`
+(including the 3 that already `COPY` it -- one mechanism project-wide, nothing instance-specific
+left to remember):**
+```yaml
+volumes:
+  - certs_data:/build/certs
+  - ../../config:/build/config:ro
+```
+A bind mount, not a `COPY`, chosen deliberately: editing `config/<nf>.json` on the host now takes
+effect on the next container restart with no image rebuild, matching how `certs_data` already
+works and how every other runtime value in this project is meant to behave (ADR-0077's own
+no-hardcoded-config rule, applied to the deployment layer this time, not just source code).
+Applied mechanically via a one-off script, anchored on the `certs_data:/build/certs` line already
+confirmed present in all 28 service blocks; `docker compose config --quiet` validated clean
+afterward. Verified for real, not just syntactically: `nrf` and `udsf` both started clean after
+the fix (`nrf: listening on https://0.0.0.0:7777`, `udsf: connected to Valkey Cluster`) -- the
+other 26 were not individually started tonight (out of scope for this session), but share the
+exact same fix for the exact same confirmed root cause.
+
+**Standing rule, user-directed, mandatory, recorded here because this exact class of mistake must
+not recur:** every NF/BSS service added to `docker-compose.yml` from this point forward MUST
+include `- ../../config:/build/config:ro` in its `volumes:` list from the moment it is written --
+not discovered missing later by a crash. This is now part of this project's own Definition of Done
+for a new NF's deployment entry (`docs/DECISIONS.md`'s own Definition-of-Done section, Docker
+Compose entry item), alongside the existing cert-volume and port-mapping requirements. A new NF's
+Dockerfile must NOT rely on `COPY`ing `config/<nf>.json` into the image as a substitute -- the
+bind mount is the one, only, project-wide mechanism, so there is nothing per-NF left to
+remember or get wrong.
+
 ## ADR-0452: BuildKit cache mounts for every NF Dockerfile (vcpkg binary cache + ccache)
 
 User-directed, from a direct question asked mid-ADR-0451's repeated failures: "give me recommendation
