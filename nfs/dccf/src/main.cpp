@@ -265,7 +265,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({advertised_ipv4})},
+        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
+        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
+        // same bug, root-caused live.
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
         {"heartBeatTimer", heartbeat_seconds},
         {"nfServices",
          json::array({service("ndccf-datamanagement"), service("ndccf-contextmanagement")})},

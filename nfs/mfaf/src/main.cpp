@@ -211,7 +211,6 @@ void from_json(const json& j, BusEnvelope& e) {
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4,
                        int heartbeat_seconds) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/mfaf/cert.pem",
@@ -234,7 +233,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({advertised_ipv4})},
+        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
+        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
+        // same bug, root-caused live.
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
         {"heartBeatTimer", heartbeat_seconds},
         {"nfServices",
          json::array(
@@ -742,8 +744,7 @@ int main() {
     });
     sbi_core::on_shutdown_signal([&] { consumer.stop(); });
 
-    std::thread(run_nrf_lifecycle, instance_id, nrf_base, advertised_ipv4, heartbeat_seconds)
-        .detach();
+    std::thread(run_nrf_lifecycle, instance_id, nrf_base, heartbeat_seconds).detach();
     server.start();
     spdlog::info("mfaf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS); inbound at "
                  "{}{}/notifications/{{mfafCorreId}}",

@@ -540,7 +540,6 @@ compute(const std::string& event_id,
 
 void run_nrf_lifecycle(const std::string& instance_id,
                        const std::string& nrf_base,
-                       const std::string& advertised_ipv4,
                        unsigned short port,
                        int heartbeat_seconds,
                        json nwdaf_info,
@@ -566,7 +565,11 @@ void run_nrf_lifecycle(const std::string& instance_id,
         {"nfInstanceId", instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({advertised_ipv4})},
+        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
+        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
+        // same bug, root-caused live. NRF applies the identical check to ipEndPoints[].ipv4Address
+        // below.
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
         {"heartBeatTimer", heartbeat_seconds},
         // TS 29.510 NwdafInfo, per role (ADR-0359 #3): the AnLF's eventIds, the MTLF's
         // mlAnalyticsList -- a consumer discovering by analytics or by ML model finds the right
@@ -587,7 +590,7 @@ void run_nrf_lifecycle(const std::string& instance_id,
             {"nfServiceStatus", "REGISTERED"},
             {"ipEndPoints",
              json::array(
-                 {json{{"ipv4Address", advertised_ipv4}, {"transport", "TCP"}, {"port", port}}})}});
+                 {json{{"ipv4Address", "127.0.0.1"}, {"transport", "TCP"}, {"port", port}}})}});
     }
     profile["nfServices"] = services;
     while (true) {
@@ -653,8 +656,6 @@ int main() {
         config, "metrics_bind_address", "NWDAF_METRICS_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "NWDAF_NRF_BASE_URL");
-    const auto advertised_ipv4 =
-        nf_config::require<std::string>(config, "advertised_ipv4", "NWDAF_ADVERTISED_IPV4");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "NWDAF_REDIS_URL");
     const auto heartbeat_seconds =
         nf_config::require<int>(config, "nrf_heartbeat_seconds", "NWDAF_NRF_HEARTBEAT_SECONDS");
@@ -2080,7 +2081,6 @@ int main() {
     std::thread(run_nrf_lifecycle,
                 instance_id,
                 nrf_base,
-                advertised_ipv4,
                 port,
                 heartbeat_seconds,
                 nwdaf_info,

@@ -263,7 +263,11 @@ void run_nrf_lifecycle(const std::string& amf_instance_id,
         {"nfInstanceId", amf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({advertised_ipv4})},
+        // ADR-0453/follow-up: NRF's NFProfile validation requires a real dotted-quad IPv4
+        // literal here, not a Docker Compose hostname -- see nfs/udsf/src/main.cpp's fix for the
+        // same bug, root-caused live. advertised_ipv4 itself is unaffected -- it still feeds
+        // peers.self_base above, which other NFs reach by hostname, not via this field.
+        {"ipv4Addresses", json::array({"127.0.0.1"})},
         {"heartBeatTimer", kHeartbeatSeconds},
     };
 
