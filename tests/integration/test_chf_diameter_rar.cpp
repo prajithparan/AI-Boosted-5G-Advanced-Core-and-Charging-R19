@@ -180,26 +180,20 @@ std::vector<std::uint8_t> build_raa(std::uint32_t hop_by_hop_id,
 } // namespace
 
 TEST(ChfDiameterRar, RealRarRaaRoundTripViaAdminEndpoint) {
-    ::setenv("CHF_CDR_DIRECT_INSERT", "false", 1);
-    ::setenv("CHF_CDR_EVENT_BUS_BROKERS", "127.0.0.1:19999", 1);
+    // Default CDR sink (Doris direct insert), same as every other CHF integration test. These two
+    // used to point the Kafka event bus at a dead broker instead; under TSan, CHF then hung at
+    // startup right after constructing the producer (CI runs 37220853366 and 37258571754, >40 s,
+    // while the identical test passes in 4.5 s under ASan). RAR/RAA has nothing to do with CDR
+    // delivery, so the test no longer takes that path -- the hang itself is an open finding,
+    // recorded in docs/DECISIONS.md ADR-0456, not hidden by a longer wait.
     nf_test::SpawnedProcess nrf(NRF_PATH);
     nf_test::SpawnedProcess chf(CHF_PATH);
-    ::unsetenv("CHF_CDR_DIRECT_INSERT");
-    ::unsetenv("CHF_CDR_EVENT_BUS_BROKERS");
     ASSERT_GT(nrf.pid(), 0);
     ASSERT_GT(chf.pid(), 0);
 
-    // CI TSan failure 2026-10-04 (run 37220853366): this test's own
-    // CHF_CDR_EVENT_BUS_BROKERS=127.0.0.1:19999 points at a broker that is never actually
-    // started here -- librdkafka's background connect/retry threads compete for scheduler time
-    // with CHF's own startup under TSan's heavy instrumentation, which the default 10s budget
-    // (100 * 100ms) isn't always enough for. A real, explainable slow path, not a hang: CHF does
-    // come up, just not inside the default window on this specific combination. 400 attempts
-    // (40s) only on these two calls, not the harness default, so a genuine startup hang elsewhere
-    // still fails fast.
-    ASSERT_TRUE(nf_test::wait_tcp_listening(diameter_core::kDiameterTcpPort, 400))
+    ASSERT_TRUE(nf_test::wait_tcp_listening(diameter_core::kDiameterTcpPort))
         << "chf's Diameter port never opened";
-    ASSERT_TRUE(nf_test::wait_tcp_listening(7784, 400)) << "chf's SBI port never opened";
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7784)) << "chf's SBI port never opened";
 
     boost::asio::io_context ioc;
     boost::asio::ip::tcp::socket sock(ioc);
@@ -324,17 +318,17 @@ TEST(ChfDiameterRar, RealRarRaaRoundTripViaAdminEndpoint) {
 }
 
 TEST(ChfDiameterRar, UnknownSessionReturns504) {
-    ::setenv("CHF_CDR_DIRECT_INSERT", "false", 1);
-    ::setenv("CHF_CDR_EVENT_BUS_BROKERS", "127.0.0.1:19999", 1);
+    // Default CDR sink (Doris direct insert), same as every other CHF integration test. These two
+    // used to point the Kafka event bus at a dead broker instead; under TSan, CHF then hung at
+    // startup right after constructing the producer (CI runs 37220853366 and 37258571754, >40 s,
+    // while the identical test passes in 4.5 s under ASan). RAR/RAA has nothing to do with CDR
+    // delivery, so the test no longer takes that path -- the hang itself is an open finding,
+    // recorded in docs/DECISIONS.md ADR-0456, not hidden by a longer wait.
     nf_test::SpawnedProcess nrf(NRF_PATH);
     nf_test::SpawnedProcess chf(CHF_PATH);
-    ::unsetenv("CHF_CDR_DIRECT_INSERT");
-    ::unsetenv("CHF_CDR_EVENT_BUS_BROKERS");
     ASSERT_GT(nrf.pid(), 0);
     ASSERT_GT(chf.pid(), 0);
-    // Same TSan-under-event-bus-mode slow start as RealRarRaaRoundTripViaAdminEndpoint above --
-    // same rationale, same 400-attempt (40s) budget just for this call.
-    ASSERT_TRUE(nf_test::wait_tcp_listening(7784, 400)) << "chf's SBI port never opened";
+    ASSERT_TRUE(nf_test::wait_tcp_listening(7784)) << "chf's SBI port never opened";
 
     // No Diameter connection was ever made for this session -- send_reauth_request's own
     // documented "no live connection holds this session" outcome (diameter_server.cpp:791-793).

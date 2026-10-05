@@ -109,6 +109,11 @@ TEST(SmfHandoverN2SmInfoIntegration, HandoverRequiredReturnsRealUpfTunnelNotAPla
     ASSERT_TRUE(wait_reachable(
         client, "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/nonexistent/retrieve", 80))
         << "smf never became reachable";
+    // CreateSMContext needs PCF (SM Policy Association) and does not retry it, so a run where PCF
+    // came up after SMF answered 500 "could not reach PCF" (seen in CI's ASan job, 2026-10-05).
+    ASSERT_TRUE(wait_reachable(
+        client, "https://127.0.0.1:7783/npcf-am-policy-control/v1/policies/none", 80))
+        << "pcf never became reachable";
 
     const std::string token = fetch_token(client);
     ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
