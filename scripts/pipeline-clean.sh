@@ -65,8 +65,10 @@ doris 'TRUNCATE TABLE chf_features.subscriber_features'  && echo "  truncated ch
 
 # Redis: drop every chf:* key (content hashes + the next_id counters), so new CDRs start from ref 1
 # and cannot collide with an archived ref. --scan avoids KEYS on a large keyspace.
+# ONE exec, batched DELs: the old per-key `docker compose exec ... DEL` loop cost a process spawn per
+# key -- over an hour for the 80K keys of the 2026-09 corpus.
 n=$(redis --scan --pattern 'chf:*' | wc -l | tr -d ' ')
-redis --scan --pattern 'chf:*' | while read -r k; do [[ -n "$k" ]] && redis DEL "$k" >/dev/null; done
+"${DC[@]}" exec -T valkey sh -c "redis-cli --scan --pattern 'chf:*' | xargs -r -n 500 redis-cli DEL >/dev/null"
 echo "  deleted $n redis chf:* keys"
 
 # CHF rating store.
