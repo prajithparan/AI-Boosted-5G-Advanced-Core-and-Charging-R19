@@ -217,6 +217,28 @@ target_compile_definitions(li_amf_poi_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_amf_poi_integration_tests)
 
+# The AMF IRI-POI end to end through the real `amf` process with li_poi enabled -- the harness
+# ADR-0393/ADR-0440 named as their own increment. Its own binary: it needs li_core (the loopback
+# MDF2 + xIRI decode) alongside the NGAP/NAS driver's ngap_generated -- the same coexistence the
+# amf binary itself relies on (li_core is a hidden-visibility shared object, ADR-0364).
+add_executable(li_amf_e2e_integration_tests
+    test_li_amf_e2e.cpp ngap_test_gnb.cpp ue_nas_driver.cpp)
+target_link_libraries(li_amf_e2e_integration_tests PRIVATE
+    li_core sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
+    GTest::gtest GTest::gtest_main)
+add_dependencies(li_amf_e2e_integration_tests nrf udr udm ausf pcf smf amf)
+target_compile_definitions(li_amf_e2e_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    UDR_PATH="$<TARGET_FILE:udr>"
+    UDM_PATH="$<TARGET_FILE:udm>"
+    AUSF_PATH="$<TARGET_FILE:ausf>"
+    PCF_PATH="$<TARGET_FILE:pcf>"
+    SMF_PATH="$<TARGET_FILE:smf>"
+    AMF_PATH="$<TARGET_FILE:amf>"
+    AMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/amf.json"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_amf_e2e_integration_tests PROPERTIES TIMEOUT 300)
+
 # ADR-0400: the UDSF suite -- its own binary (depends only on nrf + udsf, like the MTLF suite), so
 # it builds without the whole NF estate. Also carries the UDSF logic unit tests (no processes).
 add_executable(udsf_integration_tests test_udsf.cpp)
