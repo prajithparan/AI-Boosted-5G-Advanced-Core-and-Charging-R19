@@ -30,6 +30,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -57,6 +58,11 @@ struct Options {
     int rating_groups = 3;
     int updates = 2;
     std::uint64_t seed = 1;
+    // ADR-0455: seed mode. Funds one TMF654 bucket per distinct bucket key the profiles resolve
+    // to, and writes the shared-bucket membership rows, then exits without generating traffic.
+    std::string fund_balance_base;
+    double fund_amount = 100000.0;
+    std::string membership_out;
 };
 
 struct Stats {
@@ -123,6 +129,15 @@ void print_usage() {
                          BOTH rating_group and used_total_volume, and only an Update does.
   --seed <n>             RNG seed, so a run is reproducible
 
+Seed mode (ADR-0455), instead of generating traffic:
+  --fund-buckets <url>   balance-management base URL. Tops up one bucket per distinct bucket key
+                         over --subscribers (the SUPI itself, or the shared family/department
+                         key from profile_for), via the real TMF654 topupBalance, then exits.
+  --fund-amount <n>      EUR credited to each bucket (default 100000)
+  --membership-out <f>   write "bucket_id<TAB>supi<TAB>ordinal" rows for every shared-bucket
+                         member (TMF654 has no membership operation here; load them into
+                         balance_mgmt.bucket_related_party, as test_balance_shared_bucket does)
+
 One session = Create + Update + Release against the real charging engine. The CDR is written by
 CHF at Release, not by this tool.
 )";
@@ -170,6 +185,12 @@ int main(int argc, char** argv) {
             opt.updates = std::stoi(next("--updates"));
         } else if (a == "--seed") {
             opt.seed = std::stoull(next("--seed"));
+        } else if (a == "--fund-buckets") {
+            opt.fund_balance_base = next("--fund-buckets");
+        } else if (a == "--fund-amount") {
+            opt.fund_amount = std::stod(next("--fund-amount"));
+        } else if (a == "--membership-out") {
+            opt.membership_out = next("--membership-out");
         } else {
             std::cerr << "unknown argument: " << a << "\n";
             return 2;
@@ -181,6 +202,88 @@ int main(int argc, char** argv) {
     if (opt.cert.empty() || opt.key.empty() || opt.ca.empty()) {
         std::cerr << "--cert, --key and --ca are required\n";
         return 2;
+    }
+
+    if (!opt.fund_balance_base.empty()) {
+        // Bucket ids come from profile_for itself, so the seed cannot drift from what CHF will
+        // later be asked to rate: a shared line's bucket is its family/department key (CHF finds
+        // it through relatedParty), every other line's bucket is its own SUPI (CHF's fallback).
+        std::map<std::string, std::vector<std::string>> members;
+        for (int i = 0; i < opt.subscribers; ++i) {
+            const auto p = cdrgen::profile_for(i, opt.subscribers);
+            const auto supi = supi_for(i);
+            members[p.shared_bucket ? p.bucket_key : supi].push_back(supi);
+        }
+        std::vector<std::string> bucket_ids;
+        bucket_ids.reserve(members.size());
+        std::size_t shared = 0;
+        for (const auto& [id, supis] : members) {
+            bucket_ids.push_back(id);
+            if (!(supis.size() == 1 && supis[0] == id)) {
+                ++shared;
+            }
+        }
+
+        if (!opt.membership_out.empty()) {
+            std::ofstream out(opt.membership_out);
+            std::size_t rows = 0;
+            for (const auto& [id, supis] : members) {
+                if (supis.size() == 1 && supis[0] == id) {
+                    continue; // own bucket: CHF resolves it by SUPI, no membership row needed
+                }
+                for (std::size_t k = 0; k < supis.size(); ++k) {
+                    out << id << '\t' << supis[k] << '\t' << k << '\n';
+                    ++rows;
+                }
+            }
+            std::cout << "membership rows written: " << rows << " -> " << opt.membership_out
+                      << "\n";
+        }
+
+        std::atomic<std::size_t> next{0};
+        std::atomic<std::uint64_t> funded{0};
+        std::atomic<std::uint64_t> fund_failed{0};
+        std::vector<std::thread> funders;
+        for (int w = 0; w < opt.concurrency; ++w) {
+            funders.emplace_back([&] {
+                sbi_core::http2::TlsConfig tls{
+                    .cert_path = opt.cert, .key_path = opt.key, .ca_path = opt.ca};
+                sbi_core::http2::Client client(std::move(tls));
+                for (std::size_t i = next.fetch_add(1); i < bucket_ids.size();
+                     i = next.fetch_add(1)) {
+                    sbi_core::http2::ClientRequest req;
+                    req.method = "POST";
+                    req.url =
+                        opt.fund_balance_base + "/tmf-api/prepayBalanceManagement/v4/topupBalance";
+                    req.headers.emplace("content-type", "application/json");
+                    req.body = json{{"amount", {{"amount", opt.fund_amount}, {"units", "EUR"}}},
+                                    {"bucket", {{"id", bucket_ids[i]}}},
+                                    {"usageType", "monetary"},
+                                    {"description", "LAB pipeline seed (ADR-0455)"}}
+                                   .dump();
+                    const auto resp = client.send(req);
+                    if (resp.has_value() && resp->status == 201) {
+                        funded.fetch_add(1);
+                    } else {
+                        fund_failed.fetch_add(1);
+                        if (fund_failed.load() <= 3) {
+                            std::cerr << "topup " << bucket_ids[i] << " failed: "
+                                      << (resp.has_value() ? std::to_string(resp->status) + " " +
+                                                                 resp->body.substr(0, 200)
+                                                           : std::string("no response"))
+                                      << "\n";
+                        }
+                    }
+                }
+            });
+        }
+        for (auto& t : funders) {
+            t.join();
+        }
+        std::cout << "buckets: " << bucket_ids.size() << " (" << shared << " shared, "
+                  << bucket_ids.size() - shared << " own)\n"
+                  << "funded: " << funded.load() << "  failed: " << fund_failed.load() << "\n";
+        return fund_failed.load() == 0 ? 0 : 1;
     }
 
     Stats stats;
