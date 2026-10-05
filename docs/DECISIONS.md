@@ -33295,12 +33295,23 @@ ADR-0451 is now fully closed: config change, cluster formation, and the live fun
 all real and verified. Scope unchanged from the original decision -- UDSF only; every other NF
 still uses the single-node `valkey` service, since their store code isn't cluster-aware.
 
-**Separate, real, honestly-disclosed finding not chased down: NRF registration.** While UDSF was
-up, its own log showed `udsf: NRF registration failed (400), retrying` continuously -- UDSF's
-Nudsf_DataRepository API itself worked regardless (NRF registration is for discoverability by
-other NFs, not a precondition for serving UDSF's own API), so this did not block the functional
-check above, and was not root-caused here. Flagged, not fixed -- a real gap for whoever picks up
-NRF/UDSF registration flow work next.
+**NRF registration 400 -- found above, root-caused and fixed immediately after (two commits).**
+Replayed UDSF's exact registration request directly against NRF with curl, using the same mTLS
+client cert extracted from `certs_data`, and read NRF's real `ProblemDetails` body:
+`"ipv4Addresses contains an invalid IPv4 address"`. Two separate fields in
+`nfs/udsf/src/main.cpp`'s `run_nrf_lifecycle` NFProfile construction used `advertised_ipv4` -- the
+Docker Compose service DNS name `"udsf"`, not an IP literal -- where NRF's validation requires a
+real dotted quad: the top-level `ipv4Addresses` (first commit), then, after that fix alone still
+left the same 400, `nfServices[].ipEndPoints[].ipv4Address` as well (second commit) -- NRF applies
+the identical validation to both fields. Fixed both to the literal `"127.0.0.1"`, matching the
+placeholder convention every other working NF's registration code already uses (e.g.
+`nfs/chf/src/main.cpp:366`). Real SBI-to-SBI calls in this project use config-provided base URLs
+(hostnames), not the IP NRF returns in a discovered NFProfile, so this placeholder does not affect
+discovery/connection behaviour. Live-verified after the fix: `udsf: registered with NRF (HTTP
+201)`. Not yet checked: whether any other NF's registration code has the same
+`advertised_ipv4`-in-`ipv4Addresses`/`ipEndPoints` pattern latent and simply undiscovered because
+it was never exercised fresh -- worth a quick audit next time any NF's registration path is
+touched.
 
 ## ADR-0453: every NF service needs its config file mounted -- found, fixed project-wide, and
 made a standing rule
