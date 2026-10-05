@@ -27,6 +27,10 @@ cd "$(dirname "$0")/.."
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/docker-compose.yml}"
 GEN="${GEN:-build-release/tools/cdr-traffic-gen/cdr-traffic-gen}"
 CHF_URL="${CHF_URL:-https://127.0.0.1:7784}"
+# ADR-0339: several CHF processes add write capacity (each CdrWriter serializes on its own
+# connection). Space-separated; defaults to the single CHF_URL.
+CHF_URLS="${CHF_URLS:-$CHF_URL}"
+CHF_ARGS=""; for u in $CHF_URLS; do CHF_ARGS="$CHF_ARGS --chf $u"; done
 CERT="${CERT:-certs/chf/cert.pem}"
 KEY="${KEY:-certs/chf/key.pem}"
 CA="${CA:-certs/ca/ca.crt}"
@@ -57,7 +61,7 @@ doris_rows() {
     -e "SELECT COUNT(*) FROM chf_cdr.cdr"
 }
 
-run_gen() { "$GEN" --chf "$CHF_URL" --cert "$CERT" --key "$KEY" --ca "$CA" \
+run_gen() { "$GEN" $CHF_ARGS --cert "$CERT" --key "$KEY" --ca "$CA" \
     --subscribers "$2" --sessions "$1" --concurrency "$CONCURRENCY" --updates "$UPDATES"; }
 
 # Warm-up MUST use the same --subscribers as the full run: profile_for(idx, total_subscribers)
@@ -73,8 +77,9 @@ elapsed=$(( $(date +%s) - start )); elapsed=$(( elapsed > 0 ? elapsed : 1 ))
 
 # Consistency probe (user rule, 2026-09-20: never bulk-load until created == stored is proven).
 # Every warm-up session must have landed exactly (UPDATES + 2) rows. Waits out CHF's batched
-# flush before counting.
-sleep 5
+# flush before counting -- must exceed 2x cdr_flush_interval_ms (ADR-0458's flusher wakes once
+# per interval), hence the override.
+sleep "${PROBE_SETTLE_SECONDS:-15}"
 expected=$(( WARMUP_SESSIONS * (UPDATES + 2) ))
 stored=$(( $(doris_rows) - rows_before ))
 echo "  consistency probe: expected $expected new CDR rows, Doris holds $stored"
@@ -106,7 +111,7 @@ set -uo pipefail
 cd "$(pwd)"
 start_date=\$(date +%F)
 echo "[\$(date -Is)] generator: $REMAINING sessions over $SUBSCRIBERS subscribers"
-"$GEN" --chf "$CHF_URL" --cert "$CERT" --key "$KEY" --ca "$CA" \
+"$GEN" $CHF_ARGS --cert "$CERT" --key "$KEY" --ca "$CA" \
     --subscribers "$SUBSCRIBERS" --sessions "$REMAINING" --concurrency "$CONCURRENCY" --updates "$UPDATES"
 gen_rc=\$?
 echo "[\$(date -Is)] generator exited rc=\$gen_rc"
