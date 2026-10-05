@@ -45,8 +45,9 @@ for f in "$CERT" "$KEY" "$CA"; do [[ -r "$f" ]] || { echo "missing mTLS material
 # CHF must already be reachable, from CURRENT host binaries. This used to `docker compose up` the
 # lab NF images when CHF was down -- the exact path that once silently dropped every CDR (stale
 # images, see project memory "pipeline stale images"). Refuse instead of guessing.
-if ! (exec 3<>/dev/tcp/127.0.0.1/7784) 2>/dev/null; then
-  echo "CHF not answering on 7784. Start current HOST binaries first (build-release/: nrf," >&2
+CHF_PORT="${CHF_URL##*:}"
+if ! (exec 3<>/dev/tcp/127.0.0.1/"$CHF_PORT") 2>/dev/null; then
+  echo "CHF not answering on $CHF_PORT. Start current HOST binaries first (build-release/: nrf," >&2
   echo "product-catalog, balance-management, chf) against the dockerized datastores." >&2
   exit 1
 fi

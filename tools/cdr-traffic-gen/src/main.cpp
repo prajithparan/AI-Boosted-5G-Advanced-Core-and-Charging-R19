@@ -63,6 +63,7 @@ struct Options {
     std::string fund_balance_base;
     double fund_amount = 100000.0;
     std::string membership_out;
+    bool membership_only = false;
 };
 
 struct Stats {
@@ -137,6 +138,7 @@ Seed mode (ADR-0455), instead of generating traffic:
   --membership-out <f>   write "bucket_id<TAB>supi<TAB>ordinal" rows for every shared-bucket
                          member (TMF654 has no membership operation here; load them into
                          balance_mgmt.bucket_related_party, as test_balance_shared_bucket does)
+  --membership-only      with --fund-buckets: write --membership-out, skip the top-ups
 
 One session = Create + Update + Release against the real charging engine. The CDR is written by
 CHF at Release, not by this tool.
@@ -191,6 +193,8 @@ int main(int argc, char** argv) {
             opt.fund_amount = std::stod(next("--fund-amount"));
         } else if (a == "--membership-out") {
             opt.membership_out = next("--membership-out");
+        } else if (a == "--membership-only") {
+            opt.membership_only = true;
         } else {
             std::cerr << "unknown argument: " << a << "\n";
             return 2;
@@ -240,6 +244,9 @@ int main(int argc, char** argv) {
                       << "\n";
         }
 
+        if (opt.membership_only) {
+            return 0;
+        }
         std::atomic<std::size_t> next{0};
         std::atomic<std::uint64_t> funded{0};
         std::atomic<std::uint64_t> fund_failed{0};

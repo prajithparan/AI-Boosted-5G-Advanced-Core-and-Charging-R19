@@ -29,8 +29,8 @@ cd "$(dirname "$0")/.."
 GEN="${GEN:-build-release/tools/cdr-traffic-gen/cdr-traffic-gen}"
 SUBSCRIBERS="${SUBSCRIBERS:-100000}"
 FUND_AMOUNT="${FUND_AMOUNT:-100000}"
-CATALOG="https://127.0.0.1:7785/tmf-api/productCatalogManagement/v4"
-BALANCE="https://127.0.0.1:7786"
+CATALOG="${CATALOG_BASE:-https://127.0.0.1:7785}/tmf-api/productCatalogManagement/v4"
+BALANCE="${BALANCE_BASE:-https://127.0.0.1:7786}"
 CURL=(curl -sf --cacert certs/ca/ca.crt --cert certs/hello-nf/cert.pem --key certs/hello-nf/key.pem
       -H "content-type: application/json")
 pg() { docker exec -i docker-postgres-chf-1 psql -U postgres -d charging -v ON_ERROR_STOP=1 "$@"; }
@@ -52,7 +52,9 @@ TARIFF=(
   "11|Fair-use throttled tier|100|MB|0.50"
 )
 
+ONLY_MEMBERSHIP="${ONLY_MEMBERSHIP:-0}" # 1 = skip steps 1-2 (recovery after a failed step 3)
 echo "== 1. LAB tariff: one TMF620 price + offering per rating group =="
+[[ "$ONLY_MEMBERSHIP" == 1 ]] && TARIFF=() && echo "  skipped (ONLY_MEMBERSHIP=1)"
 for row in "${TARIFF[@]}"; do
   IFS='|' read -r rg name amount units price <<<"$row"
   price_id=$("${CURL[@]}" -X POST "$CATALOG/productOfferingPrice" -d "{
@@ -75,21 +77,23 @@ done
 echo "== 2. funding one bucket per bucket key over $SUBSCRIBERS subscribers =="
 MEMBERS="$(mktemp)"
 trap 'rm -f "$MEMBERS"' EXIT
+EXTRA=(); [[ "$ONLY_MEMBERSHIP" == 1 ]] && EXTRA=(--membership-only)
 "$GEN" --fund-buckets "$BALANCE" --fund-amount "$FUND_AMOUNT" --subscribers "$SUBSCRIBERS" \
-  --membership-out "$MEMBERS" --concurrency 16 \
+  --membership-out "$MEMBERS" --concurrency 16 "${EXTRA[@]}" \
   --cert certs/hello-nf/cert.pem --key certs/hello-nf/key.pem --ca certs/ca/ca.crt
 
 echo "== 3. shared-bucket membership ($(wc -l <"$MEMBERS") rows) =="
-docker cp "$MEMBERS" docker-postgres-chf-1:/tmp/adr0454-members.tsv
+chmod 644 "$MEMBERS" # mktemp makes it 0600; the postgres server process must read it after docker cp
+docker cp "$MEMBERS" docker-postgres-chf-1:/tmp/adr0455-members.tsv
 pg -c "CREATE TEMP TABLE m (bucket_id text, party_id text, ordinal int);
-       COPY m FROM '/tmp/adr0454-members.tsv';
+       COPY m FROM '/tmp/adr0455-members.tsv';
        INSERT INTO balance_mgmt.bucket_related_party (bucket_id, party_id, ordinal)
          SELECT m.bucket_id, m.party_id, m.ordinal FROM m
          WHERE NOT EXISTS (SELECT 1 FROM balance_mgmt.bucket_related_party rp
                            WHERE rp.bucket_id = m.bucket_id AND rp.party_id = m.party_id);
        UPDATE balance_mgmt.bucket SET is_shared = true
-         WHERE id IN (SELECT DISTINCT bucket_id FROM m) AND NOT is_shared;"
-docker exec docker-postgres-chf-1 rm -f /tmp/adr0454-members.tsv
+         WHERE id IN (SELECT DISTINCT bucket_id FROM m) AND is_shared IS NOT TRUE;"
+docker exec docker-postgres-chf-1 rm -f /tmp/adr0455-members.tsv
 pg -tAc "SELECT 'shared buckets: ' || count(*) FROM balance_mgmt.bucket WHERE is_shared"
 pg -tAc "SELECT 'membership rows: ' || count(*) FROM balance_mgmt.bucket_related_party"
 echo "seed complete."
