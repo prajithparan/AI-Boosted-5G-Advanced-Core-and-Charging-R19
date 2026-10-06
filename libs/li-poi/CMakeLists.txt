@@ -5,7 +5,7 @@
 #
 # Links sbi_core for the TLS 1.3 + mTLS HTTP/2 server only; a POI registers with no NRF
 # (TS 33.127 keeps LI off the service plane).
-add_library(li_poi STATIC src/poi_runtime.cpp)
+add_library(li_poi STATIC src/poi_runtime.cpp src/x1_trigger.cpp)
 target_include_directories(li_poi PUBLIC include)
 target_link_libraries(li_poi PUBLIC li_core sbi_core)
 target_compile_features(li_poi PUBLIC cxx_std_23)

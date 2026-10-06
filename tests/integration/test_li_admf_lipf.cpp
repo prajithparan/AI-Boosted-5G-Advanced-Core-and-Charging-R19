@@ -216,6 +216,94 @@ TEST(LiAdmfLipf, TheHi1FormatForAnX1ElementIsTheAnnexCName) {
     EXPECT_FALSE(li_admf::hi1_format_for_element("imei").has_value());
 }
 
+std::vector<NetworkElement> cc_elements() {
+    NetworkElement smf{"smf-poi",
+                       "poi",
+                       "smf-1",
+                       "u3",
+                       "smf",
+                       {"supiimsi", "supinai", "peiImei", "peiImeisv", "gpsiMsisdn", "gpsiNai"}};
+    smf.cc_capable = true;
+    return {{"amf-poi", "poi", "amf-1", "u1", "amf", {"supiimsi", "supinai", "imsi", "nai"}},
+            smf,
+            {"mdf2", "mdf2", "mdf2-01", "u2", "li-mdf", {}},
+            {"mdf3", "mdf3", "mdf3-01", "u4", "li-mdf3", {}}};
+}
+
+LipfConfig cc_config() {
+    LipfConfig c = config();
+    c.cc_capable = true;
+    return c;
+}
+
+TEST(LiAdmfLipf, ACcAndIriTaskGoesToTheMdf3AndTheCcCapablePoiAsWellAsTheMdf2) {
+    FakeTransport net;
+    Lipf lipf(cc_config(), cc_elements(), net);
+    TaskSpec s = spec();
+    s.wants_cc = true;
+    const auto r = lipf.provision(s);
+    ASSERT_TRUE(r.ok) << r.detail;
+
+    const std::string did = Lipf::destination_id(kXid, "192.0.2.10:9443");
+    // IRI: the AMF POI streams X2; the MDF2 mediates HI2 only.
+    EXPECT_EQ(net.amf.tasks[kXid].delivery, x1::DeliveryType::X2Only);
+    EXPECT_EQ(net.mdf.tasks[kXid].delivery, x1::DeliveryType::X2Only);
+    EXPECT_EQ(net.mdf.tasks[kXid].mediation_details.at(0).delivery,
+              x1::MediationDeliveryType::Hi2Only);
+    EXPECT_EQ(net.mdf.destinations[did].delivery, x1::DeliveryType::X2Only);
+    // CC: the SMF POI does both (it triggers the UPF), the MDF3 mediates HI3 only, with the LIID.
+    EXPECT_EQ(net.smf.tasks[kXid].delivery, x1::DeliveryType::X2AndX3);
+    EXPECT_EQ(net.mdf3.tasks[kXid].delivery, x1::DeliveryType::X3Only);
+    ASSERT_EQ(net.mdf3.tasks[kXid].mediation_details.size(), 1U);
+    EXPECT_EQ(net.mdf3.tasks[kXid].mediation_details[0].liid, "LIID-2026-0042");
+    EXPECT_EQ(net.mdf3.tasks[kXid].mediation_details[0].delivery,
+              x1::MediationDeliveryType::Hi3Only);
+    EXPECT_EQ(net.mdf3.destinations[did].delivery, x1::DeliveryType::X3Only);
+
+    // Deprovisioning removes it from the MDF3 too.
+    ASSERT_TRUE(lipf.deprovision(s).ok);
+    EXPECT_TRUE(net.mdf3.tasks.empty());
+    EXPECT_TRUE(net.mdf3.destinations.empty());
+    EXPECT_TRUE(net.smf.tasks.empty());
+}
+
+TEST(LiAdmfLipf, ACcOnlyTaskLeavesTheIriPathsUntouched) {
+    FakeTransport net;
+    Lipf lipf(cc_config(), cc_elements(), net);
+    TaskSpec s = spec();
+    s.wants_iri = false;
+    s.wants_cc = true;
+    ASSERT_TRUE(lipf.provision(s).ok);
+    EXPECT_TRUE(net.amf.tasks.empty());
+    EXPECT_TRUE(net.mdf.tasks.empty());
+    EXPECT_TRUE(net.mdf.destinations.empty());
+    EXPECT_EQ(net.smf.tasks[kXid].delivery, x1::DeliveryType::X3Only);
+    EXPECT_EQ(net.mdf3.tasks.count(kXid), 1U);
+}
+
+TEST(LiAdmfLipf, CcIsRefusedUnlessTheDeploymentCanReallyDeliverIt) {
+    FakeTransport net;
+    TaskSpec s = spec();
+    s.wants_cc = true;
+    // The master switch is off (no real packet capture): refused, not downgraded to IRI.
+    EXPECT_NE(Lipf(config(), cc_elements(), net).infeasible(s)->find("cc_capable"),
+              std::string::npos);
+    // No MDF3.
+    auto without_mdf3 = cc_elements();
+    without_mdf3.pop_back();
+    EXPECT_NE(Lipf(cc_config(), without_mdf3, net).infeasible(s)->find("MDF3"), std::string::npos);
+    // A target only an IRI-only POI carries (the AMF's `imsi`) cannot be intercepted for content.
+    TaskSpec imsi = spec();
+    imsi.wants_cc = true;
+    imsi.targets = {{x1::TargetIdentifierKind::Imsi, "imsi", "999700000000001"}};
+    const auto why = Lipf(cc_config(), cc_elements(), net).infeasible(imsi);
+    ASSERT_TRUE(why.has_value());
+    EXPECT_NE(why->find("imsi"), std::string::npos);
+    // The same warrant for IRI alone is fine.
+    imsi.wants_cc = false;
+    EXPECT_FALSE(Lipf(cc_config(), cc_elements(), net).infeasible(imsi).has_value());
+}
+
 TEST(LiAdmfLipf, KeepalivesGoToEveryNeAndAFailureIsReportedPerNe) {
     FakeTransport net;
     Lipf lipf(config(), kElements, net);

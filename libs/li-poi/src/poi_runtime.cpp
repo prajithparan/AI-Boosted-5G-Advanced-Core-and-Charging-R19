@@ -128,7 +128,10 @@ struct PoiRuntime::Impl {
                 return x1::ErrorCode::XidAlreadyExists; // table 6.7-3: 2010
             }
             tasks.emplace(details.xid,
-                          TaskInfo{details.targets, details.identifier_association_events});
+                          TaskInfo{details.targets,
+                                   details.identifier_association_events,
+                                   details.delivery,
+                                   details.dids});
         }
         enqueue_added(details.xid, details.targets);
         return std::nullopt;
@@ -157,24 +160,50 @@ struct PoiRuntime::Impl {
                 }
             }
             // A ModifyTask carries a full TaskDetails, so it replaces the gating too.
-            tasks[details.xid] = TaskInfo{details.targets, details.identifier_association_events};
+            tasks[details.xid] = TaskInfo{details.targets,
+                                          details.identifier_association_events,
+                                          details.delivery,
+                                          details.dids};
         }
         enqueue_added(details.xid, added);
         return std::nullopt;
     }
 
     std::optional<x1::ErrorCode> deactivate(const std::string& xid) {
-        const std::lock_guard<std::mutex> lock(store_mutex);
-        tasks.erase(xid);
-        sequence.erase(xid);
+        {
+            const std::lock_guard<std::mutex> lock(store_mutex);
+            tasks.erase(xid);
+            sequence.erase(xid);
+        }
+        enqueue_removed(xid);
         return std::nullopt;
     }
 
     std::optional<x1::ErrorCode> deactivate_all() {
-        const std::lock_guard<std::mutex> lock(store_mutex);
-        tasks.clear();
-        sequence.clear();
+        std::vector<std::string> xids;
+        {
+            const std::lock_guard<std::mutex> lock(store_mutex);
+            for (const auto& [xid, task] : tasks) {
+                xids.push_back(xid);
+            }
+            tasks.clear();
+            sequence.clear();
+        }
+        for (const auto& xid : xids) {
+            enqueue_removed(xid);
+        }
         return std::nullopt;
+    }
+
+    void enqueue_removed(const std::string& xid) {
+        if (!hooks.on_task_removed) {
+            return;
+        }
+        {
+            const std::lock_guard<std::mutex> lock(job_mutex);
+            jobs.push_back(Job{xid, {}, true});
+        }
+        job_cv.notify_one();
     }
 
     std::uint32_t next_sequence(const std::string& xid) {
@@ -204,7 +233,11 @@ struct PoiRuntime::Impl {
             jobs.pop_front();
             lock.unlock();
             try {
-                hooks.on_targets_added(job.xid, job.added);
+                if (job.removed) {
+                    hooks.on_task_removed(job.xid);
+                } else {
+                    hooks.on_targets_added(job.xid, job.added);
+                }
             } catch (const std::exception& e) {
                 spdlog::error("{}: targets-added handler failed: {}", hooks.log_name, e.what());
             }
@@ -233,6 +266,7 @@ struct PoiRuntime::Impl {
     struct Job {
         std::string xid;
         std::vector<x1::TargetIdentifier> added;
+        bool removed = false;
     };
 
     Config config;
@@ -427,6 +461,34 @@ void PoiRuntime::emit(const Match& match,
         return;
     }
     spdlog::info("{}: delivered {} xIRI for target XID {}", log, record, match.xid);
+}
+
+void PoiRuntime::emit_cc(const std::string& xid,
+                         li_core::PayloadFormat format,
+                         li_core::PayloadDirection direction,
+                         std::span<const std::uint8_t> packet) {
+    const std::string& log = impl_->hooks.log_name;
+    const auto xid_bytes = uuid_to_bytes(xid);
+    if (!xid_bytes) {
+        spdlog::warn("{}: task XID {} is not a UUID -- cannot build the X3 PDU", log, xid);
+        return;
+    }
+    li_core::Pdu pdu;
+    pdu.type = li_core::PduType::X3;
+    pdu.payload_format = format;
+    pdu.payload_direction = direction;
+    pdu.xid = *xid_bytes;
+    const auto now = static_cast<std::uint32_t>(std::time(nullptr));
+    pdu.attributes.push_back(li_core::attr_sequence_number(impl_->next_sequence(xid)));
+    pdu.attributes.push_back(li_core::attr_network_function_id(impl_->config.network_function_id));
+    pdu.attributes.push_back(
+        li_core::attr_interception_point_id(impl_->config.interception_point_id));
+    pdu.attributes.push_back(li_core::attr_timestamp(now, 0));
+    pdu.payload.assign(packet.begin(), packet.end());
+    if (const auto sent = impl_->x2_client.send(pdu); !sent) {
+        spdlog::error(
+            "{}: LI_X3 delivery of xCC for XID {} to the MDF3 failed: {}", log, xid, sent.error());
+    }
 }
 
 } // namespace li_poi

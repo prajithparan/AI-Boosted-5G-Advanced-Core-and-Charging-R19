@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -344,4 +345,131 @@ TEST(LiHi2Tri, PayloadKindDistinguishesIriFromTri) {
     // And each decoder refuses the other's PDU rather than returning something empty.
     EXPECT_FALSE(hi2::decode_tri_message(*iri_bytes).has_value());
     EXPECT_FALSE(hi2::decode_iri_message(*tri_bytes).has_value());
+}
+
+// ---- LI_HI3 (TS 33.128 clause 6.2.3.8) ----------------------------------------------------------
+
+namespace {
+
+// A GTP-U G-PDU (TS 29.281): version 1, PT=1, TEID 0x01020304, carrying `inner`. With `qfi` it
+// has the E flag and one PDU Session Container extension header (TS 38.415 5.5.3.3).
+std::vector<std::uint8_t> gtpu(const std::vector<std::uint8_t>& inner, std::optional<int> qfi) {
+    std::vector<std::uint8_t> out{static_cast<std::uint8_t>(qfi ? 0x34 : 0x30), 0xFF, 0, 0};
+    out.insert(out.end(), {0x01, 0x02, 0x03, 0x04});
+    if (qfi) {
+        out.insert(out.end(), {0x00, 0x00, 0x00, 0x85});
+        out.insert(out.end(), {0x01, 0x00, static_cast<std::uint8_t>(*qfi), 0x00});
+    }
+    out.insert(out.end(), inner.begin(), inner.end());
+    const std::size_t length = out.size() - 8;
+    out[2] = static_cast<std::uint8_t>(length >> 8);
+    out[3] = static_cast<std::uint8_t>(length & 0xFF);
+    return out;
+}
+
+const std::vector<std::uint8_t> kIpv4Packet = {0x45, 0, 0,  20, 0, 0, 0, 0, 64, 17,
+                                               0,    0, 10, 0,  0, 1, 8, 8, 8,  8};
+
+Pdu x3_pdu(PayloadFormat format, std::vector<std::uint8_t> payload) {
+    Pdu pdu;
+    pdu.type = PduType::X3;
+    pdu.payload_format = format;
+    pdu.payload_direction = PayloadDirection::FromTarget;
+    pdu.xid = {0x3f,
+               0xa8,
+               0x5f,
+               0x64,
+               0x57,
+               0x17,
+               0x45,
+               0x62,
+               0xb3,
+               0xfc,
+               0x2c,
+               0x96,
+               0x3f,
+               0x66,
+               0xaf,
+               0xa6};
+    pdu.payload = std::move(payload);
+    return pdu;
+}
+
+hi2::MediationContext cc_context() {
+    hi2::MediationContext context;
+    context.liid = "LIID-2026-0001";
+    context.communication_identifier.operator_identifier = "5GC-R19-OP";
+    context.sequence_number = 3;
+    return context;
+}
+
+} // namespace
+
+TEST(LiHi3, AGtpuPacketMediatesToTheExtendedFormWithItsQfi) {
+    const auto ps = hi2::mediate_x3_pdu(x3_pdu(PayloadFormat::GtpUMessage, gtpu(kIpv4Packet, 9)),
+                                        cc_context(),
+                                        hi2::CcPduForm::Extended);
+    ASSERT_TRUE(ps.has_value()) << ps.error();
+    EXPECT_EQ(hi2::payload_kind(*ps).value(), hi2::PayloadKind::Cc);
+    const auto message = hi2::decode_cc_message(*ps);
+    ASSERT_TRUE(message.has_value()) << message.error();
+    EXPECT_EQ(message->header.liid, "LIID-2026-0001");
+    EXPECT_EQ(message->header.sequence_number, 3U);
+    EXPECT_EQ(message->payload_direction, std::optional<std::uint8_t>(0)); // fromTarget
+    const auto content = hi2::decode_cc_payload(message->cc_payload);
+    ASSERT_TRUE(content.has_value()) << content.error();
+    EXPECT_EQ(content->form, hi2::CcPduForm::Extended);
+    EXPECT_EQ(content->kind, hi2::CcContentKind::Ip);
+    EXPECT_EQ(content->qfi, std::optional<std::uint8_t>(9));
+    EXPECT_EQ(content->data, kIpv4Packet); // the GTP-U encapsulation is gone
+}
+
+TEST(LiHi3, TheUpfCcPduOptionCarriesTheWholeGtpuPacketOnlyForIp) {
+    const auto packet = gtpu(kIpv4Packet, std::nullopt);
+    const auto ps = hi2::mediate_x3_pdu(
+        x3_pdu(PayloadFormat::GtpUMessage, packet), cc_context(), hi2::CcPduForm::GtpuPacket);
+    ASSERT_TRUE(ps.has_value()) << ps.error();
+    const auto content = hi2::decode_cc_payload(hi2::decode_cc_message(*ps)->cc_payload);
+    ASSERT_TRUE(content.has_value());
+    EXPECT_EQ(content->form, hi2::CcPduForm::GtpuPacket);
+    EXPECT_EQ(content->data, packet);
+    // "only ... if the content of the GTP-U packet is an IPv4 or IPv6 packet"
+    EXPECT_FALSE(hi2::mediate_x3_pdu(x3_pdu(PayloadFormat::GtpUMessage, gtpu({0x00, 0x01}, 5)),
+                                     cc_context(),
+                                     hi2::CcPduForm::GtpuPacket)
+                     .has_value());
+}
+
+TEST(LiHi3, EthernetUnstructuredAndRawIpPayloadsKeepTheirType) {
+    const auto eth = hi2::mediate_x3_pdu(
+        x3_pdu(PayloadFormat::EthernetFrame, {1, 2, 3, 4}), cc_context(), hi2::CcPduForm::Extended);
+    ASSERT_TRUE(eth.has_value());
+    EXPECT_EQ(hi2::decode_cc_payload(hi2::decode_cc_message(*eth)->cc_payload)->kind,
+              hi2::CcContentKind::Ethernet);
+    const auto raw = hi2::mediate_x3_pdu(
+        x3_pdu(PayloadFormat::Ipv4Packet, kIpv4Packet), cc_context(), hi2::CcPduForm::Extended);
+    ASSERT_TRUE(raw.has_value());
+    const auto raw_content = hi2::decode_cc_payload(hi2::decode_cc_message(*raw)->cc_payload);
+    EXPECT_EQ(raw_content->kind, hi2::CcContentKind::Ip);
+    EXPECT_FALSE(raw_content->qfi.has_value());
+    const auto odd = hi2::mediate_x3_pdu(x3_pdu(PayloadFormat::GtpUMessage, gtpu({0x00, 0x01}, 5)),
+                                         cc_context(),
+                                         hi2::CcPduForm::Extended);
+    ASSERT_TRUE(odd.has_value());
+    EXPECT_EQ(hi2::decode_cc_payload(hi2::decode_cc_message(*odd)->cc_payload)->kind,
+              hi2::CcContentKind::Unstructured);
+}
+
+TEST(LiHi3, RefusesWhatItCannotMediate) {
+    // An X2 PDU, a format the UPF CC-POI never sends, and a malformed GTP-U header.
+    Pdu x2 = x3_pdu(PayloadFormat::Ipv4Packet, kIpv4Packet);
+    x2.type = PduType::X2;
+    EXPECT_FALSE(hi2::mediate_x3_pdu(x2, cc_context(), hi2::CcPduForm::Extended).has_value());
+    EXPECT_FALSE(hi2::mediate_x3_pdu(
+                     x3_pdu(PayloadFormat::SipMessage, {1}), cc_context(), hi2::CcPduForm::Extended)
+                     .has_value());
+    EXPECT_FALSE(hi2::mediate_x3_pdu(x3_pdu(PayloadFormat::GtpUMessage, {0x30, 0xFF, 0, 40, 0}),
+                                     cc_context(),
+                                     hi2::CcPduForm::Extended)
+                     .has_value());
 }

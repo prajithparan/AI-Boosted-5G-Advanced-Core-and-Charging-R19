@@ -72,6 +72,12 @@ enum class TargetIdentifierKind : std::uint8_t {
     Ipv4Address,
     Ipv6Address,
     Nai,
+    // TS 33.128 table 6.2.3.3.1-2: the UPF's LI_T3 identifiers, carried as a
+    // TargetIdentifierExtension owned by 3GPP (UPFLIT3TargetIdentifier). `value` is the TEID / SEID
+    // in decimal and `address` the optional IPv4 / IPv6 text. The other UPFLIT3 members (PDR ID,
+    // QER ID, ...) stay Kind::Other.
+    UpfFteid,
+    UpfFseid,
     Other,
 };
 
@@ -79,6 +85,7 @@ struct TargetIdentifier {
     TargetIdentifierKind kind = TargetIdentifierKind::Other;
     std::string element; // the XSD choice element name, always set
     std::string value;
+    std::string address; // UpfFteid / UpfFseid only; empty when the extension carries none
 };
 
 // Parse the inner XML of a TS 103 221-2 Matched/Other Target Identifier conditional attribute

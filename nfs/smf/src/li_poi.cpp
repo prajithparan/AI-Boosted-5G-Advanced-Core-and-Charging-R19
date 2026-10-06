@@ -106,7 +106,12 @@ xiri::SmIdentities to_identities(const LiSession& s) {
 } // namespace
 
 struct SmfLiPoi::Impl {
-    explicit Impl(li_poi::Config cfg) : runtime(std::move(cfg), make_hooks()) {}
+    Impl(li_poi::Config cfg, std::optional<CcTfConfig> cc)
+        : runtime(std::move(cfg), make_hooks()), cc_config(std::move(cc)) {
+        if (cc_config) {
+            trigger = std::make_unique<li_poi::X1Trigger>(cc_config->trigger, cc_config->tls);
+        }
+    }
 
     li_poi::Hooks make_hooks() {
         li_poi::Hooks h;
@@ -116,7 +121,9 @@ struct SmfLiPoi::Impl {
         h.on_targets_added = [this](const std::string& xid,
                                     const std::vector<x1::TargetIdentifier>& added) {
             start_of_interception(xid, added);
+            cc_for_established(xid, added);
         };
+        h.on_task_removed = [this](const std::string& xid) { cc_withdraw_task(xid); };
         return h;
     }
 
@@ -206,12 +213,165 @@ struct SmfLiPoi::Impl {
         }
     }
 
+    // ---- CC-TF ------------------------------------------------------------------------------
+    static x1::TargetIdentifier fseid_target(std::uint64_t seid, const std::string& address) {
+        x1::TargetIdentifier t;
+        t.kind = x1::TargetIdentifierKind::UpfFseid;
+        t.element = "FSEID";
+        t.value = std::to_string(seid);
+        t.address = address;
+        return t;
+    }
+
+    // Adds `cp_seid` to the UPF task of `xid` (activating it first if it does not exist there).
+    // cc_mutex is held across the X1 call: tasks of one XID must reach the UPF in order, or a
+    // modify could overtake the activate it extends.
+    bool cc_add(const std::string& xid,
+                const std::vector<std::string>& dids,
+                std::uint64_t cp_seid,
+                const std::string& address) {
+        const std::lock_guard<std::mutex> lock(cc_mutex);
+        auto& xids = cc_by_seid[cp_seid];
+        if (std::find(xids.begin(), xids.end(), xid) != xids.end()) {
+            return true; // already triggered for this session
+        }
+        auto it = upf_targets.find(xid);
+        const bool known = it != upf_targets.end();
+        auto targets = known ? it->second : std::vector<x1::TargetIdentifier>{};
+        targets.push_back(fseid_target(cp_seid, address));
+        const auto sent =
+            known ? trigger->modify(xid, targets, dids) : trigger->activate(xid, targets, dids);
+        if (!sent) {
+            spdlog::error("smf-li-poi: CC-TF could not trigger the UPF for task {} (PFCP session "
+                          "{}): {} -- the content of this session is NOT being intercepted",
+                          xid,
+                          cp_seid,
+                          sent.error());
+            if (xids.empty()) {
+                cc_by_seid.erase(cp_seid);
+            }
+            return false;
+        }
+        upf_targets[xid] = std::move(targets);
+        upf_dids[xid] = dids;
+        xids.push_back(xid);
+        spdlog::info("smf-li-poi: CC-TF {} task {} on the UPF for PFCP session {}",
+                     known ? "extended" : "activated",
+                     xid,
+                     cp_seid);
+        return true;
+    }
+
+    void cc_trigger(const LiSession& session, const std::string& only_xid = {}) {
+        if (!trigger || !session.cp_seid) {
+            return;
+        }
+        for (const auto& m : matches(session)) {
+            if (!only_xid.empty() && m.xid != only_xid) {
+                continue;
+            }
+            const auto task = runtime.task(m.xid);
+            if (!task || task->delivery == x1::DeliveryType::X2Only) {
+                continue; // IRI only: nothing for the UPF to do
+            }
+            cc_add(m.xid, task->dids, *session.cp_seid, session.cp_address);
+        }
+    }
+
+    // A warrant activated, or a target added, while the session is already up.
+    void cc_for_established(const std::string& xid,
+                            const std::vector<x1::TargetIdentifier>& added) {
+        if (!trigger) {
+            return;
+        }
+        std::vector<LiSession> sessions;
+        {
+            const std::lock_guard<std::mutex> lock(registry_mutex);
+            for (const auto& [k, s] : established) {
+                sessions.push_back(s);
+            }
+        }
+        for (const auto& s : sessions) {
+            for (const auto& m : matches(s)) {
+                const bool newly = std::any_of(added.begin(), added.end(), [&](const auto& t) {
+                    return t.element == m.target.element && t.value == m.target.value;
+                });
+                if (m.xid == xid && newly) {
+                    cc_trigger(s, xid);
+                }
+            }
+        }
+    }
+
+    void cc_remove_session(std::uint64_t cp_seid) {
+        if (!trigger) {
+            return;
+        }
+        const std::lock_guard<std::mutex> lock(cc_mutex);
+        const auto it = cc_by_seid.find(cp_seid);
+        if (it == cc_by_seid.end()) {
+            return;
+        }
+        const auto xids = it->second;
+        cc_by_seid.erase(it);
+        for (const auto& xid : xids) {
+            const auto task = upf_targets.find(xid);
+            if (task == upf_targets.end()) {
+                continue;
+            }
+            auto& targets = task->second;
+            std::erase_if(targets, [&](const x1::TargetIdentifier& t) {
+                return t.value == std::to_string(cp_seid);
+            });
+            const auto sent = targets.empty() ? trigger->deactivate(xid)
+                                              : trigger->modify(xid, targets, upf_dids[xid]);
+            if (!sent) {
+                spdlog::error("smf-li-poi: CC-TF could not withdraw PFCP session {} from UPF task "
+                              "{}: {}",
+                              cp_seid,
+                              xid,
+                              sent.error());
+            }
+            if (targets.empty()) {
+                upf_dids.erase(xid);
+                upf_targets.erase(task);
+            }
+        }
+    }
+
+    // The warrant itself was deactivated at this SMF.
+    void cc_withdraw_task(const std::string& xid) {
+        if (!trigger) {
+            return;
+        }
+        const std::lock_guard<std::mutex> lock(cc_mutex);
+        upf_dids.erase(xid);
+        if (upf_targets.erase(xid) == 0) {
+            return;
+        }
+        for (auto& [seid, xids] : cc_by_seid) {
+            std::erase(xids, xid);
+        }
+        if (const auto sent = trigger->deactivate(xid); !sent) {
+            spdlog::error(
+                "smf-li-poi: CC-TF could not deactivate UPF task {}: {}", xid, sent.error());
+        }
+    }
+
     li_poi::PoiRuntime runtime;
+    std::optional<CcTfConfig> cc_config;
+    std::unique_ptr<li_poi::X1Trigger> trigger;
+    std::mutex cc_mutex;
+    std::map<std::string, std::vector<x1::TargetIdentifier>>
+        upf_targets;                                              // xid -> targets at the UPF
+    std::map<std::string, std::vector<std::string>> upf_dids;     // xid -> Destination IDs
+    std::map<std::uint64_t, std::vector<std::string>> cc_by_seid; // PFCP session -> xids
     std::mutex registry_mutex;
     std::map<std::string, LiSession> established; // "<bare supi>/<pdu session id>"
 };
 
-SmfLiPoi::SmfLiPoi(li_poi::Config config) : impl_(std::make_unique<Impl>(std::move(config))) {}
+SmfLiPoi::SmfLiPoi(li_poi::Config config, std::optional<CcTfConfig> cc_tf)
+    : impl_(std::make_unique<Impl>(std::move(config), std::move(cc_tf))) {}
 SmfLiPoi::~SmfLiPoi() = default;
 
 void SmfLiPoi::start() {
@@ -219,6 +379,18 @@ void SmfLiPoi::start() {
 }
 void SmfLiPoi::stop() {
     impl_->runtime.stop();
+}
+
+void SmfLiPoi::cc_begin(const LiSession& session) {
+    impl_->cc_trigger(session);
+}
+
+void SmfLiPoi::cc_end(std::uint64_t cp_seid) {
+    impl_->cc_remove_session(cp_seid);
+}
+
+bool SmfLiPoi::cc_enabled() const {
+    return impl_->trigger != nullptr;
 }
 
 bool SmfLiPoi::is_target(const LiSession& session) const {
@@ -374,6 +546,10 @@ LiSession li_session_from_create(const nlohmann::json& b) {
 }
 
 void li_set_tunnel(LiSession& session, const nlohmann::json& ctx) {
+    if (ctx.contains("cpSeid")) {
+        session.cp_seid = ctx.at("cpSeid").get<std::uint64_t>();
+        session.cp_address = ctx.value("cpAddress", std::string{});
+    }
     if (!ctx.contains("ulTeid")) {
         return;
     }
@@ -400,6 +576,10 @@ nlohmann::json li_context_record(const LiSession& s) {
     if (s.gpsi) {
         j["gpsi"] = *s.gpsi;
     }
+    if (s.cp_seid) {
+        j["cpSeid"] = *s.cp_seid;
+        j["cpAddress"] = s.cp_address;
+    }
     if (s.snssai) {
         j["sst"] = s.snssai->sst;
         if (s.snssai->sd) {
@@ -418,6 +598,10 @@ LiSession li_session_from_context(const nlohmann::json& ctx) {
         s.dnn = li.value("dnn", std::string{});
         s.request_type = static_cast<xiri::SmRequestType>(li.value("requestType", 1));
         s.access_type = static_cast<xiri::AccessType>(li.value("accessType", 1));
+        if (li.contains("cpSeid")) {
+            s.cp_seid = li.at("cpSeid").get<std::uint64_t>();
+            s.cp_address = li.value("cpAddress", std::string{});
+        }
         if (li.contains("pei")) {
             s.pei = li.at("pei").get<std::string>();
         }

@@ -108,6 +108,9 @@
           },
           "target_elements": {
             "type": "array"
+          },
+          "cc_capable": {
+            "type": "boolean"
           }
         }
       }

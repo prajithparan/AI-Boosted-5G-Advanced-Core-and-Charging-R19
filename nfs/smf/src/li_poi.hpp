@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sbi_core/http2_client.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -10,6 +12,7 @@
 
 #include "li_core/xiri.hpp"
 #include "li_poi/poi_runtime.hpp"
+#include "li_poi/x1_trigger.hpp"
 
 // The SMF's IRI-POI (TS 33.127 clause 6.2.3, TS 33.128 clause 6.2.3, ADR-0463): the generic POI
 // machinery is libs/li-poi; this keeps what is SMF-specific -- which identities match (SUPI, PEI
@@ -39,6 +42,10 @@ struct LiSession {
     std::string dnn;
     li_core::xiri::SmRequestType request_type = li_core::xiri::SmRequestType::InitialRequest;
     std::optional<li_core::xiri::AccessType> access_type;
+    // The PFCP session the SMF opened toward the UPF: the SEID it chose and the address it put in
+    // the CP F-SEID IE -- the CC-TF's LI_T3 target (ADR-0464). Unset until N4 establishment.
+    std::optional<std::uint64_t> cp_seid;
+    std::string cp_address;
 };
 
 // A procedure the SMF refused (TS 33.128 6.2.3.2.6).
@@ -61,9 +68,16 @@ void li_set_tunnel(LiSession& session, const nlohmann::json& sm_context);
 nlohmann::json li_context_record(const LiSession& session);
 LiSession li_session_from_context(const nlohmann::json& sm_context);
 
+// The CC-TF (TS 33.128 clause 6.2.3.3): how the SMF reaches the UPF's CC-POI over LI_T3 (the same
+// X1 protocol, TS 33.128 5.2.5).
+struct CcTfConfig {
+    li_poi::TriggerConfig trigger;
+    sbi_core::http2::TlsConfig tls;
+};
+
 class SmfLiPoi {
 public:
-    explicit SmfLiPoi(li_poi::Config config);
+    explicit SmfLiPoi(li_poi::Config config, std::optional<CcTfConfig> cc_tf = std::nullopt);
     ~SmfLiPoi();
     SmfLiPoi(const SmfLiPoi&) = delete;
     SmfLiPoi& operator=(const SmfLiPoi&) = delete;
@@ -85,6 +99,17 @@ public:
     void report_release(const LiSession& session);
     // A procedure for this UE was rejected.
     void report_unsuccessful(const LiUnsuccessful& failure);
+
+    // CC-TF. Called BEFORE the N4 Session Establishment Request is sent (so no packet of the
+    // session precedes the trigger): activates, or extends, the UPF task of every warrant that
+    // targets the session and asks for CC, with the PFCP session as target (F-SEID). A failure
+    // to reach the UPF is logged and counted, never propagated -- the PDU session proceeds, but
+    // the CC of it is NOT intercepted, and that is reported loudly.
+    void cc_begin(const LiSession& session);
+    // The PFCP session is gone (released, or N4 establishment failed): withdraw it from the UPF
+    // tasks, deactivating a task that no session needs any more.
+    void cc_end(std::uint64_t cp_seid);
+    [[nodiscard]] bool cc_enabled() const;
 
 private:
     struct Impl;

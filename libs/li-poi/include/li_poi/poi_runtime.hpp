@@ -54,6 +54,10 @@ struct Match {
 struct TaskInfo {
     std::vector<li_core::x1::TargetIdentifier> targets;
     std::optional<li_core::x1::IdentifierAssociationEventsGenerated> identifier_association;
+    // What the ADMF asked this task to deliver (IRI, CC or both) and to which Destination IDs. A
+    // POI that is also a trigger function (the SMF's CC-TF) needs them to trigger the UPF.
+    li_core::x1::DeliveryType delivery = li_core::x1::DeliveryType::X2AndX3;
+    std::vector<std::string> dids;
 };
 
 struct Hooks {
@@ -68,6 +72,9 @@ struct Hooks {
     std::function<void(const std::string& xid,
                        const std::vector<li_core::x1::TargetIdentifier>& added)>
         on_targets_added;
+    // Called on the same worker thread after a task is deactivated (DeactivateTask, or
+    // DeactivateAllTasks once per task), so a trigger function can withdraw what it triggered.
+    std::function<void(const std::string& xid)> on_task_removed;
 };
 
 class PoiRuntime {
@@ -96,6 +103,14 @@ public:
               std::span<const std::uint8_t> payload,
               li_core::PayloadDirection direction,
               const std::string& record);
+
+    // The CC counterpart of emit(): one user-plane packet as a TS 103 221-2 X3 PDU (clause 5.4: the
+    // `format` is 5 IPv4, 6 IPv6, 7 Ethernet or 12 GTP-U) to the configured delivery endpoint --
+    // for a CC-POI that is the MDF3. Best-effort, like emit().
+    void emit_cc(const std::string& xid,
+                 li_core::PayloadFormat format,
+                 li_core::PayloadDirection direction,
+                 std::span<const std::uint8_t> packet);
 
     [[nodiscard]] const Config& config() const;
 

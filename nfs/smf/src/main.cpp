@@ -433,6 +433,12 @@ std::optional<std::string> discover_upf_ipv4(sbi_core::http2::Client& http_clien
 // This lab's loopback-only scope, reused by both PFCP client call sites below.
 constexpr std::array<std::uint8_t, 4> kSmfNodeIpv4{127, 0, 0, 1};
 
+// The SMF's own address as it appears in the CP F-SEID IE (dotted quad).
+std::string smf_node_address() {
+    return std::to_string(kSmfNodeIpv4[0]) + "." + std::to_string(kSmfNodeIpv4[1]) + "." +
+           std::to_string(kSmfNodeIpv4[2]) + "." + std::to_string(kSmfNodeIpv4[3]);
+}
+
 // Thread-safe holder for the UPF endpoint learned via run_pfcp_lifecycle's real Nnrf_NFDiscovery +
 // Association Setup (Stage 2) -- read by CreateSMContext's route handler (the ioc thread) to
 // perform Stage 3's real N4 Session Establishment. Deferred from Stage 2 on purpose (ADR-0041:
@@ -872,7 +878,11 @@ perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
                                  // ENFORCES the throttle PCF decided. Absent = no QER sent, which
                                  // is exactly the previous behaviour.
                                  const std::optional<std::string>& ambr_uplink = std::nullopt,
-                                 const std::optional<std::string>& ambr_downlink = std::nullopt) {
+                                 const std::optional<std::string>& ambr_downlink = std::nullopt,
+                                 // ADR-0464: called with the CP SEID just before the Session
+                                 // Establishment Request leaves, for the LI CC-TF (TS 33.128
+                                 // 6.2.3.3.1: it triggers when the request is sent). Null = no-op.
+                                 const std::function<void(std::uint64_t)>& before_send = nullptr) {
     const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
                                                       g_upf_pfcp_port);
 
@@ -1027,6 +1037,9 @@ perform_n4_session_establishment(smf::PfcpPeer& pfcp_peer,
     auto pdu = pfcp_core::encode_header(req_header, static_cast<std::uint16_t>(ies.size()));
     pdu.insert(pdu.end(), ies.begin(), ies.end());
 
+    if (before_send) {
+        before_send(cp_seid);
+    }
     const auto resp_ie_bytes = pfcp_peer.send_request_and_await_response(
         upf_endpoint,
         pdu,
@@ -2170,7 +2183,22 @@ int main() {
         poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
         poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
         poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
-        li_poi = std::make_unique<smf::SmfLiPoi>(std::move(poi_cfg));
+        // CC-TF (ADR-0464): optional; without it the SMF intercepts IRI only.
+        std::optional<smf::CcTfConfig> cc_tf;
+        if (lp.contains("cc_tf") && lp.at("cc_tf").value("enabled", false)) {
+            const auto& tf = lp.at("cc_tf");
+            smf::CcTfConfig cc;
+            cc.trigger.tf_identifier = tf.value("tf_identifier", std::string{"smf-cc-tf-01"});
+            cc.trigger.ne_identifier = tf.at("upf_ne_identifier").get<std::string>();
+            cc.trigger.x1_url = tf.at("upf_x1_url").get<std::string>();
+            cc.tls = sbi_core::http2::TlsConfig{
+                .cert_path = CERTS_DIR "/smf/cert.pem",
+                .key_path = CERTS_DIR "/smf/key.pem",
+                .ca_path = CERTS_DIR "/ca/ca.crt",
+            };
+            cc_tf = std::move(cc);
+        }
+        li_poi = std::make_unique<smf::SmfLiPoi>(std::move(poi_cfg), std::move(cc_tf));
         li_poi->start();
     }
     UpfEndpointStore upf_endpoint_store;
@@ -2301,7 +2329,8 @@ int main() {
          &nsacf_client,
          &nsacf_oauth,
          &nsacf_base_url,
-         &charging_data_invocation_seq](const sbi_core::http2::Request& req) {
+         &charging_data_invocation_seq,
+         &li_poi](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -2545,13 +2574,29 @@ int main() {
             std::optional<std::string> policy_ambr_dl = establishment_ambr.downlink;
 
             if (const auto upf_ip = upf_endpoint_store.get(); upf_ip.has_value()) {
-                const auto n4_result =
-                    perform_n4_session_establishment(pfcp_peer,
-                                                     *upf_ip,
-                                                     static_cast<std::uint8_t>(*body->pduSessionId),
-                                                     granted_total_volume_octets,
-                                                     policy_ambr_ul,
-                                                     policy_ambr_dl);
+                std::optional<std::uint64_t> cc_triggered_seid; // ADR-0464
+                const auto n4_result = perform_n4_session_establishment(
+                    pfcp_peer,
+                    *upf_ip,
+                    static_cast<std::uint8_t>(*body->pduSessionId),
+                    granted_total_volume_octets,
+                    policy_ambr_ul,
+                    policy_ambr_dl,
+                    // ADR-0464: LI CC-TF, before the request
+                    // is sent.
+                    [&](std::uint64_t cp_seid) {
+                        if (li_poi && li_poi->cc_enabled()) {
+                            smf::LiSession li = smf::li_session_from_create(json(*body));
+                            li.cp_seid = cp_seid;
+                            li.cp_address = smf_node_address();
+                            cc_triggered_seid = cp_seid;
+                            li_poi->cc_begin(li);
+                        }
+                    });
+                if (!n4_result.has_value() && cc_triggered_seid.has_value()) {
+                    // The establishment failed after the trigger went out; withdraw it.
+                    li_poi->cc_end(*cc_triggered_seid);
+                }
                 // ADR-0050 Stage 3/5: only register a session for later Usage Report handling if a
                 // real URR was actually provisioned above -- a session with no granted quota can
                 // never produce a Session Report Request in the first place (UPF only counts/
@@ -2571,6 +2616,8 @@ int main() {
                 if (n4_result.has_value()) {
                     if (auto stored = sm_contexts.get(sm_context_ref); stored.has_value()) {
                         (*stored)["upSeid"] = n4_result->up_seid;
+                        (*stored)["cpSeid"] = n4_result->cp_seid; // ADR-0464: LI CC-TF
+                        (*stored)["cpAddress"] = smf_node_address();
                         (*stored)["upfIp"] = *upf_ip;
                         // ADR-0328: whether establishment actually installed the session QER.
                         // It does so only when PCF's authSessAmbr parsed, so a later
@@ -4076,6 +4123,10 @@ int main() {
             // SMFPDUSessionRelease.
             if (li_poi && stored->contains("li")) {
                 li_poi->report_release(smf::li_session_from_context(*stored));
+            }
+            // ADR-0464: withdraw the PFCP session from the UPF's CC tasks.
+            if (li_poi && stored->contains("cpSeid")) {
+                li_poi->cc_end(stored->at("cpSeid").get<std::uint64_t>());
             }
             sbi_core::http2::Response resp;
             resp.status = 204;

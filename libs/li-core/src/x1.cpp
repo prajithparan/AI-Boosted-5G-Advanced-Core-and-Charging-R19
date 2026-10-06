@@ -132,6 +132,8 @@ constexpr std::array<KindMap, 13> kTargetKinds{{
     {"nai", TargetIdentifierKind::Nai},
 }};
 
+void read_upf_extension(xmlNodePtr ext, TargetIdentifier& out);
+
 TargetIdentifier read_target(xmlNodePtr ti) {
     TargetIdentifier out;
     for (xmlNodePtr n = ti->children; n != nullptr; n = n->next) {
@@ -146,6 +148,9 @@ TargetIdentifier read_target(xmlNodePtr ti) {
                 out.kind = k.kind;
                 break;
             }
+        }
+        if (out.element == "targetIdentifierExtension") {
+            read_upf_extension(n, out);
         }
         break; // the schema's <xs:choice> permits exactly one
     }
@@ -164,6 +169,39 @@ xmlNodePtr child_ns(xmlNodePtr parent, const char* ns, const char* name) {
         }
     }
     return nullptr;
+}
+
+// TS 33.128 table 6.2.3.3.1-2: <targetIdentifierExtension><Owner>3GPP</Owner>
+// <UPFLIT3TargetIdentifierExtensions><UPFLIT3TargetIdentifier><FTEID|FSEID>..., matched on
+// namespace and local name. An extension this codec does not model (another owner, or a UPFLIT3
+// member other than FTEID/FSEID) stays Kind::Other, element "targetIdentifierExtension". The
+// extension type allows several UPFLIT3TargetIdentifier; one X1 TargetIdentifier carries one, so
+// only the first is read (the writer never produces more).
+void read_upf_extension(xmlNodePtr ext, TargetIdentifier& out) {
+    xmlNodePtr list = child_ns(ext, k3gppX1ExtNs, "UPFLIT3TargetIdentifierExtensions");
+    xmlNodePtr id =
+        list != nullptr ? child_ns(list, k3gppX1ExtNs, "UPFLIT3TargetIdentifier") : nullptr;
+    if (id == nullptr) {
+        return;
+    }
+    const bool fteid = child_ns(id, k3gppX1ExtNs, "FTEID") != nullptr;
+    xmlNodePtr body =
+        fteid ? child_ns(id, k3gppX1ExtNs, "FTEID") : child_ns(id, k3gppX1ExtNs, "FSEID");
+    if (body == nullptr) {
+        return;
+    }
+    xmlNodePtr number = child_ns(body, k3gppX1ExtNs, fteid ? "TEID" : "SEID");
+    if (number == nullptr) {
+        return;
+    }
+    out.kind = fteid ? TargetIdentifierKind::UpfFteid : TargetIdentifierKind::UpfFseid;
+    out.element = fteid ? "FTEID" : "FSEID";
+    out.value = node_text(number);
+    if (xmlNodePtr v4 = child_ns(body, k3gppX1ExtNs, "IPv4Address")) {
+        out.address = node_text(v4);
+    } else if (xmlNodePtr v6 = child_ns(body, k3gppX1ExtNs, "IPv6Address")) {
+        out.address = node_text(v6);
+    }
 }
 
 // An IdentifierAssociationExtensions-typed element (either the global
@@ -763,12 +801,20 @@ std::string target_element(const TargetIdentifier& t) {
     return "";
 }
 
+// The inverse of read_upf_extension. An IPv6 address is expanded to the TS 103 280 fixed form.
+void write_upf_target(xmlNodePtr ti, const TargetIdentifier& target);
+
 void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
     xmlNodePtr td = add_node(parent, "taskDetails");
     add_text(td, "xId", t.xid);
     xmlNodePtr targets = add_node(td, "targetIdentifiers");
     for (const auto& target : t.targets) {
         xmlNodePtr ti = add_node(targets, "targetIdentifier");
+        if (target.kind == TargetIdentifierKind::UpfFteid ||
+            target.kind == TargetIdentifierKind::UpfFseid) {
+            write_upf_target(ti, target);
+            continue;
+        }
         add_text(ti, target_element(target).c_str(), target.value);
     }
     add_text(td, "deliveryType", delivery_text(t.delivery));
@@ -853,6 +899,31 @@ std::string expand_ipv6(const std::string& text) {
                   addr.s6_addr[14],
                   addr.s6_addr[15]);
     return buf;
+}
+
+void write_upf_target(xmlNodePtr ti, const TargetIdentifier& target) {
+    const bool fteid = target.kind == TargetIdentifierKind::UpfFteid;
+    xmlNodePtr ext = add_node(ti, "targetIdentifierExtension");
+    add_text(ext, "Owner", "3GPP");
+    xmlNsPtr tgpp = xmlNewNs(ext,
+                             reinterpret_cast<const xmlChar*>(k3gppX1ExtNs),
+                             reinterpret_cast<const xmlChar*>("tgpp"));
+    const auto child_of = [&](xmlNodePtr parent, const char* name, const std::string* text) {
+        return xmlNewTextChild(parent,
+                               tgpp,
+                               reinterpret_cast<const xmlChar*>(name),
+                               text != nullptr ? reinterpret_cast<const xmlChar*>(text->c_str())
+                                               : nullptr);
+    };
+    xmlNodePtr list = child_of(ext, "UPFLIT3TargetIdentifierExtensions", nullptr);
+    xmlNodePtr id = child_of(list, "UPFLIT3TargetIdentifier", nullptr);
+    xmlNodePtr body = child_of(id, fteid ? "FTEID" : "FSEID", nullptr);
+    child_of(body, fteid ? "TEID" : "SEID", &target.value);
+    if (!target.address.empty()) {
+        const bool v6 = target.address.find(':') != std::string::npos;
+        const std::string text = v6 ? expand_ipv6(target.address) : target.address;
+        child_of(body, v6 ? "IPv6Address" : "IPv4Address", &text);
+    }
 }
 
 void write_destination(xmlNodePtr parent, const DestinationDetails& d, xmlNsPtr c) {

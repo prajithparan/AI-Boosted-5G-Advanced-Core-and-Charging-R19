@@ -278,3 +278,16 @@ target_compile_definitions(udsf_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
 )
 gtest_discover_tests(udsf_integration_tests PROPERTIES TIMEOUT 300)
+
+# ADR-0464: the CC chain -- UPF CC-POI (real upf::UpfLiPoi, packets fed through its tap seam) ->
+# X3 -> the real li-mdf3 process -> HI3 -> a loopback LEMF. Needs Valkey; skips without it.
+add_executable(li_cc_chain_integration_tests test_li_cc_chain.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/upf/src/li_poi.cpp)
+target_include_directories(li_cc_chain_integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/upf/src)
+target_link_libraries(li_cc_chain_integration_tests PRIVATE
+    li_poi li_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_cc_chain_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+    LI_MDF3_PATH="$<TARGET_FILE:li-mdf3>")
+add_dependencies(li_cc_chain_integration_tests li-mdf3)
+gtest_discover_tests(li_cc_chain_integration_tests)

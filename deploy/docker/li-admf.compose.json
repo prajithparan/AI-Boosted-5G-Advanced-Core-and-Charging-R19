@@ -51,7 +51,8 @@
         "peiImeisv",
         "gpsiMsisdn",
         "gpsiNai"
-      ]
+      ],
+      "cc_capable": true
     },
     {
       "name": "mdf2",
@@ -59,6 +60,14 @@
       "ne_identifier": "mdf2-01",
       "x1_url": "https://li-mdf:7805/X1/NE",
       "peer_cert_cn": "li-mdf",
+      "target_elements": []
+    },
+    {
+      "name": "mdf3",
+      "role": "mdf3",
+      "ne_identifier": "mdf3-01",
+      "x1_url": "https://li-mdf3:7811/X1/NE",
+      "peer_cert_cn": "li-mdf3",
       "target_elements": []
     }
   ],

@@ -1080,10 +1080,18 @@ constexpr const char* kSmfX1Url = "https://127.0.0.1:19841/X1/NE";
 constexpr const char* kSmfXid = "5a5a5a5a-5a5a-45a5-85a5-5a5a5a5a5a5a";
 constexpr const char* kSmfNeId = "smf-poi-e2e";
 
-std::string write_li_enabled_smf_config(std::uint16_t mdf2_port) {
+constexpr std::uint16_t kUpfX1Port = 19842;
+constexpr const char* kUpfNeId = "upf-poi-e2e";
+
+std::string write_li_enabled_smf_config(std::uint16_t mdf2_port, bool cc_tf = false) {
     std::ifstream in(SMF_CONFIG_TEMPLATE);
     nlohmann::json cfg = nlohmann::json::parse(in);
     auto& lp = cfg["li_poi"];
+    if (cc_tf) {
+        lp["cc_tf"]["enabled"] = true;
+        lp["cc_tf"]["upf_ne_identifier"] = kUpfNeId;
+        lp["cc_tf"]["upf_x1_url"] = "https://127.0.0.1:19842/X1/NE";
+    }
     lp["enabled"] = true;
     lp["x1_bind_address"] = "127.0.0.1";
     lp["x1_port"] = kSmfX1Port;
@@ -1097,13 +1105,15 @@ std::string write_li_enabled_smf_config(std::uint16_t mdf2_port) {
 }
 
 // An ActivateTask for the SMF POI built by the X1 client codec: SUPI (IMSI) targets, IRI only.
-std::string
-activate_xml(const std::string& xid, const std::string& imsi_digits, const std::string& txn) {
+std::string activate_xml(const std::string& xid,
+                         const std::string& imsi_digits,
+                         const std::string& txn,
+                         li_core::x1::DeliveryType delivery = li_core::x1::DeliveryType::X2Only) {
     namespace x1 = li_core::x1;
     x1::TaskDetails task;
     task.xid = xid;
     task.targets.push_back({x1::TargetIdentifierKind::SupiImsi, "supiimsi", imsi_digits});
-    task.delivery = x1::DeliveryType::X2Only;
+    task.delivery = delivery;
     task.dids = {"22222222-2222-4222-8222-222222222222"};
     x1::Request request;
     request.header = {"admf-test", kSmfNeId, "2026-10-06T00:00:00.000000Z", "v1.23.1", txn};
@@ -1413,5 +1423,99 @@ TEST(LiSmfEndToEnd, ADeregisteringTargetsPduSessionIsReportedAsReleased) {
     ASSERT_EQ(releases.size(), 1U) << "no SMFPDUSessionRelease after the UE deregistered";
     EXPECT_EQ(imsi_of(std::optional<xiri::Supi>(releases[0].supi)), kTargetImsiDigits);
     EXPECT_EQ(releases[0].pdu_session_id, 5);
+    mdf2_server.stop();
+}
+
+// ADR-0464: the SMF's CC-TF drives the UPF's POI over LI_T3 (X1). The UPF's X1 listener here is
+// the REAL li_poi::PoiRuntime the UPF's CC-POI is built on, in this process, so the test can read
+// what the real SMF triggered; the real UPF process still provides the PFCP session.
+TEST(LiSmfEndToEnd, TheCcTfTriggersTheUpfPoiForACcWarrantAndWithdrawsItOnRelease) {
+    using namespace smf_poi;
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    li_poi::Config upf_cfg;
+    upf_cfg.x1_bind_address = "127.0.0.1";
+    upf_cfg.x1_port = kUpfX1Port;
+    upf_cfg.ne_identifier = kUpfNeId;
+    upf_cfg.network_function_id = "upf-e2e";
+    upf_cfg.interception_point_id = "UPF-CC";
+    upf_cfg.mdf2_host = "127.0.0.1";
+    upf_cfg.mdf2_port = 1; // nothing is delivered in this test
+    upf_cfg.cert_path = CERTS_DIR "/upf/cert.pem";
+    upf_cfg.key_path = CERTS_DIR "/upf/key.pem";
+    upf_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+    li_poi::Hooks upf_hooks;
+    upf_hooks.log_name = "upf-standin";
+    upf_hooks.supported_kinds = {li_core::x1::TargetIdentifierKind::UpfFseid};
+    li_poi::PoiRuntime upf_poi(upf_cfg, upf_hooks);
+    upf_poi.start();
+
+    const auto smf_config = write_li_enabled_smf_config(mdf2_server.bound_port(), /*cc_tf=*/true);
+    ::setenv("SMF_CONFIG_FILE", smf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess upf{UPF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    ::unsetenv("SMF_CONFIG_FILE");
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    constexpr const char* kIriOnlyXid = "7c7c7c7c-7c7c-47c7-87c7-7c7c7c7c7c7c";
+    auto admf = make_client("hello-nf");
+    ASSERT_TRUE(provision(admf,
+                          activate_xml(kSmfXid,
+                                       kTargetImsiDigits,
+                                       "00000000-0000-4000-8000-0000000000f6",
+                                       li_core::x1::DeliveryType::X2AndX3)));
+    // A second warrant on the same UE that wants IRI only must not touch the UPF.
+    ASSERT_TRUE(provision(admf,
+                          activate_xml(kIriOnlyXid,
+                                       kTargetImsiDigits,
+                                       "00000000-0000-4000-8000-0000000000f7",
+                                       li_core::x1::DeliveryType::X2Only)));
+
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kUeRanId = 1;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kUeRanId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kUeRanId));
+    ASSERT_TRUE(mdf2.wait_for(2, 15s)) << "no SMFPDUSessionEstablishment";
+
+    // The CC warrant reached the UPF's POI, targeting the PFCP session by F-SEID.
+    std::optional<li_poi::TaskInfo> task;
+    for (int i = 0; i < 100 && !(task = upf_poi.task(kSmfXid)).has_value(); ++i) {
+        std::this_thread::sleep_for(100ms);
+    }
+    ASSERT_TRUE(task.has_value()) << "the CC-TF never triggered the UPF";
+    ASSERT_EQ(task->targets.size(), 1U);
+    EXPECT_EQ(task->targets[0].kind, li_core::x1::TargetIdentifierKind::UpfFseid);
+    EXPECT_GT(std::stoull(task->targets[0].value), 0ULL);
+    EXPECT_EQ(task->targets[0].address, "127.0.0.1");
+    EXPECT_EQ(task->delivery, li_core::x1::DeliveryType::X3Only);
+    EXPECT_FALSE(upf_poi.task(kIriOnlyXid).has_value())
+        << "an IRI-only warrant was triggered on the UPF";
+
+    // The UE deregisters: the SM context is released, the session leaves the UPF's task, and the
+    // task (now with no session) is deactivated.
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kUeRanId,
+        nf_test::build_deregistration_request(
+            ue.keys, /*uplink_count=*/3, ue.guti_value, /*switch_off=*/false)));
+    for (int i = 0; i < 150 && upf_poi.task(kSmfXid).has_value(); ++i) {
+        std::this_thread::sleep_for(100ms);
+    }
+    EXPECT_FALSE(upf_poi.task(kSmfXid).has_value())
+        << "the session was released but its UPF CC task remains";
+    upf_poi.stop();
     mdf2_server.stop();
 }

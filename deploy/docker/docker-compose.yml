@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-admf udsf keycloak oam-gui-bff"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-mdf3 li-admf udsf keycloak oam-gui-bff"
 
   nrf:
     build:
@@ -416,6 +416,29 @@ services:
       - "7805:7805"   # LI_X1 provisioning from the ADMF (TLS 1.3 + mTLS)
       - "7806:7806"   # LI_X2 from the IRI-POIs (TLS 1.3 + mTLS)
       - "9491:9491"   # Prometheus /metrics
+
+  # ADR-0464: MDF3 -- the content-of-communication counterpart of li-mdf (LI_X3 in, LI_HI3 out).
+  li-mdf3:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/li-mdf3.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    environment:
+      LI_MDF3_REDIS_URL: tcp://valkey:6379
+    volumes:
+      - certs_data:/build/certs
+      # ADR-0453: every NF service gets this -- see this file's own header note (top of
+      # file) for why. Bind mount, not a Dockerfile COPY, so editing config/<nf>.json on the
+      # host takes effect on container restart without an image rebuild.
+      - ../../config:/build/config:ro
+    ports:
+      - "7811:7811"   # LI_X1 provisioning from the ADMF (TLS 1.3 + mTLS)
+      - "7812:7812"   # LI_X3 from the UPF CC-POI (TLS 1.3 + mTLS)
+      - "9493:9493"   # Prometheus /metrics
 
   # ADR-0365: MFAF -- the TS 23.288 Messaging Framework Adaptor over Kafka; state in Valkey.
   # Replicate with `docker compose up --scale mfaf=N`: replicas share Valkey and join one Kafka

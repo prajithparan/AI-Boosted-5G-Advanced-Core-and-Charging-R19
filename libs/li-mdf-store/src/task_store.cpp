@@ -1,16 +1,16 @@
-#include "task_store.hpp"
+#include "li_mdf/task_store.hpp"
 
 #include <charconv>
 #include <iterator>
 
 namespace li_mdf {
 
+TaskStore::TaskStore(sw::redis::Redis& redis, const std::string& key_prefix)
+    : redis_(redis), task_prefix_(key_prefix + ":task:"), task_index_(key_prefix + ":tasks"),
+      dest_prefix_(key_prefix + ":dest:"), dest_index_(key_prefix + ":dests"),
+      seq_prefix_(key_prefix + ":seq:") {}
+
 namespace {
-constexpr const char* kTaskPrefix = "limdf:task:";
-constexpr const char* kTaskIndex = "limdf:tasks";
-constexpr const char* kDestPrefix = "limdf:dest:";
-constexpr const char* kDestIndex = "limdf:dests";
-constexpr const char* kSeqPrefix = "limdf:seq:";
 
 const char* kind_name(li_core::x1::TargetIdentifierKind kind) {
     using K = li_core::x1::TargetIdentifierKind;
@@ -226,7 +226,7 @@ std::optional<li_core::x1::ErrorCode> TaskStore::activate(const li_core::x1::Tas
     }
     // TS 103 221-1 table 6.7-3: an XID that is already provisioned is error 2010, and it is the
     // store that knows, not the codec.
-    if (redis_.sismember(kTaskIndex, details.xid)) {
+    if (redis_.sismember(task_index_, details.xid)) {
         return li_core::x1::ErrorCode::XidAlreadyExists;
     }
     if (details.targets.empty()) {
@@ -244,13 +244,13 @@ std::optional<li_core::x1::ErrorCode> TaskStore::activate(const li_core::x1::Tas
 
     nlohmann::json j;
     to_json(j, task);
-    redis_.set(kTaskPrefix + task.xid, j.dump());
-    redis_.sadd(kTaskIndex, task.xid);
+    redis_.set(task_prefix_ + task.xid, j.dump());
+    redis_.sadd(task_index_, task.xid);
     return std::nullopt;
 }
 
 std::optional<li_core::x1::ErrorCode> TaskStore::modify(const li_core::x1::TaskDetails& details) {
-    if (details.xid.empty() || !redis_.sismember(kTaskIndex, details.xid)) {
+    if (details.xid.empty() || !redis_.sismember(task_index_, details.xid)) {
         return li_core::x1::ErrorCode::XidDoesNotExist;
     }
     // Annex C.2.2: after a ModifyTask "only the LIIDs included in the ModifyTask message ... remain
@@ -266,26 +266,26 @@ std::optional<li_core::x1::ErrorCode> TaskStore::modify(const li_core::x1::TaskD
     task.delivery = details.delivery;
     nlohmann::json j;
     to_json(j, task);
-    redis_.set(kTaskPrefix + task.xid, j.dump());
+    redis_.set(task_prefix_ + task.xid, j.dump());
     return std::nullopt;
 }
 
 std::optional<li_core::x1::ErrorCode> TaskStore::deactivate(const std::string& xid) {
-    if (!redis_.sismember(kTaskIndex, xid)) {
+    if (!redis_.sismember(task_index_, xid)) {
         return li_core::x1::ErrorCode::XidDoesNotExist;
     }
-    redis_.del(kTaskPrefix + xid);
-    redis_.srem(kTaskIndex, xid);
+    redis_.del(task_prefix_ + xid);
+    redis_.srem(task_index_, xid);
     return std::nullopt;
 }
 
 std::optional<li_core::x1::ErrorCode> TaskStore::deactivate_all() {
     std::vector<std::string> xids;
-    redis_.smembers(kTaskIndex, std::back_inserter(xids));
+    redis_.smembers(task_index_, std::back_inserter(xids));
     for (const auto& xid : xids) {
-        redis_.del(kTaskPrefix + xid);
+        redis_.del(task_prefix_ + xid);
     }
-    redis_.del(kTaskIndex);
+    redis_.del(task_index_);
     return std::nullopt;
 }
 
@@ -294,7 +294,7 @@ TaskStore::create_destination(const li_core::x1::DestinationDetails& details) {
     if (details.did.empty()) {
         return li_core::x1::ErrorCode::GenericError;
     }
-    if (redis_.sismember(kDestIndex, details.did)) {
+    if (redis_.sismember(dest_index_, details.did)) {
         return li_core::x1::ErrorCode::DidAlreadyExists;
     }
     if (details.address.kind != li_core::x1::DeliveryAddress::Kind::IpAddressAndPort) {
@@ -310,32 +310,32 @@ TaskStore::create_destination(const li_core::x1::DestinationDetails& details) {
     destination.delivery = details.delivery;
     nlohmann::json j;
     to_json(j, destination);
-    redis_.set(kDestPrefix + destination.did, j.dump());
-    redis_.sadd(kDestIndex, destination.did);
+    redis_.set(dest_prefix_ + destination.did, j.dump());
+    redis_.sadd(dest_index_, destination.did);
     return std::nullopt;
 }
 
 std::optional<li_core::x1::ErrorCode> TaskStore::remove_destination(const std::string& did) {
-    if (!redis_.sismember(kDestIndex, did)) {
+    if (!redis_.sismember(dest_index_, did)) {
         return li_core::x1::ErrorCode::DidDoesNotExist;
     }
-    redis_.del(kDestPrefix + did);
-    redis_.srem(kDestIndex, did);
+    redis_.del(dest_prefix_ + did);
+    redis_.srem(dest_index_, did);
     return std::nullopt;
 }
 
 std::optional<li_core::x1::ErrorCode> TaskStore::remove_all_destinations() {
     std::vector<std::string> dids;
-    redis_.smembers(kDestIndex, std::back_inserter(dids));
+    redis_.smembers(dest_index_, std::back_inserter(dids));
     for (const auto& did : dids) {
-        redis_.del(kDestPrefix + did);
+        redis_.del(dest_prefix_ + did);
     }
-    redis_.del(kDestIndex);
+    redis_.del(dest_index_);
     return std::nullopt;
 }
 
 std::optional<Task> TaskStore::task(const std::string& xid) {
-    const auto raw = redis_.get(kTaskPrefix + xid);
+    const auto raw = redis_.get(task_prefix_ + xid);
     if (!raw) {
         return std::nullopt;
     }
@@ -345,7 +345,7 @@ std::optional<Task> TaskStore::task(const std::string& xid) {
 }
 
 std::optional<Destination> TaskStore::destination(const std::string& did) {
-    const auto raw = redis_.get(kDestPrefix + did);
+    const auto raw = redis_.get(dest_prefix_ + did);
     if (!raw) {
         return std::nullopt;
     }
@@ -356,7 +356,7 @@ std::optional<Destination> TaskStore::destination(const std::string& did) {
 
 std::vector<Destination> TaskStore::destinations() {
     std::vector<std::string> dids;
-    redis_.smembers(kDestIndex, std::back_inserter(dids));
+    redis_.smembers(dest_index_, std::back_inserter(dids));
     std::vector<Destination> out;
     out.reserve(dids.size());
     for (const auto& did : dids) {
@@ -370,7 +370,7 @@ std::vector<Destination> TaskStore::destinations() {
 std::uint32_t TaskStore::next_sequence(const std::string& liid) {
     // INCR wraps at the 32-bit field's width: TS 102 232-1's sequenceNumber is
     // INTEGER (0..4294967295).
-    const long long value = redis_.incr(kSeqPrefix + liid);
+    const long long value = redis_.incr(seq_prefix_ + liid);
     return static_cast<std::uint32_t>(static_cast<unsigned long long>(value) & 0xFFFFFFFFULL);
 }
 

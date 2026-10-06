@@ -75,9 +75,12 @@ public:
     FakeNe amf;
     FakeNe smf; // the SMF POI (network element named "smf-poi")
     FakeNe mdf;
+    FakeNe mdf3; // the MDF3 (role "mdf3")
     tl::expected<std::string, std::string> post(const NetworkElement& ne,
                                                 const std::string& body) override {
-        FakeNe& target = ne.role == "mdf2" ? mdf : (ne.name == "smf-poi" ? smf : amf);
+        FakeNe& target = ne.role == "mdf2"   ? mdf
+                         : ne.role == "mdf3" ? mdf3
+                                             : (ne.name == "smf-poi" ? smf : amf);
         return x1::handle_request(body, target.callbacks(ne.ne_identifier));
     }
 };

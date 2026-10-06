@@ -135,6 +135,40 @@ tl::expected<IriMessage, std::string> decode_iri_message(std::span<const std::ui
 tl::expected<std::vector<std::uint8_t>, std::string> encode_tri_message(const TriMessage& message);
 tl::expected<TriMessage, std::string> decode_tri_message(std::span<const std::uint8_t> bytes);
 
+// One LI_HI3 CC message: one PS-PDU carrying one CC payload (TS 33.128 clause 6.2.3.8). Like
+// IriMessage, no aggregation of several payloads into one PDU.
+enum class CcPduForm : std::uint8_t {
+    // CCPayload.pDU.extendedUPFCCPDU (table 6.2.3.8-1): the GTP-U payload without encapsulation,
+    // typed (IP / Ethernet / unstructured), with the QFI when the GTP-U header carries one.
+    Extended,
+    // CCPayload.pDU.uPFCCPDU: the whole GTP-U packet as received over LI_X3. The spec allows it
+    // only when the packet's content is IPv4 or IPv6, and it needs X3 Payload Format 12.
+    GtpuPacket,
+};
+
+enum class CcContentKind : std::uint8_t { Ip, Ethernet, Unstructured };
+
+struct CcMessage {
+    PsHeader header;
+    // PS payload direction (TS 102 232-1 PayloadDirection); nullopt = absent.
+    std::optional<std::uint8_t> payload_direction;
+    std::vector<std::uint8_t> cc_payload; // BER TS33128Payloads.CCPayload
+
+    bool operator==(const CcMessage&) const = default;
+};
+tl::expected<std::vector<std::uint8_t>, std::string> encode_cc_message(const CcMessage& message);
+tl::expected<CcMessage, std::string> decode_cc_message(std::span<const std::uint8_t> bytes);
+
+// What a BER CCPayload (the threeGPP33128DefinedCC of a CcMessage) carries, decoded for tests and
+// for a LEMF-side tool.
+struct CcContent {
+    CcPduForm form = CcPduForm::Extended;
+    CcContentKind kind = CcContentKind::Ip; // Extended only
+    std::optional<std::uint8_t> qfi;        // Extended only
+    std::vector<std::uint8_t> data;
+};
+tl::expected<CcContent, std::string> decode_cc_payload(std::span<const std::uint8_t> ber);
+
 // What kind of payload a received PS-PDU carries, so a reader can route it before decoding.
 enum class PayloadKind : std::uint8_t { Iri, Cc, Tri };
 tl::expected<PayloadKind, std::string> payload_kind(std::span<const std::uint8_t> bytes);
@@ -173,10 +207,24 @@ struct MediationContext {
 tl::expected<std::vector<std::uint8_t>, std::string>
 mediate_x2_pdu(const Pdu& pdu, const MediationContext& context);
 
+// The MDF3's step (TS 33.128 6.2.3.8): one LI_X3 PDU -> one LI_HI3 PS-PDU. Accepts Payload Format 5
+// (IPv4), 6 (IPv6), 7 (Ethernet) and 12 (GTP-U); `form` picks the CCPayload alternative. The PS
+// header takes the context's LIID / CID / sequence number and the PDU's NFID, IPID and timestamp.
+tl::expected<std::vector<std::uint8_t>, std::string>
+mediate_x3_pdu(const Pdu& pdu, const MediationContext& context, CcPduForm form);
+
+// The MDF3's step (TS 33.128 6.2.3.8): one LI_X3 PDU -> one LI_HI3 PS-PDU. Accepts Payload Format 5
+// (IPv4), 6 (IPv6), 7 (Ethernet) and 12 (GTP-U); `form` picks the CCPayload alternative. The PS
+// header takes the context's LIID / CID / sequence number and the PDU's NFID, IPID and timestamp.
+tl::expected<std::vector<std::uint8_t>, std::string>
+mediate_x3_pdu(const Pdu& pdu, const MediationContext& context, CcPduForm form);
+
 // The relative OID arcs this MDF2 stamps into IRIPayload.iRIPayloadOID:
 // {threeGPP(4) ts33128(19) r19(19) version7(7) iRI(3)}. Public so a test can assert the value
 // rather than re-derive it.
 inline constexpr std::uint32_t kIriPayloadOidArcs[] = {4, 19, 19, 7, 3};
+// ... and the CCPayload's: cCPayloadOID {threeGPP(4) ts33128(19) r19(19) version7(7) cC(4)}.
+inline constexpr std::uint32_t kCcPayloadOidArcs[] = {4, 19, 19, 7, 4};
 // ETSI TS 102 232-1 version43 li-psDomainId: {0 4 0 2 2 5 1 43}.
 inline constexpr std::uint32_t kLiPsDomainIdArcs[] = {0, 4, 0, 2, 2, 5, 1, 43};
 

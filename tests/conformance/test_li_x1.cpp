@@ -60,6 +60,43 @@ TEST(LiX1, ParsesActivateTaskAndReadsTheTargetIdentifier) {
     EXPECT_EQ(t.dids[0], "11111111-1111-4111-8111-111111111111");
 }
 
+TEST(LiX1, AUpfFteidTargetRoundTripsThroughTheTs33128Extension) {
+    // TS 33.128 table 6.2.3.3.1-2: a GTP tunnel is a 3GPP-owned TargetIdentifierExtension.
+    TaskDetails task;
+    task.xid = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    task.delivery = DeliveryType::X3Only;
+    task.dids = {"11111111-1111-4111-8111-111111111111"};
+    TargetIdentifier v4;
+    v4.kind = TargetIdentifierKind::UpfFteid;
+    v4.value = "4294967295";
+    v4.address = "10.1.2.3";
+    TargetIdentifier seid;
+    seid.kind = TargetIdentifierKind::UpfFseid;
+    seid.value = "18446744073709551615";
+    seid.address = "::1";
+    task.targets = {v4, seid};
+    Request request;
+    request.type = MessageType::ActivateTask;
+    request.header.admf_identifier = "admf-1";
+    request.header.ne_identifier = "upf-1";
+    request.header.message_timestamp = "2026-10-06T00:00:00.000000Z";
+    request.header.version = "v1.23.1";
+    request.header.x1_transaction_id = "2b1e4f6a-0000-4000-8000-000000000002";
+    request.body = ActivateTask{task};
+    const auto xml = serialise_request({request});
+    ASSERT_TRUE(xml.has_value()) << xml.error();
+    const auto parsed = parse_request(*xml);
+    ASSERT_TRUE(parsed.has_value()) << parsed.error().detail << "\n" << *xml;
+    const auto& got = std::get<ActivateTask>(parsed->requests.at(0).body).task;
+    ASSERT_EQ(got.targets.size(), 2U);
+    EXPECT_EQ(got.targets[0].kind, TargetIdentifierKind::UpfFteid);
+    EXPECT_EQ(got.targets[0].value, "4294967295");
+    EXPECT_EQ(got.targets[0].address, "10.1.2.3");
+    EXPECT_EQ(got.targets[1].kind, TargetIdentifierKind::UpfFseid);
+    EXPECT_EQ(got.targets[1].value, "18446744073709551615");
+    EXPECT_EQ(got.targets[1].address, "0000:0000:0000:0000:0000:0000:0000:0001");
+}
+
 TEST(LiX1, RejectsANonSchemaValidDocumentAsTopLevelError) {
     // deliveryType carries a value the enum forbids -> schema-invalid -> TopLevelError.
     const std::string bad = envelope("ActivateTaskRequest", R"(

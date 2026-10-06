@@ -107,8 +107,28 @@ std::optional<std::string> Lipf::infeasible(const TaskSpec& spec) const {
                    "' cannot be matched by any POI in this deployment";
         }
     }
-    if (spec.wants_cc && !config_.cc_capable) {
-        return "the task requires content interception (CC) but no CC-POI is deployed";
+    if (spec.wants_cc) {
+        if (!config_.cc_capable) {
+            return "the task requires content interception (CC) but this deployment is not "
+                   "configured for it (cc_capable is false)";
+        }
+        // CC needs a CC-capable POI (the SMF with its CC-TF) for EVERY target, and an MDF3.
+        for (const auto& t : spec.targets) {
+            const bool carried =
+                std::any_of(elements_.begin(), elements_.end(), [&](const NetworkElement& ne) {
+                    return ne.role == "poi" && ne.cc_capable && poi_accepts(ne, t.element);
+                });
+            if (!carried) {
+                return "target identifier '" + t.element +
+                       "' cannot be intercepted for content by any CC-capable POI in this "
+                       "deployment";
+            }
+        }
+        if (std::none_of(elements_.begin(), elements_.end(), [](const NetworkElement& ne) {
+                return ne.role == "mdf3";
+            })) {
+            return "the task requires content interception (CC) but no MDF3 is configured";
+        }
     }
     if (!spec.wants_iri && !spec.wants_cc) {
         return "the task requests neither IRI nor CC";
@@ -117,22 +137,35 @@ std::optional<std::string> Lipf::infeasible(const TaskSpec& spec) const {
         return "the task has no delivery destination";
     }
     bool have_poi = false;
-    bool have_mdf = false;
+    bool have_mdf2 = false;
     for (const auto& ne : elements_) {
         have_poi = have_poi || ne.role == "poi";
-        have_mdf = have_mdf || ne.role == "mdf2";
+        have_mdf2 = have_mdf2 || ne.role == "mdf2";
     }
-    if (!have_poi || !have_mdf) {
+    if (!have_poi || (spec.wants_iri && !have_mdf2)) {
         return "no POI and MDF2 are configured to provision";
     }
     return std::nullopt;
 }
 
-x1::TaskDetails Lipf::mdf2_task(const TaskSpec& spec) const {
+bool Lipf::is_mdf(const NetworkElement& ne) {
+    return ne.role == "mdf2" || ne.role == "mdf3";
+}
+
+// Whether `ne` (an MDF) has anything to do for this task: the MDF2 mediates IRI, the MDF3 CC.
+bool Lipf::mdf_serves(const NetworkElement& ne, const TaskSpec& spec) {
+    return ne.role == "mdf2" ? spec.wants_iri : spec.wants_cc;
+}
+
+x1::DeliveryType Lipf::mdf_delivery(const NetworkElement& ne) {
+    return ne.role == "mdf2" ? x1::DeliveryType::X2Only : x1::DeliveryType::X3Only;
+}
+
+x1::TaskDetails Lipf::mdf_task(const TaskSpec& spec, const NetworkElement& ne) const {
     x1::TaskDetails t;
     t.xid = spec.xid;
     t.targets = spec.targets;
-    t.delivery = spec.wants_cc ? x1::DeliveryType::X2AndX3 : x1::DeliveryType::X2Only;
+    t.delivery = mdf_delivery(ne);
     std::vector<std::string> dids;
     for (const auto& d : spec.destinations) {
         dids.push_back(destination_id(spec.xid, d.address));
@@ -141,7 +174,7 @@ x1::TaskDetails Lipf::mdf2_task(const TaskSpec& spec) const {
     x1::MediationDetails md;
     md.liid = spec.liid;
     md.delivery =
-        spec.wants_cc ? x1::MediationDeliveryType::Hi2AndHi3 : x1::MediationDeliveryType::Hi2Only;
+        ne.role == "mdf2" ? x1::MediationDeliveryType::Hi2Only : x1::MediationDeliveryType::Hi3Only;
     md.start_time = spec.start_time;
     md.end_time = spec.end_time;
     md.dids = dids;
@@ -159,8 +192,12 @@ x1::TaskDetails Lipf::poi_task(const TaskSpec& spec, const NetworkElement& ne) c
             t.targets.push_back(target);
         }
     }
-    t.delivery =
-        x1::DeliveryType::X2Only; // an IRI-POI streams over X2; CC would be X3 (no CC-POI yet)
+    // An IRI-POI streams over X2. A CC-capable POI (the SMF) also triggers the UPF's CC-POI for a
+    // task that wants CC (X3).
+    const bool cc = spec.wants_cc && ne.cc_capable;
+    t.delivery = spec.wants_iri && cc ? x1::DeliveryType::X2AndX3
+                 : cc                 ? x1::DeliveryType::X3Only
+                                      : x1::DeliveryType::X2Only;
     // The POI's own X2 destination is its configured MDF2 (the POI ignores Destination routing,
     // ADR-0377), so no DIDs are provisioned on it.
     t.identifier_association_events = config_.poi_identifier_association;
@@ -228,16 +265,17 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
         return r;
     };
 
-    // 1. MDF2: where the records go, then the task that maps XID -> LIID -> those destinations.
+    // 1. MDF2 (IRI) and MDF3 (CC): where the records go, then the task that maps XID -> LIID ->
+    // those destinations.
     for (const auto& ne : elements_) {
-        if (ne.role != "mdf2") {
+        if (!is_mdf(ne) || !mdf_serves(ne, spec)) {
             continue;
         }
         created_destinations_on.push_back(&ne);
         for (const auto& d : spec.destinations) {
             x1::DestinationDetails dest;
             dest.did = destination_id(spec.xid, d.address);
-            dest.delivery = spec.wants_cc ? x1::DeliveryType::X2AndX3 : x1::DeliveryType::X2Only;
+            dest.delivery = mdf_delivery(ne);
             dest.address = {x1::DeliveryAddress::Kind::IpAddressAndPort, d.address};
             auto r = send(ne, x1::MessageType::CreateDestination, x1::CreateDestination{dest});
             // 2030 DidAlreadyExists: a retry of an earlier provisioning; the destination is already
@@ -246,9 +284,10 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
                 return fail(r);
             }
         }
-        auto r = send(ne, x1::MessageType::ActivateTask, x1::ActivateTask{mdf2_task(spec)});
+        auto r = send(ne, x1::MessageType::ActivateTask, x1::ActivateTask{mdf_task(spec, ne)});
         if (!r.ok && r.x1_error == static_cast<int>(x1::ErrorCode::XidAlreadyExists)) {
-            r = send(ne, x1::MessageType::ModifyTask, x1::ModifyTask{mdf2_task(spec)}); // converge
+            r = send(
+                ne, x1::MessageType::ModifyTask, x1::ModifyTask{mdf_task(spec, ne)}); // converge
         }
         if (!r.ok) {
             return fail(r);
@@ -259,6 +298,9 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
     for (const auto& ne : elements_) {
         if (ne.role != "poi") {
             continue;
+        }
+        if (!spec.wants_iri && !ne.cc_capable) {
+            continue; // a CC-only task: an IRI-only POI has nothing to do
         }
         const auto task = poi_task(spec, ne);
         if (task.targets.empty()) {
@@ -289,7 +331,7 @@ LipfResult Lipf::deprovision(const TaskSpec& spec) {
         }
     }
     for (const auto& ne : elements_) {
-        if (ne.role != "mdf2") {
+        if (!is_mdf(ne)) {
             continue;
         }
         for (const auto& d : spec.destinations) {
@@ -313,7 +355,7 @@ std::vector<Lipf::KeepaliveResult> Lipf::keepalive_all() {
 
 void Lipf::retire_destinations(const std::string& xid, const std::vector<std::string>& addresses) {
     for (const auto& ne : elements_) {
-        if (ne.role != "mdf2") {
+        if (!is_mdf(ne)) {
             continue;
         }
         for (const auto& address : addresses) {
@@ -329,20 +371,20 @@ LipfResult Lipf::change_delivery(const TaskSpec& spec) {
         return {false, *why, std::nullopt};
     }
     for (const auto& ne : elements_) {
-        if (ne.role != "mdf2") {
+        if (!is_mdf(ne) || !mdf_serves(ne, spec)) {
             continue;
         }
         for (const auto& d : spec.destinations) {
             x1::DestinationDetails dest;
             dest.did = destination_id(spec.xid, d.address);
-            dest.delivery = spec.wants_cc ? x1::DeliveryType::X2AndX3 : x1::DeliveryType::X2Only;
+            dest.delivery = mdf_delivery(ne);
             dest.address = {x1::DeliveryAddress::Kind::IpAddressAndPort, d.address};
             auto r = send(ne, x1::MessageType::CreateDestination, x1::CreateDestination{dest});
             if (!r.ok && r.x1_error != static_cast<int>(x1::ErrorCode::DidAlreadyExists)) {
                 return r;
             }
         }
-        const auto r = send(ne, x1::MessageType::ModifyTask, x1::ModifyTask{mdf2_task(spec)});
+        const auto r = send(ne, x1::MessageType::ModifyTask, x1::ModifyTask{mdf_task(spec, ne)});
         if (!r.ok) {
             return r;
         }

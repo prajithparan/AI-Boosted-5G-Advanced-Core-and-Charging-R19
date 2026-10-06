@@ -18,7 +18,7 @@ namespace li_admf {
 // A network element the ADMF provisions: where its LI_X1 listener is and what it is.
 struct NetworkElement {
     std::string name;          // for logs and status ("amf-poi")
-    std::string role;          // "poi" (an IRI-POI) or "mdf2" (the MDF2)
+    std::string role;          // "poi" (an IRI-POI, or the SMF's IRI-POI + CC-TF), "mdf2" or "mdf3"
     std::string ne_identifier; // the neIdentifier its X1 server checks (TS 103 221-1 6.1)
     std::string x1_url;        // e.g. https://127.0.0.1:7807/X1/NE
     std::string
@@ -28,6 +28,10 @@ struct NetworkElement {
     // set (supiimsi, supinai, imsi, nai), what every POI in this deployment could match before the
     // SMF.
     std::vector<std::string> target_elements;
+    // A POI that also triggers CC interception (the SMF: its CC-TF drives the UPF's CC-POI over
+    // LI_T3, ADR-0464). A task that needs CC is provisioned only through such a POI, and refused
+    // rather than silently downgraded to IRI-only when none carries its targets.
+    bool cc_capable = false;
 };
 
 // The X1 target-identifier element -> the HI1 target FormatName (TS 103 120 Annex C) it carries.
@@ -75,8 +79,8 @@ struct LipfConfig {
     // TS 33.128 table 6.2.2.1.1-1: whether the AMF POI generates Identifier(De)Association records.
     // A deployment policy, not something a warrant carries.
     std::optional<li_core::x1::IdentifierAssociationEventsGenerated> poi_identifier_association;
-    // Whether any CC-POI exists in this deployment. None does yet (SMF/UPF POIs are not built), so
-    // a task that needs CC is refused rather than silently downgraded to IRI-only.
+    // The master switch for CC tasks (config `cc_capable`). Off until real packet capture exists in
+    // the UPF datapath (ADR-0464 stage 4): a CC warrant is then refused, never downgraded to IRI.
     bool cc_capable = false;
 };
 
@@ -123,7 +127,11 @@ public:
 private:
     LipfResult
     send(const NetworkElement& ne, li_core::x1::MessageType type, li_core::x1::RequestBody body);
-    [[nodiscard]] li_core::x1::TaskDetails mdf2_task(const TaskSpec& spec) const;
+    [[nodiscard]] li_core::x1::TaskDetails mdf_task(const TaskSpec& spec,
+                                                    const NetworkElement& ne) const;
+    [[nodiscard]] static bool is_mdf(const NetworkElement& ne);
+    [[nodiscard]] static bool mdf_serves(const NetworkElement& ne, const TaskSpec& spec);
+    [[nodiscard]] static li_core::x1::DeliveryType mdf_delivery(const NetworkElement& ne);
     [[nodiscard]] li_core::x1::TaskDetails poi_task(const TaskSpec& spec,
                                                     const NetworkElement& ne) const;
     [[nodiscard]] static bool poi_accepts(const NetworkElement& ne, const std::string& element);

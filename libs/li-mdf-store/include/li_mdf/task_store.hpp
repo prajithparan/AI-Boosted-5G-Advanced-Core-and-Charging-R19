@@ -63,7 +63,9 @@ void from_json(const nlohmann::json& j, Destination& v);
 
 class TaskStore {
 public:
-    explicit TaskStore(sw::redis::Redis& redis) : redis_(redis) {}
+    // `key_prefix` keeps an MDF2's and an MDF3's warrants apart when they share one Valkey (the
+    // MDF2 uses "limdf", the MDF3 "limdf3").
+    explicit TaskStore(sw::redis::Redis& redis, const std::string& key_prefix = "limdf");
 
     // Each returns the X1 error code to report, or nullopt on success -- the shape
     // li_core::x1::TaskStoreCallbacks wants.
@@ -84,6 +86,7 @@ public:
 
 private:
     sw::redis::Redis& redis_;
+    std::string task_prefix_, task_index_, dest_prefix_, dest_index_, seq_prefix_;
 };
 
 // The X1 target identifiers of a task, tagged with the clause-5.5.5 provenance the MDF2 can

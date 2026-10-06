@@ -92,6 +92,7 @@
 #include "TS29564_Nupf_GetUEPrivateIPaddrAndIdentifiers.hpp"
 #include "datapath.hpp"
 #include "event_subscription_store.hpp"
+#include "li_poi.hpp"
 #include "pfcp_core/common_ies.hpp"
 #include "pfcp_core/header.hpp"
 #include "pfcp_core/ie.hpp"
@@ -788,6 +789,9 @@ struct SessionEstablishmentResult {
     // the SEID value provided by the corresponding receiving entity") means UPF's response header
     // must carry the value the CP F-SEID IE in the request said to use -- not UPF's own new SEID.
     std::uint64_t response_header_seid = 0;
+    // The address in the CP F-SEID IE (dotted quad): with the SEID it is the F-SEID the SMF's LI
+    // CC-TF names as a target (ADR-0464).
+    std::string cp_address;
     // ADR-0071 (gap-closure Tier 1d): set whenever this session allocated a real uplink F-TEID,
     // regardless of whether a URR was also provisioned -- run_pfcp_lifecycle needs this
     // unconditionally to register SeidToTeidStore, since ANY session with an allocated F-TEID must
@@ -1029,6 +1033,9 @@ build_session_establishment_response_ies(const std::vector<std::uint8_t>& reques
 
     result.ies = std::move(ies_out);
     result.response_header_seid = cp_f_seid->seid;
+    result.cp_address =
+        std::to_string(cp_f_seid->ipv4[0]) + "." + std::to_string(cp_f_seid->ipv4[1]) + "." +
+        std::to_string(cp_f_seid->ipv4[2]) + "." + std::to_string(cp_f_seid->ipv4[3]);
     return result;
 }
 
@@ -1491,6 +1498,7 @@ void run_pfcp_lifecycle(std::time_t start_time,
                         upf::Datapath* datapath,
                         TeidSessionStore& teid_session_store,
                         SeidToTeidStore& seid_to_teid_store,
+                        upf::UpfLiPoi* li_poi,
                         std::uint16_t pfcp_bind_port) {
     boost::asio::io_context ioc;
     // ADR-0357: this is the thread main() blocks in, and it blocks in a SYNCHRONOUS receive_from
@@ -1598,6 +1606,14 @@ void run_pfcp_lifecycle(std::time_t start_time,
             // be unreachable by SEID for any later Modification/Deletion at all).
             if (result->allocated_teid.has_value()) {
                 seid_to_teid_store.put(result->up_seid, *result->allocated_teid);
+                // CC-POI (ADR-0464): the PFCP session and its N3 uplink tunnel, so the packet tap
+                // can map a TEID to the F-SEID a warrant targets.
+                if (li_poi != nullptr) {
+                    li_poi->on_session_established(result->response_header_seid,
+                                                   result->cp_address,
+                                                   result->up_seid,
+                                                   *result->allocated_teid);
+                }
             }
         } else if (header->message_type == pfcp_core::MessageType::SessionModificationRequest) {
             const auto result = build_session_modification_response_ies(
@@ -1620,6 +1636,9 @@ void run_pfcp_lifecycle(std::time_t start_time,
                 spdlog::warn("upf: malformed Session Deletion Request from {}, ignoring",
                              sender.address().to_string());
                 continue;
+            }
+            if (li_poi != nullptr) {
+                li_poi->on_session_deleted(header->seid);
             }
             resp_header.message_type = pfcp_core::MessageType::SessionDeletionResponse;
             resp_header.has_seid = true;
@@ -1774,6 +1793,34 @@ int main() {
                      "be decapsulated/forwarded");
     }
 
+    // LI CC-POI (TS 33.127 6.2.3, ADR-0464), disabled unless config/upf.json's li_poi.enabled is
+    // true. Process lifetime; nullptr keeps the UPF's behaviour unchanged. NOTE the datapath does
+    // not feed it packets yet (see nfs/upf/src/li_poi.hpp).
+    std::unique_ptr<upf::UpfLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.value("x1_bind_address", std::string{"0.0.0.0"});
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"upf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", upf_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"UPF-CC-POI-1"});
+        // The X3 destination: the MDF3 (the runtime's "mdf2_*" is just its one delivery endpoint).
+        poi_cfg.mdf2_host = lp.at("mdf3_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf3_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf3_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/upf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/upf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<upf::UpfLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
+
     std::thread(run_nrf_lifecycle, upf_instance_id, nrf_base_url).detach();
     // ADR-0394 (extended): NOT detached -- run_sbi_server holds a reference to event_subs, which
     // main() destructs on return; a detached copy of this exact bug (an unjoined thread using a
@@ -1789,6 +1836,7 @@ int main() {
                        datapath.has_value() ? &*datapath : nullptr,
                        teid_session_store,
                        seid_to_teid_store,
+                       li_poi.get(),
                        nf_config::require<std::uint16_t>(
                            config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT")); // blocks forever
     sbi_server_thread.join();

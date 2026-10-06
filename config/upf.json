@@ -2,5 +2,20 @@
   "port": 7796,
   "pfcp_bind_port": 8805,
   "metrics_bind_address": "0.0.0.0:9471",
-  "nrf_base_url": "https://127.0.0.1:7777"
+  "nrf_base_url": "https://127.0.0.1:7777",
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7810,
+    "ne_identifier": "upf-poi-01",
+    "network_function_id": "upf-01.5gc.example.net",
+    "interception_point_id": "UPF-CC-POI-1",
+    "mdf3_host": "127.0.0.1",
+    "mdf3_port": 7812,
+    "mdf3_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  }
 }

@@ -104,12 +104,14 @@ int main() {
     }
     std::vector<li_admf::NetworkElement> elements;
     for (const auto& ne : config.at("network_elements")) {
-        elements.push_back({ne.at("name").get<std::string>(),
-                            ne.at("role").get<std::string>(),
-                            ne.at("ne_identifier").get<std::string>(),
-                            ne.at("x1_url").get<std::string>(),
-                            ne.at("peer_cert_cn").get<std::string>(),
-                            ne.at("target_elements").get<std::vector<std::string>>()});
+        li_admf::NetworkElement element{ne.at("name").get<std::string>(),
+                                        ne.at("role").get<std::string>(),
+                                        ne.at("ne_identifier").get<std::string>(),
+                                        ne.at("x1_url").get<std::string>(),
+                                        ne.at("peer_cert_cn").get<std::string>(),
+                                        ne.value("target_elements", std::vector<std::string>{})};
+        element.cc_capable = ne.value("cc_capable", false);
+        elements.push_back(std::move(element));
     }
     li_admf::HttpX1Transport x1_transport(sbi_core::http2::TlsConfig{
         .cert_path = CERTS_DIR "/li-admf/cert.pem",

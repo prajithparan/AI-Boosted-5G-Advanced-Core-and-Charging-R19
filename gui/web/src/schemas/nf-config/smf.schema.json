@@ -98,6 +98,24 @@
         },
         "x1_allow_deactivate_all": {
           "type": "boolean"
+        },
+        "cc_tf": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "tf_identifier": {
+              "type": "string"
+            },
+            "upf_ne_identifier": {
+              "type": "string"
+            },
+            "upf_x1_url": {
+              "type": "string"
+            }
+          }
         }
       }
     }
@@ -121,6 +139,7 @@
   "x-apply": "restart",
   "x-review": [
     "qos_mon_interval_seconds: present in the file but no source line visibly reads it",
-    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "li_poi.cc_tf: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

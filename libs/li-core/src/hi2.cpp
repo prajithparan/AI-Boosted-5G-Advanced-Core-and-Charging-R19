@@ -24,6 +24,10 @@
 // envelope as opaque octets -- and they are decoupled here too: the envelope side never names a
 // TS33128Payloads type. Hidden-visibility symbols, included only from this .cpp (ADR-0364).
 extern "C" {
+#include <CCContents.h>
+#include <CCPDU.h>
+#include <CCPayload.h>
+#include <ExtendedUPFCCPDU.h>
 #include <GeneralizedTime.h>
 #include <INTEGER.h>
 #include <IRIContents.h>
@@ -35,10 +39,14 @@ extern "C" {
 #include <OBJECT_IDENTIFIER.h>
 #include <OCTET_STRING.h>
 #include <PS-PDU.h>
+#include <PSCCPayload.h>
 #include <PSIRIPayload.h>
+#include <PayloadDirection.h>
+#include <QFI.h>
 #include <RELATIVE-OID.h>
 #include <TRIPayload.h>
 #include <TargetIdentifier.h>
+#include <UPFCCPDUPayload.h>
 #include <XIRIEvent.h>
 #include <XIRIPayload.h>
 #include <asn_codecs.h>
@@ -811,6 +819,316 @@ mediate_x2_pdu(const Pdu& pdu, const MediationContext& context) {
     message.header.timestamp_qualifier = TimestampQualifier::TimeOfInterception;
 
     return encode_iri_message(message);
+}
+
+// ---- LI_HI3: content of communication (TS 33.128 clause 6.2.3.8) ------------------------------
+
+tl::expected<std::vector<std::uint8_t>, std::string> encode_cc_message(const CcMessage& message) {
+    if (message.cc_payload.empty()) {
+        return tl::make_unexpected(std::string("CCContents.threeGPP33128DefinedCC is empty"));
+    }
+    AsnPtr<PS_PDU_t, &asn_DEF_PS_PDU> pdu(alloc<PS_PDU_t>());
+    if (!pdu) {
+        return tl::make_unexpected(std::string("allocation failed"));
+    }
+    if (auto r = fill_ps_header(pdu->pSHeader, message.header); !r) {
+        return tl::make_unexpected(r.error());
+    }
+    pdu->payload.present = Payload_PR_cCPayloadSequence;
+    auto* cc = alloc<PSCCPayload_t>();
+    if (cc == nullptr) {
+        return tl::make_unexpected(std::string("PSCCPayload allocation failed"));
+    }
+    if (message.payload_direction) {
+        if (*message.payload_direction > PayloadDirection_notapplicable) {
+            ASN_STRUCT_FREE(asn_DEF_PSCCPayload, cc);
+            return tl::make_unexpected(std::string("PayloadDirection out of range"));
+        }
+        cc->payloadDirection = alloc<PayloadDirection_t>();
+        if (cc->payloadDirection == nullptr) {
+            ASN_STRUCT_FREE(asn_DEF_PSCCPayload, cc);
+            return tl::make_unexpected(std::string("PayloadDirection allocation failed"));
+        }
+        *cc->payloadDirection = *message.payload_direction;
+    }
+    cc->cCContents.present = CCContents_PR_threeGPP33128DefinedCC;
+    if (OCTET_STRING_fromBuf(&cc->cCContents.choice.threeGPP33128DefinedCC,
+                             reinterpret_cast<const char*>(message.cc_payload.data()),
+                             static_cast<int>(message.cc_payload.size())) != 0) {
+        ASN_STRUCT_FREE(asn_DEF_PSCCPayload, cc);
+        return tl::make_unexpected(std::string("threeGPP33128DefinedCC allocation failed"));
+    }
+    if (ASN_SEQUENCE_ADD(&pdu->payload.choice.cCPayloadSequence.list, cc) != 0) {
+        ASN_STRUCT_FREE(asn_DEF_PSCCPayload, cc);
+        return tl::make_unexpected(std::string("cCPayloadSequence append failed"));
+    }
+    return der_encode_to_vector(asn_DEF_PS_PDU, pdu.get());
+}
+
+tl::expected<CcMessage, std::string> decode_cc_message(std::span<const std::uint8_t> bytes) {
+    auto pdu = decode_ps_pdu(bytes);
+    if (!pdu) {
+        return tl::make_unexpected(pdu.error());
+    }
+    if ((*pdu)->payload.present != Payload_PR_cCPayloadSequence) {
+        return tl::make_unexpected(std::string("PS-PDU payload is not a cCPayloadSequence"));
+    }
+    auto header = read_ps_header((*pdu)->pSHeader);
+    if (!header) {
+        return tl::make_unexpected(header.error());
+    }
+    const auto& list = (*pdu)->payload.choice.cCPayloadSequence.list;
+    if (list.count != 1) {
+        return tl::make_unexpected(std::string("expected exactly one PSCCPayload, got ") +
+                                   std::to_string(list.count));
+    }
+    const PSCCPayload_t& cc = *list.array[0];
+    if (cc.cCContents.present != CCContents_PR_threeGPP33128DefinedCC) {
+        return tl::make_unexpected(
+            std::string("CCContents is not the threeGPP33128DefinedCC alternative"));
+    }
+    CcMessage out;
+    out.header = *header;
+    if (cc.payloadDirection != nullptr) {
+        out.payload_direction = static_cast<std::uint8_t>(*cc.payloadDirection);
+    }
+    const OCTET_STRING_t& payload = cc.cCContents.choice.threeGPP33128DefinedCC;
+    out.cc_payload.assign(payload.buf, payload.buf + payload.size);
+    return out;
+}
+
+namespace {
+
+// BER CCPayload around one already-built CCPDU alternative.
+tl::expected<std::vector<std::uint8_t>, std::string>
+encode_cc_payload(AsnPtr<CCPayload_t, &asn_DEF_CCPayload>& payload) {
+    if (RELATIVE_OID_set_arcs(
+            &payload->cCPayloadOID, kCcPayloadOidArcs, std::size(kCcPayloadOidArcs)) != 0) {
+        return tl::make_unexpected(std::string("cCPayloadOID allocation failed"));
+    }
+    return der_encode_to_vector(asn_DEF_CCPayload, payload.get());
+}
+
+// TS 29.281 clause 5.1: the GTP-U header. Returns the offset of the T-PDU and the QFI from a PDU
+// Session Container extension header (TS 38.415 clause 5.5.3.3: the second octet of the container
+// is PPP/RQI/QFI(6)), or an error for a header that does not parse.
+struct GtpuView {
+    std::size_t payload_offset = 0;
+    std::optional<std::uint8_t> qfi;
+};
+tl::expected<GtpuView, std::string> view_gtpu(std::span<const std::uint8_t> packet) {
+    if (packet.size() < 8) {
+        return tl::make_unexpected(std::string("GTP-U packet shorter than its 8-octet header"));
+    }
+    const std::uint8_t flags = packet[0];
+    if ((flags >> 5) != 1 || (flags & 0x10U) == 0) {
+        return tl::make_unexpected(std::string("not a GTP-U version 1 protocol-type-1 packet"));
+    }
+    if (packet[1] != 0xFF) {
+        return tl::make_unexpected(std::string("GTP-U message type is not G-PDU (255)"));
+    }
+    const std::size_t length = (static_cast<std::size_t>(packet[2]) << 8) | packet[3];
+    if (packet.size() < 8 + length) {
+        return tl::make_unexpected(std::string("GTP-U length runs past the packet"));
+    }
+    GtpuView view;
+    view.payload_offset = 8;
+    if ((flags & 0x07U) != 0) { // E, S or PN: four more octets
+        if (packet.size() < 12) {
+            return tl::make_unexpected(std::string("GTP-U optional fields truncated"));
+        }
+        std::uint8_t next = packet[11];
+        view.payload_offset = 12;
+        if ((flags & 0x04U) != 0) {
+            while (next != 0) {
+                if (view.payload_offset >= packet.size()) {
+                    return tl::make_unexpected(std::string("GTP-U extension header truncated"));
+                }
+                const std::size_t units = packet[view.payload_offset];
+                const std::size_t total = units * 4;
+                if (units == 0 || view.payload_offset + total > packet.size()) {
+                    return tl::make_unexpected(std::string("GTP-U extension header length bad"));
+                }
+                if (next == 0x85 && total >= 4) { // PDU Session Container
+                    view.qfi = static_cast<std::uint8_t>(packet[view.payload_offset + 2] & 0x3FU);
+                }
+                next = packet[view.payload_offset + total - 1];
+                view.payload_offset += total;
+            }
+        }
+    }
+    return view;
+}
+
+} // namespace
+
+tl::expected<std::vector<std::uint8_t>, std::string>
+mediate_x3_pdu(const Pdu& pdu, const MediationContext& context, CcPduForm form) {
+    if (pdu.type != PduType::X3) {
+        return tl::make_unexpected(std::string("LI_HI3 mediation takes an X3 PDU, got PDU Type ") +
+                                   std::to_string(static_cast<int>(pdu.type)));
+    }
+    std::span<const std::uint8_t> content(pdu.payload);
+    CcContentKind kind = CcContentKind::Unstructured;
+    std::optional<std::uint8_t> qfi;
+    switch (pdu.payload_format) {
+        case PayloadFormat::Ipv4Packet:
+        case PayloadFormat::Ipv6Packet:
+            kind = CcContentKind::Ip;
+            break;
+        case PayloadFormat::EthernetFrame:
+            kind = CcContentKind::Ethernet;
+            break;
+        case PayloadFormat::GtpUMessage: {
+            const auto view = view_gtpu(content);
+            if (!view) {
+                return tl::make_unexpected(view.error());
+            }
+            qfi = view->qfi;
+            const auto inner = content.subspan(view->payload_offset);
+            const std::uint8_t version = inner.empty() ? 0 : inner[0] >> 4;
+            kind = (version == 4 || version == 6) ? CcContentKind::Ip : CcContentKind::Unstructured;
+            if (form == CcPduForm::Extended) {
+                content = inner;
+            }
+            break;
+        }
+        default:
+            return tl::make_unexpected(
+                std::string("LI_X3 Payload Format ") +
+                std::to_string(static_cast<int>(pdu.payload_format)) +
+                " is not one the UPF CC-POI sends (5 IPv4, 6 IPv6, 7 Ethernet, 12 GTP-U)");
+    }
+
+    AsnPtr<CCPayload_t, &asn_DEF_CCPayload> payload(alloc<CCPayload_t>());
+    if (!payload) {
+        return tl::make_unexpected(std::string("allocation failed"));
+    }
+    if (form == CcPduForm::GtpuPacket) {
+        // Clause 6.2.3.8 option 1: "only if the content of the GTP-U packet is an IPv4 or IPv6
+        // packet", and the packet is the GTP-U one, so the X3 format must be 12.
+        if (pdu.payload_format != PayloadFormat::GtpUMessage || kind != CcContentKind::Ip) {
+            return tl::make_unexpected(
+                std::string("uPFCCPDU carries a GTP-U packet whose content is IPv4/IPv6; this "
+                            "X3 PDU is not one"));
+        }
+        payload->pDU.present = CCPDU_PR_uPFCCPDU;
+        if (OCTET_STRING_fromBuf(&payload->pDU.choice.uPFCCPDU,
+                                 reinterpret_cast<const char*>(content.data()),
+                                 static_cast<int>(content.size())) != 0) {
+            return tl::make_unexpected(std::string("uPFCCPDU allocation failed"));
+        }
+    } else {
+        payload->pDU.present = CCPDU_PR_extendedUPFCCPDU;
+        auto& ext = payload->pDU.choice.extendedUPFCCPDU;
+        OCTET_STRING_t* octets = nullptr;
+        switch (kind) {
+            case CcContentKind::Ip:
+                ext.payload.present = UPFCCPDUPayload_PR_uPFIPCC;
+                octets = &ext.payload.choice.uPFIPCC;
+                break;
+            case CcContentKind::Ethernet:
+                ext.payload.present = UPFCCPDUPayload_PR_uPFEthernetCC;
+                octets = &ext.payload.choice.uPFEthernetCC;
+                break;
+            case CcContentKind::Unstructured:
+                ext.payload.present = UPFCCPDUPayload_PR_uPFUnstructuredCC;
+                octets = &ext.payload.choice.uPFUnstructuredCC;
+                break;
+        }
+        if (OCTET_STRING_fromBuf(octets,
+                                 reinterpret_cast<const char*>(content.data()),
+                                 static_cast<int>(content.size())) != 0) {
+            return tl::make_unexpected(std::string("UPFCCPDUPayload allocation failed"));
+        }
+        if (qfi) {
+            ext.qFI = alloc<QFI_t>();
+            if (ext.qFI == nullptr) {
+                return tl::make_unexpected(std::string("QFI allocation failed"));
+            }
+            *ext.qFI = *qfi;
+        }
+    }
+    auto ber = encode_cc_payload(payload);
+    if (!ber) {
+        return tl::make_unexpected(ber.error());
+    }
+
+    CcMessage message;
+    message.header.liid = context.liid;
+    message.header.communication_identifier = context.communication_identifier;
+    message.header.sequence_number = context.sequence_number;
+    message.header.authorization_country_code = context.authorization_country_code;
+    message.header.interception_point_id = context.interception_point_id;
+    message.header.network_function_identifier =
+        text_attribute(pdu, AttributeType::NetworkFunctionId);
+    message.header.extended_interception_point_id =
+        text_attribute(pdu, AttributeType::InterceptionPointId);
+    if (const auto observed = timestamp(pdu)) {
+        message.header.timestamp = Timestamp{observed->seconds, observed->nanoseconds / 1000};
+    }
+    message.header.timestamp_qualifier = TimestampQualifier::TimeOfInterception;
+    switch (pdu.payload_direction) {
+        case PayloadDirection::FromTarget:
+            message.payload_direction = PayloadDirection_fromTarget;
+            break;
+        case PayloadDirection::ToTarget:
+            message.payload_direction = PayloadDirection_toTarget;
+            break;
+        case PayloadDirection::MultipleDirections:
+            message.payload_direction = PayloadDirection_combined;
+            break;
+        case PayloadDirection::NotApplicable:
+            message.payload_direction = PayloadDirection_notapplicable;
+            break;
+        default:
+            message.payload_direction = PayloadDirection_indeterminate;
+            break;
+    }
+    message.cc_payload = std::move(*ber);
+    return encode_cc_message(message);
+}
+
+tl::expected<CcContent, std::string> decode_cc_payload(std::span<const std::uint8_t> ber) {
+    CCPayload_t* raw = nullptr;
+    const asn_dec_rval_t rv = ber_decode(
+        nullptr, &asn_DEF_CCPayload, reinterpret_cast<void**>(&raw), ber.data(), ber.size());
+    AsnPtr<CCPayload_t, &asn_DEF_CCPayload> payload(raw);
+    if (rv.code != RC_OK || rv.consumed != ber.size()) {
+        return tl::make_unexpected(std::string("malformed CCPayload"));
+    }
+    CcContent out;
+    const auto copy = [&](const OCTET_STRING_t& o) { out.data.assign(o.buf, o.buf + o.size); };
+    if (payload->pDU.present == CCPDU_PR_uPFCCPDU) {
+        out.form = CcPduForm::GtpuPacket;
+        out.kind = CcContentKind::Ip;
+        copy(payload->pDU.choice.uPFCCPDU);
+    } else if (payload->pDU.present == CCPDU_PR_extendedUPFCCPDU) {
+        const auto& ext = payload->pDU.choice.extendedUPFCCPDU;
+        out.form = CcPduForm::Extended;
+        switch (ext.payload.present) {
+            case UPFCCPDUPayload_PR_uPFIPCC:
+                out.kind = CcContentKind::Ip;
+                copy(ext.payload.choice.uPFIPCC);
+                break;
+            case UPFCCPDUPayload_PR_uPFEthernetCC:
+                out.kind = CcContentKind::Ethernet;
+                copy(ext.payload.choice.uPFEthernetCC);
+                break;
+            case UPFCCPDUPayload_PR_uPFUnstructuredCC:
+                out.kind = CcContentKind::Unstructured;
+                copy(ext.payload.choice.uPFUnstructuredCC);
+                break;
+            default:
+                return tl::make_unexpected(std::string("UPFCCPDUPayload has no alternative"));
+        }
+        if (ext.qFI != nullptr) {
+            out.qfi = static_cast<std::uint8_t>(*ext.qFI);
+        }
+    } else {
+        return tl::make_unexpected(std::string("CCPDU is not a UPF alternative"));
+    }
+    return out;
 }
 
 } // namespace li_core::hi2
