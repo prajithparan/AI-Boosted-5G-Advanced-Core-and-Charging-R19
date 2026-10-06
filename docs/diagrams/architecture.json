@@ -842,7 +842,7 @@
     "TS 33.127 \u00b7 TS 33.128"
    ],
    "svc": [
-    "MDF2 + AMF-POI built \u00b7 more POIs / CC / SIRF pending",
+    "ADMF \u00b7 MDF2/3 \u00b7 AMF/SMF POI \u00b7 UPF capture pending",
     "production blocker #0"
    ],
    "glyph": "eye",

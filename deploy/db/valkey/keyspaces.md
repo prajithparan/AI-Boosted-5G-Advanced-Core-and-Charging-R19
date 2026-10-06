@@ -41,6 +41,15 @@ that round trip for the hottest reads and absorb read spikes.
 `amf:*`, `smf:*`, `pcf:*`, `nwdaf:*`, `dccf:*`, `mfaf:*`, `adrf:*` — each NF's state, keyed so a
 subscriber/session's keys carry the `{supi}`/`{sessionId}` hash-tag for slot colocation.
 
+## 5. Lawful-interception warrant state (`libs/li-mdf-store`, ADR-0464)
+`limdf:*` (MDF2, `nfs/li-mdf`) and `limdf3:*` (MDF3, `nfs/li-mdf3`) -- one prefix per mediation function, so the two
+never see each other's warrants. Per prefix: `<prefix>:task:<xid>` (string, JSON task: which LIID/warrant a received
+PDU belongs to), `<prefix>:tasks` (set of task ids), `<prefix>:dest:<did>` (string, JSON delivery destination),
+`<prefix>:dests` (set), `<prefix>:seq:<liid>` (counter, per-LIID sequence numbers via INCR). No TTL: a warrant stays
+until X1 deactivates it. **Not conformant with the sharding rules below, as built:** the store takes a single-node
+`sw::redis::Redis` client (`nfs/li-mdf/src/main.cpp`, `nfs/li-mdf3/src/main.cpp`) and the keys carry no hash-tag, so
+neither MDF can run against Valkey Cluster yet. Flagged, not fixed.
+
 ## Sharding rules
 - **Hash-tag** the subscriber identifier in per-subscriber keys: `chg:sub:{imsi-99970...}` — the
   brace-delimited part is the only thing hashed, so all of one subscriber's keys land in one slot.

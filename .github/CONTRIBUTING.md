@@ -80,5 +80,5 @@ participating.
 
 ## Questions
 
-Open a [GitHub Discussion](../../discussions) or an issue — there's no other support channel for
-this project.
+Open a [GitHub issue](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/issues) —
+there's no other support channel for this project (GitHub Discussions is not enabled on the repository).

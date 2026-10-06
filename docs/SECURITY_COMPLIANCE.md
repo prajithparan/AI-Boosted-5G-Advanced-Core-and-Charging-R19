@@ -39,19 +39,22 @@ receiving server and delivery client, LI_HI2 mediation with a TS 102 232-1 PS-PD
 IRI-POI (`nfs/amf/src/li_poi.hpp`) with its Registration/IdentifierAssociation/LocationUpdate hooks
 wired (default-off).
 
-**What is verified still missing, checked directly in this pass, not assumed from the above:**
-`grep -rli "li_poi\|lawful.intercept"` against `nfs/chf`, `nfs/smf`, `nfs/udm`, `nfs/nrf`, `nfs/nef`
-source returns **nothing** -- none of these NFs has an IRI-POI yet, including **CHF's clause 7.22
-IRI-POI**, which this document's own table below still correctly identifies as the requirement that
-matters most to this project's commercial core. AMF's own POI coverage is itself partial (per
-project memory: Registration hook done, five further AMF event hooks and a POI functional test
-still open). NRF's SIRF, and UDM/SMSF/NEF/NWDAF IRI-POIs, remain unbuilt.
+**Re-checked 2026-10-06 (docs-sweep before a push), same grep:** `grep -rli "li_poi\|lawful.intercept"` over
+`nfs/*/src` now matches `nfs/amf`, `nfs/smf` and `nfs/upf` and **nothing in `nfs/chf`, `nfs/udm`, `nfs/nrf`, `nfs/nef`,
+`nfs/smsf` or `nfs/nwdaf`**. Built since the paragraph above was written: the ADMF (`nfs/li-admf`, ADR-0462, HI1 +
+LIPF + the lifecycle workflows), the SMF IRI-POI (ADR-0463), and a content-of-communication chain -- CC-TF in the SMF,
+CC-POI in the UPF, X3 and `nfs/li-mdf3` (ADR-0464). The AMF IRI-POI covers registration, deregistration, location
+update, identifier association/deassociation and start of interception, each proven through the real AMF process
+(README LI row). **Still missing:** the **CHF clause 7.22 IRI-POI** (the one this document's table below rates most
+important), UDM, SMSF, NEF and NWDAF POIs, NRF's SIRF, and **real packet capture**: the UPF's CC-POI `on_packet()` is a
+seam fed by tests and nothing in the datapath calls it (ADR-0464), so `cc_capable` stays false for the UPF in any real
+deployment and no real user-plane content is intercepted.
 
-**Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI2 transport +
-MDF2 + one NF's partial POI coverage), not "no LI exists" and not "LI is done" -- the real remaining
-gap is per-NF POI coverage, CHF's most of all.** This is still a production blocker (same TS 33.126
-§4 / commercialization-mandate reasoning the original F1 gave), just not for the reason originally
-stated.
+**Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI1/HI2/HI3 transport, ADMF, MDF2, MDF3,
+AMF and SMF IRI-POIs, a test-proven but not datapath-wired UPF CC-POI), not "no LI exists" and not "LI is done" -- the real
+remaining gap is per-NF POI coverage, CHF's most of all, plus real capture in the UPF.** This is still a production
+blocker (same TS 33.126 §4 / commercialization-mandate reasoning the original F1 gave), just not for the reason
+originally stated.
 
 TS 33.127 V19.7.0 places LI requirements on **every control-plane NF this project has**; the table
 below is unchanged from the original pass and should be read against the corrected status above,
