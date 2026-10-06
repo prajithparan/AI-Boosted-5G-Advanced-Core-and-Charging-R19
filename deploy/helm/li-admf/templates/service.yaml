@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-li-admf
+  labels:
+    app.kubernetes.io/name: li-admf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: li-admf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: hi1
+      port: 7808
+      targetPort: hi1
+      protocol: TCP
+    - name: metrics
+      port: 9492
+      targetPort: metrics
+      protocol: TCP

@@ -545,6 +545,34 @@ services:
       timeout: 5s
       retries: 10
 
+  # ADR-0462: the ADMF -- LI_HI1 receiver for the LEA (ETSI TS 103 120) and X1 client of the POIs and
+  # the MDF2. Deliberately NOT an SBI NF: it registers with no NRF (TS 33.127 keeps LI off the service
+  # plane). Warrant state is its own PostgreSQL (postgres-li). ONE replica only: the reconcile loop
+  # has no leader election yet, so a second replica would provision every task twice (disclosed).
+  li-admf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/li-admf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres-li:
+        condition: service_healthy
+    environment:
+      # Container-network NE addresses live in the overlay, selected the same way oam-gui-bff's is.
+      LI-ADMF_CONFIG_FILE: /build/deploy/docker/li-admf.compose.json
+      LI_ADMF_DATABASE_URL: postgresql://li_admf:li_admf@postgres-li:5432/li_admf
+    volumes:
+      - certs_data:/build/certs
+      # ADR-0453: every NF service gets this -- see this file's own header note (top of
+      # file) for why. Bind mount, not a Dockerfile COPY, so editing config/<nf>.json on the
+      # host takes effect on container restart without an image rebuild.
+      - ../../config:/build/config:ro
+      - ./li-admf.compose.json:/build/deploy/docker/li-admf.compose.json:ro
+    ports:
+      - "7808:7808"   # LI_HI1 from the LEA + LI_X1 reports from the NEs (TLS 1.3 + mTLS)
+      - "9492:9492"   # Prometheus /metrics
+
   # ADR-0462: the ADMF's warrant store -- its own PostgreSQL, a separate security domain from every
   # NF/BSS datastore (TS 33.127 5.6), because warrants and legal documents are durable records.
   postgres-li:

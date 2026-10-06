@@ -1,0 +1,51 @@
+{
+  "hi1_port": 7808,
+  "metrics_bind_address": "0.0.0.0:9492",
+  "database_url": "postgresql://li_admf:li_admf@127.0.0.1:5439/li_admf",
+  "db_pool_size": 4,
+  "public_base_url": "https://li-admf:7808",
+  "endpoint_id": {
+    "country_code": "GB",
+    "unique_identifier": "CSP-5GC-R19"
+  },
+  "national_profile": {
+    "owner": "XX",
+    "version": "v1.0"
+  },
+  "supported_etsi_versions": [
+    "V1.23.1"
+  ],
+  "lea_bindings": [
+    {
+      "peer_cert_cn": "lea-sim",
+      "country_code": "GB",
+      "unique_identifier": "LEA-SIM-01"
+    }
+  ],
+  "x1_admf_identifier": "admf-01",
+  "x1_version": "v1.23.1",
+  "network_elements": [
+    {
+      "name": "amf-poi",
+      "role": "poi",
+      "ne_identifier": "amf-poi-01",
+      "x1_url": "https://amf:7807/X1/NE",
+      "peer_cert_cn": "amf"
+    },
+    {
+      "name": "mdf2",
+      "role": "mdf2",
+      "ne_identifier": "mdf2-01",
+      "x1_url": "https://li-mdf:7805/X1/NE",
+      "peer_cert_cn": "li-mdf"
+    }
+  ],
+  "poi_identifier_association_events": "All",
+  "cc_capable": false,
+  "reconcile_interval_seconds": 5,
+  "retry_interval_seconds": 60,
+  "maximum_list_records": 500,
+  "extra_document_content_types": [],
+  "keepalive_interval_seconds": 30,
+  "//": "Compose-only overlay of config/li-admf.json (ADR-0462), selected by the LI-ADMF_CONFIG_FILE env var (nf_config::load's <SERVICE>_CONFIG_FILE convention, uppercased with hyphens intact). Only the container-network addresses differ: the NEs are reached by compose service name, not 127.0.0.1. Deliberately NOT under config/: gui/schema-gen globs every config/*.json as one NF-config component (same reason as oam-gui-bff.compose.json)."
+}

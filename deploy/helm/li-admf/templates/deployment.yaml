@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-li-admf
+  labels:
+    app.kubernetes.io/name: li-admf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  # Exactly one replica: the lifecycle reconcile loop (nfs/li-admf/src/lifecycle.cpp) has no leader
+  # election, so two replicas would each provision every LI task onto the POIs/MDF2. All warrant
+  # state is in PostgreSQL, so scaling out is possible once that is added -- it is not there yet.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: li-admf
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: li-admf
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: li-admf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.databaseUrl }}
+          env:
+            - name: LI_ADMF_DATABASE_URL
+              value: {{ .Values.databaseUrl | quote }}
+          {{- end }}
+          ports:
+            - name: hi1
+              containerPort: 7808
+              protocol: TCP
+            - name: metrics
+              containerPort: 9492
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

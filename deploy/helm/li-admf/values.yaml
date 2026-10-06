@@ -1,0 +1,19 @@
+image:
+  repository: 5gc-li-admf
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+# Set to the warrant store's connection URL (a dedicated PostgreSQL: warrants are durable legal
+# records and LI functions sit in their own security domain, TS 33.127 5.6).
+databaseUrl: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

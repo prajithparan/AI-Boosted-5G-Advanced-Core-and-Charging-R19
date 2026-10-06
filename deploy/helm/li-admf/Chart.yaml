@@ -1,0 +1,12 @@
+apiVersion: v2
+name: li-admf
+description: >
+  ADMF (Administration Function, TS 33.127 5.3.5): LI_HI1 receiver for the LEA (ETSI TS 103 120)
+  and LI_X1 client of the POIs and the MDF2 (ADR-0462). Lab-grade Helm chart. DISCLOSED GAPS, not
+  silently shipped: (1) like every chart in this directory it provisions no PKI, no ConfigMap for
+  config/li-admf.json and no PostgreSQL -- the warrant store (nfs/li-admf/schema.sql) must be
+  supplied and LI_ADMF_DATABASE_URL set; (2) exactly one replica, because the lifecycle
+  reconcile loop has no leader election yet, so a second replica would provision every task twice.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
