@@ -15,5 +15,8 @@ kinds refused), `LiSmfEndToEnd.TheCcTfTriggersTheUpfPoiForACcWarrantAndWithdraws
 after the `target_elements` fix (found because the test's overlay omits the key and li-admf aborted after "starting").
 **Disclosed gaps.** The UPF's `on_packet()` is a seam fed by tests; nothing in the datapath calls it (eBPF is uplink
 decapsulation only and cannot attach in CI). The LI_MDF packet-header-report approach (6.2.3.9.1 approach 2) is not
-mediated. `N28SyEndToEnd.SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession` fails locally (404 on the PCF
-status push, `smpolicy-N` counter assumption) -- not yet diagnosed as pre-existing vs caused by the SMF changes.
+mediated. `N28SyEndToEnd.SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession` failed locally (404 on the PCF
+status push) -- diagnosed 2026-10-06 as environmental, not caused by the SMF changes: stale `build-release` CHF workers
+held 96 of `docker-postgres-chf-1`'s 100 connections, so the test's own CHF died at startup ("too many clients already"),
+PCF's CHF spending-limit subscribe failed and PCF had nothing to track. After stopping those workers the test passes
+(1 test, 14 s). The `smpolicy-N` counting is not at fault.
