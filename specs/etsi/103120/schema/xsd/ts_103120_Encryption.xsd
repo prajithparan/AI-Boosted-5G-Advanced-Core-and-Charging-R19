@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:etsi="http://uri.etsi.org/03280/common/2017/07" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:core="http://uri.etsi.org/03120/common/2019/10/Core" xmlns="http://uri.etsi.org/03120/common/2026/01/Encryption" targetNamespace="http://uri.etsi.org/03120/common/2026/01/Encryption" elementFormDefault="qualified" attributeFormDefault="unqualified">
+    <xs:import namespace="http://uri.etsi.org/03120/common/2016/02/Common"/>
+    <xs:import namespace="http://uri.etsi.org/03120/common/2019/10/Core"/>
+    <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"/>
+    <xs:complexType name="EncryptionObject">
+        <xs:complexContent>
+            <xs:extension base="core:HI1Object">
+                <xs:sequence>
+                    <xs:element name="EncryptionScheme" type="common:DictionaryEntry" minOccurs="1"/>
+                    <xs:element name="X509EncryptionDetails" type="X509EncryptionDetails" minOccurs="0"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+    <xs:complexType name="X509EncryptionDetails">
+        <xs:sequence>
+            <xs:element name="X509Certificates" type="X509Certificate" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="X509Certificate">
+        <xs:sequence>
+            <xs:element name="X509CertificateDER" type="xs:base64Binary" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+</xs:schema>

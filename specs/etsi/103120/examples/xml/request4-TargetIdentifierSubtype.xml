@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    This example is roughly the same as request4.xml, except for the use of
+    TargetIdentifierSubtype.
+
+    For this example, we say that there is a CSP which has two types of accounts,
+    one for Product A and one for Product B. But these two account types
+    have an overlapping ID space, such that the ServiceAccessIdentifier 123456789
+    could refer to an account of Product A and a different person's account
+    of Product B.
+
+    If an LEA does not know this, or does not know which account type they are trying
+    to target, the LEA can omit the TargetIdentifierSubtype, which may cause
+    out-of-band correspondence to be required for the CSP to target the correct account.
+    However, if the LEA knows which product their target is using, the LEA
+    can provide this information in the TargetIdentifierSubtype field.
+
+    In this example below, the LEA knows that their target has an account for
+    Product B with the identifier 123456789. So the RequestDetails object provides
+    the ServiceAccessIdentifier 123456789 and the TargetIdentifierSubtype AccountTypeB.
+    This distinguishes the target of the request from the account in Product A
+    with the same identifier, 123456789.
+
+    Additionally, note that the RequestType is SubscriberData. This describes the type
+    of data to be disclosed, and could apply equally to an account of either type A or type B.
+    -->
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>c02358b2-76cf-4ba4-a8eb-f6436ccaea2e</TransactionIdentifier>
+        <Timestamp>2019-09-30T13:37:00.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.13.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <RequestPayload>
+            <ActionRequests>
+                <ActionRequest>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="auth:AuthorisationObject">
+                            <ObjectIdentifier>7dbbc880-8750-4d3c-abe7-ea4a17646045</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <auth:AuthorisationReference>W000001</auth:AuthorisationReference>
+                            <auth:AuthorisationTimespan>
+                                <auth:StartTime>2019-09-30T12:00:00Z</auth:StartTime>
+                                <auth:EndTime>2019-12-01T12:00:00Z</auth:EndTime>
+                            </auth:AuthorisationTimespan>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+                <ActionRequest>
+                    <ActionIdentifier>1</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="task:LDTaskObject">
+                            <ObjectIdentifier>2b36a78b-b628-416d-bd22-404e68a0cd36</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <AssociatedObjects>
+                                <AssociatedObject>7dbbc880-8750-4d3c-abe7-ea4a17646045</AssociatedObject>
+                            </AssociatedObjects>
+                            <task:Reference>XX-ACTOR01-1234</task:Reference>
+                            <task:RequestDetails>
+                                <task:Type>
+                                    <common:Owner>ETSI</common:Owner>
+                                    <common:Name>RequestType</common:Name>
+                                    <common:Value>SubscriberData</common:Value>
+                                </task:Type>
+                                <task:StartTime>2019-09-30T12:00:00Z</task:StartTime>
+                                <task:EndTime>2019-12-30T12:00:00Z</task:EndTime>
+                                <task:RequestValues>
+                                    <task:RequestValue>
+                                        <task:FormatType>
+                                            <task:FormatOwner>ETSI</task:FormatOwner>
+                                            <task:FormatName>ServiceAccessIdentifier</task:FormatName>
+                                        </task:FormatType>
+                                        <task:Value>123456789</task:Value>
+                                    </task:RequestValue>
+                                </task:RequestValues>
+                                <task:TargetIdentifierSubtype>
+                                    <common:Owner>ACTOR02</common:Owner>
+                                    <common:Name>TargetIdentifierSubtype</common:Name>
+                                    <common:Value>AccountTypeB</common:Value>
+                                </task:TargetIdentifierSubtype>
+                            </task:RequestDetails>
+                            <task:DeliveryDetails>
+                                <task:LDDeliveryDestination>
+                                    <task:DeliveryAddress>
+                                        <task:IPv4Address>192.0.2.0</task:IPv4Address>
+                                    </task:DeliveryAddress>
+                                </task:LDDeliveryDestination>
+                            </task:DeliveryDetails>
+                            <task:CSPID>
+                                <CountryCode>XX</CountryCode>
+                                <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+                            </task:CSPID>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+            </ActionRequests>
+        </RequestPayload>
+    </Payload>
+</HI1Message>

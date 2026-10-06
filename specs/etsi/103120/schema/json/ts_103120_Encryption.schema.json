@@ -1,0 +1,78 @@
+{
+  "$id": "ts_103120_Encryption_2026_01",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "EncryptionObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2026/01/Encryption}EncryptionObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "encryption:EncryptionScheme": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "encryption:X509EncryptionDetails": {
+          "$ref": "#/$defs/X509EncryptionDetails"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier",
+        "encryption:EncryptionScheme"
+      ],
+      "additionalProperties": false
+    },
+    "X509EncryptionDetails": {
+      "type": "object",
+      "properties": {
+        "encryption:X509Certificates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/X509Certificate"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "X509Certificate": {
+      "type": "object",
+      "properties": {
+        "encryption:X509CertificateDER": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+\\/]*={0,3}$"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "$id": "ts_103120_Document_2020_09",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DocumentObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Document}DocumentObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "doc:DocumentReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "doc:DocumentName": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "doc:DocumentStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "doc:DocumentDesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "doc:DocumentTimespan": {
+          "$ref": "#/$defs/DocumentTimespan"
+        },
+        "doc:DocumentType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "doc:DocumentProperties": {
+          "$ref": "#/$defs/DocumentProperties"
+        },
+        "doc:DocumentBody": {
+          "$ref": "#/$defs/DocumentBody"
+        },
+        "doc:DocumentSignature": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/ApprovalDetails"
+          }
+        },
+        "doc:DocumentInvalidReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "doc:NationalDocumentParameters": {
+          "$ref": "#/$defs/NationalDocumentParameters"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "DocumentTimespan": {
+      "type": "object",
+      "properties": {
+        "doc:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "doc:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DocumentProperties": {
+      "type": "object",
+      "properties": {
+        "doc:DocumentProperty": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentProperty"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DocumentProperty": {
+      "type": "object",
+      "properties": {
+        "doc:PropertyType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "doc:PropertyValue": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "doc:PropertyType",
+        "doc:PropertyValue"
+      ],
+      "additionalProperties": false
+    },
+    "DocumentBody": {
+      "type": "object",
+      "properties": {
+        "doc:Contents": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+\\/]*={0,3}$"
+        },
+        "doc:ContentType": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "doc:Checksum": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "doc:ChecksumType": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalDocumentParameters": {
+      "type": "object",
+      "properties": {
+        "doc:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "doc:CountryCode"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

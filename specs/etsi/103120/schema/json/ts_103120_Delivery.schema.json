@@ -1,0 +1,330 @@
+{
+  "$id": "ts_103120_Delivery_2019_10",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DeliveryObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2019/10/Delivery}DeliveryObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "delivery:Reference": {
+          "$ref": "#/$defs/Reference"
+        },
+        "delivery:DeliveryID": {
+          "$ref": "ts_103280_2017_07#/$defs/UUID"
+        },
+        "delivery:SequenceNumber": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delivery:LastSequence": {
+          "type": "boolean"
+        },
+        "delivery:Manifest": {
+          "$ref": "#/$defs/Manifest"
+        },
+        "delivery:Delivery": {
+          "$ref": "#/$defs/Delivery"
+        },
+        "delivery:DeliveryStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "delivery:DeliveryDesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "delivery:EncryptionDetails": {
+          "$ref": "#/$defs/DeliveryEncryptionDetails"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "Reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delivery:LDID": {
+              "$ref": "ts_103280_2017_07#/$defs/LDID"
+            }
+          },
+          "required": [
+            "delivery:LDID"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:LIID": {
+              "$ref": "ts_103280_2017_07#/$defs/LIID"
+            }
+          },
+          "required": [
+            "delivery:LIID"
+          ]
+        }
+      ]
+    },
+    "Manifest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delivery:Specification": {
+              "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+            }
+          },
+          "required": [
+            "delivery:Specification"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:ExternalSchema": {
+              "$ref": "#/$defs/ExternalSchema"
+            }
+          },
+          "required": [
+            "delivery:ExternalSchema"
+          ]
+        }
+      ]
+    },
+    "ExternalSchema": {
+      "type": "object",
+      "properties": {
+        "delivery:ManifestID": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "delivery:ManifestContents": {
+          "$ref": "#/$defs/ManifestContents"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ManifestContents": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delivery:BinaryData": {
+              "$ref": "#/$defs/EmbeddedBinaryData"
+            }
+          },
+          "required": [
+            "delivery:BinaryData"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:XMLSchema": {
+              "$ref": "#/$defs/SchemaContent"
+            }
+          },
+          "required": [
+            "delivery:XMLSchema"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:JSONSchema": {
+              "$ref": "#/$defs/EmbeddedJSONData"
+            }
+          },
+          "required": [
+            "delivery:JSONSchema"
+          ]
+        }
+      ]
+    },
+    "SchemaContent": {
+      "type": "object",
+      "properties": {
+        "delivery:schema": {}
+      },
+      "required": [
+        "delivery:schema"
+      ],
+      "additionalProperties": false
+    },
+    "Delivery": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delivery:BinaryData": {
+              "$ref": "#/$defs/EmbeddedBinaryData"
+            }
+          },
+          "required": [
+            "delivery:BinaryData"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:XMLData": {
+              "$ref": "#/$defs/EmbeddedXMLData"
+            }
+          },
+          "required": [
+            "delivery:XMLData"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:JSONData": {
+              "$ref": "#/$defs/EmbeddedJSONData"
+            }
+          },
+          "required": [
+            "delivery:JSONData"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:URL": {
+              "$ref": "#/$defs/URLObject"
+            }
+          },
+          "required": [
+            "delivery:URL"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delivery:DataExistence": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "delivery:DataExistence"
+          ]
+        }
+      ]
+    },
+    "EmbeddedBinaryData": {
+      "type": "object",
+      "properties": {
+        "delivery:Data": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+\\/]*={0,3}$"
+        },
+        "delivery:ContentType": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "delivery:Checksum": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/Checksum"
+        },
+        "delivery:ChecksumType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/ChecksumType"
+        },
+        "delivery:Checksums": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/ListOfChecksumAndType"
+        },
+        "delivery:OriginalFilename": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "delivery:ContentLength": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "delivery:Data"
+      ],
+      "additionalProperties": false
+    },
+    "EmbeddedXMLData": {},
+    "EmbeddedJSONData": {},
+    "URLObject": {
+      "type": "object",
+      "properties": {
+        "delivery:URL": {
+          "type": "string"
+        },
+        "delivery:ContentLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delivery:ContentType": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "delivery:Expiry": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedMicrosecondDateTime"
+        },
+        "delivery:Checksum": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/Checksum"
+        },
+        "delivery:OriginalFilename": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "delivery:CSPDefinedIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "delivery:ChecksumType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/ChecksumType"
+        },
+        "delivery:Checksums": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/ListOfChecksumAndType"
+        }
+      },
+      "required": [
+        "delivery:URL"
+      ],
+      "additionalProperties": false
+    },
+    "DeliveryEncryptionDetails": {
+      "type": "object",
+      "properties": {
+        "delivery:EncryptionReference": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "delivery:AdditionalInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

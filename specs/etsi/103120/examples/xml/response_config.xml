@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task" xmlns:config="http://uri.etsi.org/03120/common/2024/06/Config" xmlns:dictionaries="http://uri.etsi.org/03280/common/2019/10/Dictionaries">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>eb6b002d-15c3-4c3b-af6c-27ede73641e5</TransactionIdentifier>
+        <Timestamp>2024-06-10T08:50:31.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.16.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <ResponsePayload>
+            <ActionResponses>
+                <ActionResponse>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <GETCSPCONFIGResponse>
+                        <LastChanged>2024-05-10T08:52:32Z</LastChanged>
+                        <Dictionaries>
+                            <dictionaries:Dictionary>
+                                <dictionaries:Owner>ACTOR02</dictionaries:Owner>
+                                <dictionaries:Name>LIServiceTypes</dictionaries:Name>
+                                <dictionaries:DictionaryEntries>
+                                    <dictionaries:DictionaryEntry>
+                                        <dictionaries:Value>ServiceA</dictionaries:Value>
+                                        <dictionaries:Meaning>This is a dictionary entry</dictionaries:Meaning>
+                                    </dictionaries:DictionaryEntry>
+                                    <dictionaries:DictionaryEntry>
+                                        <dictionaries:Value>ServiceB</dictionaries:Value>
+                                        <dictionaries:Meaning>This is a dictionary entry</dictionaries:Meaning>
+                                    </dictionaries:DictionaryEntry>
+                                </dictionaries:DictionaryEntries>
+                            </dictionaries:Dictionary>
+                        </Dictionaries>
+                        <TargetFormatTypeDefinitions>
+                            <config:FormatOwner>ACTOR02</config:FormatOwner>
+                            <config:TargetFormatTypeDefinitionEntries>
+                                <config:TargetFormatTypeDefinitionEntry>
+                                    <config:FormatName>ProprietaryIdentifier</config:FormatName>
+                                    <config:Description>This is an illustration of a proprietary identifier type specific to this CSP, which consists of the string "CSP" followed by 10 digits</config:Description>
+                                    <config:FormatRegex>^CSP[0-9]{10}$</config:FormatRegex>
+                                </config:TargetFormatTypeDefinitionEntry>
+                            </config:TargetFormatTypeDefinitionEntries>
+                        </TargetFormatTypeDefinitions>
+                        <TargetingConfigurations>
+                            <config:TargetingConfiguration>
+                                <config:FormatName>InternationalE164</config:FormatName>
+                                <config:FormatOwner>ETSI</config:FormatOwner>
+                                <config:Guidance>This configuration entry tells the LEA that they can use the ETSI standard format E164 number for LI of service A</config:Guidance>
+                                <config:AssociatedLIServiceTypes>
+                                    <common:DictionaryEntry>
+                                        <common:Owner>ACTOR02</common:Owner>
+                                        <common:Name>LIServiceTypes</common:Name>
+                                        <common:Value>ServiceA</common:Value>
+                                    </common:DictionaryEntry>
+                                </config:AssociatedLIServiceTypes>
+                                <config:AssociatedLDRequestSubtypes/>
+                                <!-- In this example, no LD types are supported -->
+                                <config:AssociatedLPRequestSubtypes/>
+                                <!-- In this example, no LP types are supported -->
+                            </config:TargetingConfiguration>
+                            <config:TargetingConfiguration>
+                                <config:FormatName>PropietaryIdentifier</config:FormatName>
+                                <config:FormatOwner>ACTOR02</config:FormatOwner>
+                                <config:Guidance>This configuration entry tells the LEA that they can use the propietary identifier format type described in the TargetFormatTypeDefinitions for LI of both Service A and Service B</config:Guidance>
+                                <config:AssociatedLIServiceTypes>
+                                    <common:DictionaryEntry>
+                                        <common:Owner>ACTOR02</common:Owner>
+                                        <common:Name>LIServiceTypes</common:Name>
+                                        <common:Value>ServiceA</common:Value>
+                                    </common:DictionaryEntry>
+                                    <common:DictionaryEntry>
+                                        <common:Owner>ACTOR02</common:Owner>
+                                        <common:Name>LIServiceTypes</common:Name>
+                                        <common:Value>ServiceB</common:Value>
+                                    </common:DictionaryEntry>
+                                </config:AssociatedLIServiceTypes>
+                                <config:AssociatedLDRequestSubtypes/>
+                                <!-- In this example, no LD types are supported -->
+                                <config:AssociatedLPRequestSubtypes/>
+                                <!-- In this example, no LP types are supported -->
+                            </config:TargetingConfiguration>
+                        </TargetingConfigurations>
+                        <SupportedLIWorkflowEndpoints>
+                            <config:SupportedLIWorkflowEndpoint>
+                                <config:LIWorkflowEndpoint>
+                                    <common:Owner>ETSI</common:Owner>
+                                    <common:Name>LIWorkflowEndpoint</common:Name>
+                                    <common:Value>NewAuthorisation</common:Value>
+                                </config:LIWorkflowEndpoint>
+                                <config:Guidance>This tells the LEA what endpoint to use for new warrants. For brevity, in this example, this is the only endpoint specified.</config:Guidance>
+                                <config:URL>https://ts103120.example.com/li/authorisation/new</config:URL>
+                            </config:SupportedLIWorkflowEndpoint>
+                        </SupportedLIWorkflowEndpoints>
+                        <SupportedLPWorkflowEndpoints/>
+                    </GETCSPCONFIGResponse>
+                </ActionResponse>
+            </ActionResponses>
+        </ResponsePayload>
+    </Payload>
+</HI1Message>

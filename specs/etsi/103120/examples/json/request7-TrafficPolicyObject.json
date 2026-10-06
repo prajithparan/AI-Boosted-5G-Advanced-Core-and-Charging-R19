@@ -1,0 +1,97 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:tp": "http://uri.etsi.org/03120/common/2022/07/TrafficPolicy",
+  "@xmlns:etsi280": "http://uri.etsi.org/03280/common/2017/07",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "c02358b2-76cf-4ba4-a8eb-f6436ccaa8eb",
+    "Timestamp": "2022-07-01T12:00:00.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "RequestPayload": {
+      "ActionRequests": {
+        "ActionRequest": [
+          {
+            "ActionIdentifier": 0,
+            "CREATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2022/07/TrafficPolicy}TrafficRuleObject",
+                "ObjectIdentifier": "f69eb93b-a85b-4ff7-abaa-6f3aead286d5",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "tp:Criteria": {
+                  "tp:Criteria": [
+                    {
+                      "tp:IPPolicyCriteria": {
+                        "tp:SourceIPRange": {
+                          "etsi280:IPv4CIDR": "203.0.113.0/24"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "tp:Action": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "PolicyAction",
+                  "common:Value": "PDSR"
+                }
+              }
+            }
+          },
+          {
+            "ActionIdentifier": 1,
+            "CREATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2022/07/TrafficPolicy}TrafficPolicyObject",
+                "ObjectIdentifier": "55e25c0a-787b-4049-b7fb-518a13a9483b",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "tp:TrafficPolicyName": "Template Rule 1",
+                "tp:TrafficRules": {
+                  "tp:TrafficRuleReference": [
+                    {
+                      "tp:Order": 1,
+                      "tp:ObjectIdentifier": "f69eb93b-a85b-4ff7-abaa-6f3aead286d5"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "ActionIdentifier": 1,
+            "UPDATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Task}LITaskObject",
+                "ObjectIdentifier": "2b36a78b-b628-416d-bd22-404e68a0cd36",
+                "task:ListOfTrafficPolicyReferences": {
+                  "task:TrafficPolicyReference": [
+                    {
+                      "task:Order": 1,
+                      "task:ObjectIdentifier": "55e25c0a-787b-4049-b7fb-518a13a9483b"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

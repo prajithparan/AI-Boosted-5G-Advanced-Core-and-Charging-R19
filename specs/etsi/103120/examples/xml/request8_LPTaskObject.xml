@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:policy="http://uri.etsi.org/03120/common/2022/07/TrafficPolicy" xmlns:etsi="http://uri.etsi.org/03280/common/2017/07" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>46f95c5b-57d6-47f8-959f-cd8807d08bf6</TransactionIdentifier>
+        <Timestamp>2023-06-21T12:00:00.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.14.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <RequestPayload>
+            <ActionRequests>
+                <ActionRequest>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="task:LPTaskObject">
+                            <ObjectIdentifier>f1205c94-4f56-4d97-9717-39410073979b</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <task:DesiredStatus>
+                                <common:Owner>ETSI</common:Owner>
+                                <common:Name>LPTaskDesiredStatus</common:Name>
+                                <common:Value>Preserved</common:Value>
+                            </task:DesiredStatus>
+                            <task:RequestDetails>
+                                <task:StartTime>2023-05-01T12:00:00Z</task:StartTime>
+                                <task:EndTime>2023-05-02T12:00:00Z</task:EndTime>
+                                <task:RequestValues>
+                                    <task:RequestValue>
+                                        <task:FormatType>
+                                            <task:FormatOwner>ETSI</task:FormatOwner>
+                                            <task:FormatName>InternationalE164</task:FormatName>
+                                        </task:FormatType>
+                                        <task:Value>442079460223</task:Value>
+                                    </task:RequestValue>
+                                </task:RequestValues>
+                            </task:RequestDetails>
+                            <task:DesiredPreservationExpiration>2023-06-30T12:00:00Z</task:DesiredPreservationExpiration>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+            </ActionRequests>
+        </RequestPayload>
+    </Payload>
+</HI1Message>

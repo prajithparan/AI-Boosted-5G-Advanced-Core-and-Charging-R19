@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>c02358b2-76cf-4ba4-a8eb-f6436ccaea2e</TransactionIdentifier>
+        <Timestamp>2015-09-01T12:00:00.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.13.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <RequestPayload>
+            <ActionRequests>
+                <ActionRequest>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="auth:AuthorisationObject">
+                            <ObjectIdentifier>7dbbc880-8750-4d3c-abe7-ea4a17646045</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <auth:AuthorisationReference>W000001</auth:AuthorisationReference>
+                            <auth:AuthorisationTimespan>
+                                <auth:StartTime>2025-09-01T12:00:00Z</auth:StartTime>
+                                <auth:EndTime>2025-12-01T12:00:00Z</auth:EndTime>
+                            </auth:AuthorisationTimespan>
+                            <auth:AuthorisationApprovalDetails>
+                                <common:ApprovalType>Approval type</common:ApprovalType>
+                                <common:ApproverDetails>
+                                    <common:ApproverContactDetails>
+                                        <common:Name>Approver name</common:Name>
+                                        <common:ApproverAlternateName>Alternate name</common:ApproverAlternateName>
+                                    </common:ApproverContactDetails>
+                                </common:ApproverDetails>
+                            </auth:AuthorisationApprovalDetails>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+            </ActionRequests>
+        </RequestPayload>
+    </Payload>
+</HI1Message>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example of a GETCSPCONFIG request to a CSP (Comunications Service Provider). -->
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>da735c3f-3ab9-4e9e-810e-daf84d973505</TransactionIdentifier>
+        <Timestamp>2025-05-14T15:21:00.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.18.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <RequestPayload>
+            <ActionRequests>
+                <ActionRequest>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <GETCSPCONFIG/>
+                </ActionRequest>
+            </ActionRequests>
+        </RequestPayload>
+    </Payload>
+</HI1Message>

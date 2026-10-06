@@ -1,0 +1,1035 @@
+{
+  "$id": "ts_103120_Task_2020_09",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "LITaskObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Task}LITaskObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "task:Reference": {
+          "$ref": "ts_103280_2017_07#/$defs/LIID"
+        },
+        "task:Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:DesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:Timespan": {
+          "$ref": "#/$defs/TaskTimespan"
+        },
+        "task:TargetIdentifier": {
+          "$ref": "#/$defs/TargetIdentifier"
+        },
+        "task:DeliveryType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:DeliveryDetails": {
+          "$ref": "#/$defs/TaskDeliveryDetails"
+        },
+        "task:ApprovalDetails": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/ApprovalDetails"
+          }
+        },
+        "task:CSPID": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+        },
+        "task:HandlingProfile": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:InvalidReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "task:Flags": {
+          "$ref": "#/$defs/TaskFlags"
+        },
+        "task:NationalLITaskingParameters": {
+          "$ref": "#/$defs/NationalLITaskingParameters"
+        },
+        "task:ListOfTrafficPolicyReferences": {
+          "$ref": "#/$defs/ListOfTrafficPolicyReferences"
+        },
+        "task:ListOfIRIPolicyReferences": {
+          "$ref": "#/$defs/ListOfIRIPolicyReferences"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "TaskTimespan": {
+      "type": "object",
+      "properties": {
+        "task:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:TerminationTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:ProvisioningTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:DeprovisioningTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TargetIdentifier": {
+      "type": "object",
+      "properties": {
+        "task:TargetIdentifierValues": {
+          "$ref": "#/$defs/TargetIdentifierValues"
+        },
+        "task:ServiceType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:TargetIdentifierSubtype": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TargetIdentifierValues": {
+      "type": "object",
+      "properties": {
+        "task:TargetIdentifierValue": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TargetIdentifierValue"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TargetIdentifierValue": {
+      "type": "object",
+      "properties": {
+        "task:FormatType": {
+          "$ref": "#/$defs/FormatType"
+        },
+        "task:Value": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "task:FormatType",
+        "task:Value"
+      ],
+      "additionalProperties": false
+    },
+    "FormatType": {
+      "type": "object",
+      "properties": {
+        "task:FormatOwner": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "task:FormatName": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [
+        "task:FormatOwner",
+        "task:FormatName"
+      ],
+      "additionalProperties": false
+    },
+    "TaskDeliveryDetails": {
+      "type": "object",
+      "properties": {
+        "task:DeliveryDestination": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeliveryDestination"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DeliveryDestination": {
+      "type": "object",
+      "properties": {
+        "task:DeliveryAddress": {
+          "$ref": "#/$defs/DeliveryAddress"
+        },
+        "task:DestinationReference": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "task:EncryptionReference": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "task:EncryptionDetails": {
+          "$ref": "#/$defs/NationalEncryptionDetails"
+        },
+        "task:IRIorCC": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:HandoverFormat": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:DeliveryProfile": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:NationalDeliveryParameters": {
+          "$ref": "#/$defs/NationalDeliveryParameters"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DeliveryAddress": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "task:IPv4Address": {
+              "$ref": "ts_103280_2017_07#/$defs/IPv4Address"
+            }
+          },
+          "required": [
+            "task:IPv4Address"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:IPv6Address": {
+              "$ref": "ts_103280_2017_07#/$defs/IPv6Address"
+            }
+          },
+          "required": [
+            "task:IPv6Address"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:IPAddressPort": {
+              "$ref": "ts_103280_2017_07#/$defs/IPAddressPort"
+            }
+          },
+          "required": [
+            "task:IPAddressPort"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:IPAddressPortRange": {
+              "$ref": "ts_103280_2017_07#/$defs/IPAddressPortRange"
+            }
+          },
+          "required": [
+            "task:IPAddressPortRange"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:E164Number": {
+              "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+            }
+          },
+          "required": [
+            "task:E164Number"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:FTPAddress": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task:FTPAddress"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:URL": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task:URL"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:FQDN": {
+              "$ref": "ts_103280_2017_07#/$defs/LongString"
+            }
+          },
+          "required": [
+            "task:FQDN"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:EmailAddress": {
+              "$ref": "ts_103280_2017_07#/$defs/EmailAddress"
+            }
+          },
+          "required": [
+            "task:EmailAddress"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:EndpointID": {
+              "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+            }
+          },
+          "required": [
+            "task:EndpointID"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task:DeliveryInformationID": {
+              "$ref": "ts_103280_2017_07#/$defs/LongString"
+            }
+          },
+          "required": [
+            "task:DeliveryInformationID"
+          ]
+        }
+      ]
+    },
+    "TaskFlags": {
+      "type": "object",
+      "properties": {
+        "task:TaskFlag": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalLITaskingParameters": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "NationalDeliveryParameters": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "NationalEncryptionDetails": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "LDTaskObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Task}LDTaskObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "task:Reference": {
+          "$ref": "ts_103280_2017_07#/$defs/LDID"
+        },
+        "task:Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:StatusReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "task:DesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:RequestDetails": {
+          "$ref": "#/$defs/RequestDetails"
+        },
+        "task:DeliveryDetails": {
+          "$ref": "#/$defs/LDDeliveryDetails"
+        },
+        "task:ApprovalDetails": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/ApprovalDetails"
+          }
+        },
+        "task:CSPID": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+        },
+        "task:HandlingProfile": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:Flags": {
+          "$ref": "#/$defs/LDTaskFlags"
+        },
+        "task:AlternativePreservationReferences": {
+          "$ref": "#/$defs/ListOfAlternativePreservationReferences"
+        },
+        "task:NationalLDTaskingParameters": {
+          "$ref": "#/$defs/NationalLDTaskingParameters"
+        },
+        "task:Deadlines": {
+          "$ref": "#/$defs/ListOfLDDeadlines"
+        },
+        "task:ManualInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "RequestDetails": {
+      "type": "object",
+      "properties": {
+        "task:Type": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:ObservedTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:ObservedTimes": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+          }
+        },
+        "task:RequestValues": {
+          "$ref": "#/$defs/RequestValues"
+        },
+        "task:Subtype": {
+          "$ref": "#/$defs/RequestSubtype"
+        },
+        "task:TargetIdentifierSubtype": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "RequestValues": {
+      "type": "object",
+      "properties": {
+        "task:RequestValue": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequestValue"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "RequestValue": {
+      "type": "object",
+      "properties": {
+        "task:FormatType": {
+          "$ref": "#/$defs/FormatType"
+        },
+        "task:Value": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "task:FormatType",
+        "task:Value"
+      ],
+      "additionalProperties": false
+    },
+    "RequestSubtype": {
+      "type": "object",
+      "properties": {
+        "task:RequestSubtype": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LDDeliveryDetails": {
+      "type": "object",
+      "properties": {
+        "task:LDDeliveryDestination": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LDDeliveryDestination"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LDDeliveryDestination": {
+      "type": "object",
+      "properties": {
+        "task:DeliveryAddress": {
+          "$ref": "#/$defs/DeliveryAddress"
+        },
+        "task:DestinationReference": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "task:EncryptionReference": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "task:EncryptionDetails": {
+          "$ref": "#/$defs/NationalEncryptionDetails"
+        },
+        "task:LDHandoverFormat": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:LDDeliveryProfile": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:NationalDeliveryParameters": {
+          "$ref": "#/$defs/NationalDeliveryParameters"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LDTaskFlags": {
+      "type": "object",
+      "properties": {
+        "task:LDTaskFlag": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfAlternativePreservationReferences": {
+      "type": "object",
+      "properties": {
+        "task:AlternativePreservationReference": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AlternativePreservationReference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "AlternativePreservationReference": {
+      "type": "object",
+      "properties": {
+        "task:ReferenceValue": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:NatureOfReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:TransmissionTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [
+        "task:ReferenceValue"
+      ],
+      "additionalProperties": false
+    },
+    "NationalLDTaskingParameters": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "LPTaskObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Task}LPTaskObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "task:Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:StatusReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "task:DesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:RequestDetails": {
+          "$ref": "#/$defs/LPRequestDetails"
+        },
+        "task:DesiredPreservationExpiration": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:PreservationExpiration": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:CSPID": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+        },
+        "task:NationalLPTaskingParameters": {
+          "$ref": "#/$defs/NationalLPTaskingParameters"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "LPRequestDetails": {
+      "type": "object",
+      "properties": {
+        "task:Type": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:RequestValues": {
+          "$ref": "#/$defs/RequestValues"
+        },
+        "task:Subtype": {
+          "$ref": "#/$defs/RequestSubtype"
+        },
+        "task:TargetIdentifierSubtype": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalLPTaskingParameters": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "ListOfTrafficPolicyReferences": {
+      "type": "object",
+      "properties": {
+        "task:TrafficPolicyReference": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrafficPolicyReference"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TrafficPolicyReference": {
+      "type": "object",
+      "properties": {
+        "task:Order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task:ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfIRIPolicyReferences": {
+      "type": "object",
+      "properties": {
+        "task:IRIPolicyReference": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IRIPolicyReference"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "IRIPolicyReference": {
+      "type": "object",
+      "properties": {
+        "task:Order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task:ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfLDDeadlines": {
+      "type": "object",
+      "properties": {
+        "task:LDDeadline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LDDeadline"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LDDeadline": {
+      "type": "object",
+      "properties": {
+        "task:DateTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:NatureOfDeadline": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:OtherInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TDTaskObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Task}TDTaskObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "task:RequesterReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:CSPReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:StatusReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "task:DesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:RequestDetails": {
+          "$ref": "#/$defs/TakedownRequestDetails"
+        },
+        "task:CSPID": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+        },
+        "task:Flags": {
+          "$ref": "#/$defs/TDTaskFlags"
+        },
+        "task:NationalTDTaskingParameters": {
+          "$ref": "#/$defs/NationalTDTaskingParameters"
+        },
+        "task:Deadlines": {
+          "$ref": "#/$defs/ListOfTDDeadlines"
+        },
+        "task:AlternativeDisclosureReferences": {
+          "$ref": "#/$defs/ListOfAlternativeDisclosureReferences"
+        },
+        "task:ManualInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "TakedownRequestDetails": {
+      "type": "object",
+      "properties": {
+        "task:RequestValues": {
+          "$ref": "#/$defs/RequestValues"
+        },
+        "task:RequestValueRefinement": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:ObservedTimes": {
+          "$ref": "#/$defs/ListOfObservedTimes"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfObservedTimes": {
+      "type": "object",
+      "properties": {
+        "task:ObservedTime": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TDTaskFlags": {
+      "type": "object",
+      "properties": {
+        "task:TDTaskFlag": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalTDTaskingParameters": {
+      "type": "object",
+      "properties": {
+        "task:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "task:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "ListOfTDDeadlines": {
+      "type": "object",
+      "properties": {
+        "task:TakedownDeadline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TakedownDeadline"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TakedownDeadline": {
+      "type": "object",
+      "properties": {
+        "task:DateTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "task:NatureOfDeadline": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:OtherInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfAlternativeDisclosureReferences": {
+      "type": "object",
+      "properties": {
+        "task:AlternativeDisclosureReference": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AlternativeDisclosureReference"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "AlternativeDisclosureReference": {
+      "type": "object",
+      "properties": {
+        "task:ReferenceValue": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "task:NatureOfReference": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "task:TransmissionTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

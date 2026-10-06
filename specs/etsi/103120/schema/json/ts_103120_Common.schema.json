@@ -1,0 +1,308 @@
+{
+  "$id": "ts_103120_Common_2016_02",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ETSIVersion": {
+      "allOf": [
+        {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        {
+          "type": "string",
+          "pattern": "^V\\d+\\.\\d+\\.\\d+$"
+        }
+      ]
+    },
+    "ISO639Set1LanguageIdentifier": {
+      "type": "string",
+      "pattern": "^[a-z]{2}$"
+    },
+    "Checksum": {
+      "$ref": "ts_103280_2017_07#/$defs/ShortString"
+    },
+    "ChecksumType": {
+      "$ref": "ts_103280_2017_07#/$defs/ShortString"
+    },
+    "DictionaryEntries": {
+      "type": "object",
+      "properties": {
+        "common:DictionaryEntry": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DictionaryEntry": {
+      "type": "object",
+      "properties": {
+        "common:Owner": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "common:Name": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "common:Value": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [
+        "common:Owner",
+        "common:Name",
+        "common:Value"
+      ],
+      "additionalProperties": false
+    },
+    "ApprovalDetails": {
+      "type": "object",
+      "properties": {
+        "common:ApprovalType": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApprovalDescription": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApprovalReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApproverDetails": {
+          "$ref": "#/$defs/ApproverDetails"
+        },
+        "common:ApprovalTimestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "common:ApprovalIsEmergency": {
+          "type": "boolean"
+        },
+        "common:ApprovalDigitalSignature": {
+          "$ref": "#/$defs/ApprovalDigitalSignature"
+        },
+        "common:ApprovalNationalDetails": {
+          "$ref": "#/$defs/ApprovalNationalDetails"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ApproverDetails": {
+      "type": "object",
+      "properties": {
+        "common:ApproverName": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApproverRole": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApproverIdentity": {
+          "$ref": "#/$defs/ApproverIdentity"
+        },
+        "common:ApproverContactDetails": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ApproverContactDetails"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ApproverIdentity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "common:NationalApproverIdentity": {
+              "$ref": "#/$defs/NationalApproverIdentity"
+            }
+          },
+          "required": [
+            "common:NationalApproverIdentity"
+          ]
+        }
+      ]
+    },
+    "ApproverContactDetails": {
+      "type": "object",
+      "properties": {
+        "common:Name": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:Role": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:EmailAddress": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalizedEmailAddress"
+        },
+        "common:PhoneNumber": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+        },
+        "common:FaxNumber": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+        },
+        "common:Address": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:Languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LanguageIdentifier"
+          }
+        },
+        "common:ApproverAlternateName": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:ApproverEmailAddress": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalizedEmailAddress"
+        },
+        "common:ApproverPhoneNumber": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "GenericContactDetails": {
+      "type": "object",
+      "properties": {
+        "common:Name": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:Role": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:EmailAddress": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalizedEmailAddress"
+        },
+        "common:PhoneNumber": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+        },
+        "common:FaxNumber": {
+          "$ref": "ts_103280_2017_07#/$defs/InternationalE164"
+        },
+        "common:Address": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "common:Languages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LanguageIdentifier"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LanguageIdentifier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "common:ISO639Set1LanguageIdentifier": {
+              "$ref": "#/$defs/ISO639Set1LanguageIdentifier"
+            }
+          },
+          "required": [
+            "common:ISO639Set1LanguageIdentifier"
+          ]
+        }
+      ]
+    },
+    "NationalApproverIdentity": {
+      "type": "object",
+      "properties": {
+        "common:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "common:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "ApprovalDigitalSignature": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "common:NationalDigitalSignature": {
+              "$ref": "#/$defs/NationalDigitalSignature"
+            }
+          },
+          "required": [
+            "common:NationalDigitalSignature"
+          ]
+        }
+      ]
+    },
+    "ApprovalNationalDetails": {
+      "type": "object",
+      "properties": {
+        "common:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "common:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "NationalDigitalSignature": {
+      "type": "object",
+      "properties": {
+        "common:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "common:CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "Timespan": {
+      "type": "object",
+      "properties": {
+        "common:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "common:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListOfChecksumAndType": {
+      "type": "object",
+      "properties": {
+        "common:ChecksumAndType": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ChecksumAndType"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ChecksumAndType": {
+      "type": "object",
+      "properties": {
+        "common:Checksum": {
+          "$ref": "#/$defs/Checksum"
+        },
+        "common:ChecksumType": {
+          "$ref": "#/$defs/ChecksumType"
+        }
+      },
+      "required": [
+        "common:Checksum",
+        "common:ChecksumType"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "$id": "ts_103280_Dictionaries_2019_10",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Dictionaries": {
+      "type": "object",
+      "properties": {
+        "dictionaries:Dictionary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Dictionary"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "Dictionary": {
+      "type": "object",
+      "properties": {
+        "dictionaries:Owner": {
+          "type": "string"
+        },
+        "dictionaries:Name": {
+          "type": "string"
+        },
+        "dictionaries:DictionaryEntries": {
+          "$ref": "#/$defs/DictionaryEntries"
+        }
+      },
+      "required": [
+        "dictionaries:Owner",
+        "dictionaries:Name",
+        "dictionaries:DictionaryEntries"
+      ],
+      "additionalProperties": false
+    },
+    "DictionaryEntries": {
+      "type": "object",
+      "properties": {
+        "dictionaries:DictionaryEntry": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "DictionaryEntry": {
+      "type": "object",
+      "properties": {
+        "dictionaries:Value": {
+          "type": "string"
+        },
+        "dictionaries:Meaning": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dictionaries:Value",
+        "dictionaries:Meaning"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/Dictionaries"
+}

@@ -1,0 +1,39 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xs": "xmlns:xs=http://www.w3.org/2001/XMLSchema",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:delivery": "http://uri.etsi.org/03120/common/2019/10/Delivery",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "TransactionIdentifier": "8854cfad-44ac-43b8-99ae-530b690b43da",
+    "Timestamp": "2019-09-30T13:37:37.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "ResponsePayload": {
+      "ActionResponses": {
+        "ActionResponse": [
+          {
+            "ActionIdentifier": 0,
+            "DELIVERResponse": {
+              "Identifier": "71ff52ca-bcea-4fa3-b34e-1b89dcfb0d9e"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

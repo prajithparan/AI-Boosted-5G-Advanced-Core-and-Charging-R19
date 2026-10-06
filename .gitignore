@@ -65,3 +65,4 @@ nfs/nwdaf/training/.venv/
 nfs/nwdaf/training/mlflow.db
 nfs/nwdaf/training/mlruns/
 nfs/nwdaf/training/runs/
+specs/etsi/103120/schemas-definitions-main.zip

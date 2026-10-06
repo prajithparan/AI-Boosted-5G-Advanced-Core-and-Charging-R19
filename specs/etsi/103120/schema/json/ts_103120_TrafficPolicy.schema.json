@@ -1,0 +1,326 @@
+{
+  "$id": "ts_103120_TrafficPolicy_2022_07",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "TrafficPolicyObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2022/07/TrafficPolicy}TrafficPolicyObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "tp:TrafficPolicyName": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "tp:TrafficRules": {
+          "$ref": "#/$defs/ListOfTrafficRuleReferences"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "ListOfTrafficRuleReferences": {
+      "type": "object",
+      "properties": {
+        "tp:TrafficRuleReference": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrafficRuleReference"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TrafficRuleReference": {
+      "type": "object",
+      "properties": {
+        "tp:Order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tp:ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        }
+      },
+      "required": [
+        "tp:Order",
+        "tp:ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "TrafficRuleObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2022/07/TrafficPolicy}TrafficRuleObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "tp:Criteria": {
+          "$ref": "#/$defs/ListOfTrafficCriteria"
+        },
+        "tp:Action": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "tp:Parameters": {
+          "$ref": "#/$defs/ActionParameters"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "ListOfTrafficCriteria": {
+      "type": "object",
+      "properties": {
+        "tp:Criteria": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrafficCriteria"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "TrafficCriteria": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tp:IPPolicyCriteria": {
+              "$ref": "#/$defs/IPPolicyCriteria"
+            }
+          },
+          "required": [
+            "tp:IPPolicyCriteria"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tp:MobileAccessPolicyCriteria": {
+              "$ref": "#/$defs/MobileAccessPolicyCriteria"
+            }
+          },
+          "required": [
+            "tp:MobileAccessPolicyCriteria"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tp:EthernetPolicyCriteria": {
+              "$ref": "#/$defs/EthernetPolicyCriteria"
+            }
+          },
+          "required": [
+            "tp:EthernetPolicyCriteria"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tp:RCSPolicyCriteria": {
+              "$ref": "#/$defs/RCSPolicyCriteria"
+            }
+          },
+          "required": [
+            "tp:RCSPolicyCriteria"
+          ]
+        }
+      ]
+    },
+    "IPPolicyCriteria": {
+      "type": "object",
+      "properties": {
+        "tp:IPProtocol": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tp:SourceIPRange": {
+          "$ref": "ts_103280_2017_07#/$defs/IPCIDR"
+        },
+        "tp:SourcePortRange": {
+          "$ref": "ts_103280_2017_07#/$defs/PortRange"
+        },
+        "tp:DestinationIPRange": {
+          "$ref": "ts_103280_2017_07#/$defs/IPCIDR"
+        },
+        "tp:DestinationPortRange": {
+          "$ref": "ts_103280_2017_07#/$defs/PortRange"
+        },
+        "tp:BothDirections": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "MobileAccessPolicyCriteria": {
+      "type": "object",
+      "properties": {
+        "tp:APN": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "tp:DNN": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "EthernetPolicyCriteria": {
+      "type": "object",
+      "properties": {
+        "tp:SourceMACAddress": {
+          "$ref": "ts_103280_2017_07#/$defs/MACAddress"
+        },
+        "tp:DestinationMACAddress": {
+          "$ref": "ts_103280_2017_07#/$defs/MACAddress"
+        },
+        "tp:BothDirections": {
+          "type": "boolean"
+        },
+        "tp:VLANCriteria": {
+          "$ref": "#/$defs/VLANCriteria"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "VLANCriteria": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tp:OuterVLANs": {
+              "$ref": "#/$defs/VLANIDList"
+            }
+          },
+          "required": [
+            "tp:OuterVLANs"
+          ]
+        }
+      ]
+    },
+    "VLANIDList": {
+      "type": "object",
+      "properties": {
+        "tp:VLANID": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103280_2017_07#/$defs/VLANID"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "RCSPolicyCriteria": {
+      "type": "object",
+      "properties": {
+        "tp:CommunicationServiceID": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [
+        "tp:CommunicationServiceID"
+      ],
+      "additionalProperties": false
+    },
+    "ActionParameters": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tp:TruncateActionParameters": {
+              "$ref": "#/$defs/TruncateActionParameters"
+            }
+          },
+          "required": [
+            "tp:TruncateActionParameters"
+          ]
+        }
+      ]
+    },
+    "TruncateActionParameters": {
+      "type": "object",
+      "properties": {
+        "tp:NumberOfOctets": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tp:ProvideOriginalLength": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tp:NumberOfOctets"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

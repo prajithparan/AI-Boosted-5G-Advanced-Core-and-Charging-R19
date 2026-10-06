@@ -1,0 +1,100 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:auth": "http://uri.etsi.org/03120/common/2020/09/Authorisation",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "c02358b2-76cf-4ba4-a8eb-f6436ccaea2e",
+    "Timestamp": "2015-09-01T12:00:00.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "RequestPayload": {
+      "ActionRequests": {
+        "ActionRequest": [
+          {
+            "ActionIdentifier": 0,
+            "CREATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Authorisation}AuthorisationObject",
+                "ObjectIdentifier": "7dbbc880-8750-4d3c-abe7-ea4a17646045",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "auth:AuthorisationReference": "W000001",
+                "auth:AuthorisationTimespan": {
+                  "auth:StartTime": "2015-09-01T12:00:00Z",
+                  "auth:EndTime": "2015-12-01T12:00:00Z"
+                }
+              }
+            }
+          },
+          {
+            "ActionIdentifier": 1,
+            "CREATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Task}LITaskObject",
+                "ObjectIdentifier": "2b36a78b-b628-416d-bd22-404e68a0cd36",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "AssociatedObjects": {
+                  "AssociatedObject": [
+                    "7dbbc880-8750-4d3c-abe7-ea4a17646045"
+                  ]
+                },
+                "task:Reference": "LIID1",
+                "task:TargetIdentifier": {
+                  "task:TargetIdentifierValues": {
+                    "task:TargetIdentifierValue": [
+                      {
+                        "task:FormatType": {
+                          "task:FormatOwner": "ETSI",
+                          "task:FormatName": "InternationalE164"
+                        },
+                        "task:Value": "442079460223"
+                      }
+                    ]
+                  }
+                },
+                "task:DeliveryType": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "TaskDeliveryType",
+                  "common:Value": "IRIandCC"
+                },
+                "task:DeliveryDetails": {
+                  "task:DeliveryDestination": [
+                    {
+                      "task:DeliveryAddress": {
+                        "task:IPv4Address": "192.0.2.0"
+                      }
+                    }
+                  ]
+                },
+                "task:CSPID": {
+                  "CountryCode": "XX",
+                  "UniqueIdentifier": "RECVER01"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Signature": {
+    "protected": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+    "signature": "RImkRSJkh46537Bh4LpNbkL2O64jInUv0JLGeoKJ-2M"
+  }
+}

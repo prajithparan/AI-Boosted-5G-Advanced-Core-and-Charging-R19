@@ -1,0 +1,746 @@
+{
+  "$id": "ts_103120_Core_2019_10",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ObjectIdentifier": {
+      "$ref": "ts_103280_2017_07#/$defs/UUID"
+    },
+    "HI1Message": {
+      "type": "object",
+      "properties": {
+        "Header": {
+          "$ref": "#/$defs/MessageHeader"
+        },
+        "Payload": {
+          "$ref": "#/$defs/MessagePayload"
+        },
+        "Signature": {
+          "properties": {
+            "protected": {
+              "type": "string"
+            },
+            "signature": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "protected",
+            "signature"
+          ]
+        },
+        "Signatures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "hash_algorithm": {
+                "type": "string"
+              },
+              "algorithm": {
+                "type": "string"
+              },
+              "public_key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "hash_algorithm",
+              "algorithm",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "Header",
+        "Payload"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^@": {
+          "type": "string"
+        }
+      }
+    },
+    "MessageHeader": {
+      "type": "object",
+      "properties": {
+        "SenderIdentifier": {
+          "$ref": "#/$defs/EndpointID"
+        },
+        "ReceiverIdentifier": {
+          "$ref": "#/$defs/EndpointID"
+        },
+        "TransactionIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/UUID"
+        },
+        "Timestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedMicrosecondDateTime"
+        },
+        "Version": {
+          "$ref": "#/$defs/Version"
+        },
+        "WorkflowIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "SenderIdentifier",
+        "ReceiverIdentifier",
+        "TransactionIdentifier",
+        "Timestamp",
+        "Version"
+      ],
+      "additionalProperties": false
+    },
+    "Version": {
+      "type": "object",
+      "properties": {
+        "ETSIVersion": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/ETSIVersion"
+        },
+        "NationalProfileOwner": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "NationalProfileVersion": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [
+        "ETSIVersion",
+        "NationalProfileOwner",
+        "NationalProfileVersion"
+      ],
+      "additionalProperties": false
+    },
+    "EndpointID": {
+      "type": "object",
+      "properties": {
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "UniqueIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "CountryCode",
+        "UniqueIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "MessagePayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "RequestPayload": {
+              "$ref": "#/$defs/RequestPayload"
+            }
+          },
+          "required": [
+            "RequestPayload"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ResponsePayload": {
+              "$ref": "#/$defs/ResponsePayload"
+            }
+          },
+          "required": [
+            "ResponsePayload"
+          ]
+        }
+      ]
+    },
+    "RequestPayload": {
+      "type": "object",
+      "properties": {
+        "ActionRequests": {
+          "$ref": "#/$defs/ActionRequests"
+        }
+      },
+      "required": [
+        "ActionRequests"
+      ],
+      "additionalProperties": false
+    },
+    "ActionRequests": {
+      "type": "object",
+      "properties": {
+        "ActionRequest": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActionRequest"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ResponsePayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ActionResponses": {
+              "$ref": "#/$defs/ActionResponses"
+            }
+          },
+          "required": [
+            "ActionResponses"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ErrorInformation": {
+              "$ref": "#/$defs/ActionUnsuccesfulInformation"
+            }
+          },
+          "required": [
+            "ErrorInformation"
+          ]
+        }
+      ]
+    },
+    "ActionResponses": {
+      "type": "object",
+      "properties": {
+        "ActionResponse": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ActionResponse"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ActionRequest": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ActionIdentifier": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "ActionIdentifier"
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "GET": {
+                  "$ref": "#/$defs/GETRequest"
+                }
+              },
+              "required": [
+                "GET"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "CREATE": {
+                  "$ref": "#/$defs/CREATERequest"
+                }
+              },
+              "required": [
+                "CREATE"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "UPDATE": {
+                  "$ref": "#/$defs/UPDATERequest"
+                }
+              },
+              "required": [
+                "UPDATE"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "LIST": {
+                  "$ref": "#/$defs/LISTRequest"
+                }
+              },
+              "required": [
+                "LIST"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "DELIVER": {
+                  "$ref": "#/$defs/DELIVERRequest"
+                }
+              },
+              "required": [
+                "DELIVER"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "GETCSPCONFIG": {
+                  "$ref": "#/$defs/GETCSPCONFIGRequest"
+                }
+              },
+              "required": [
+                "GETCSPCONFIG"
+              ]
+            }
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ActionResponse": {
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ActionIdentifier": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "ActionIdentifier"
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "GETResponse": {
+                  "$ref": "#/$defs/GETResponse"
+                }
+              },
+              "required": [
+                "GETResponse"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "CREATEResponse": {
+                  "$ref": "#/$defs/CREATEResponse"
+                }
+              },
+              "required": [
+                "CREATEResponse"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "UPDATEResponse": {
+                  "$ref": "#/$defs/UPDATEResponse"
+                }
+              },
+              "required": [
+                "UPDATEResponse"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "LISTResponse": {
+                  "$ref": "#/$defs/LISTResponse"
+                }
+              },
+              "required": [
+                "LISTResponse"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ErrorInformation": {
+                  "$ref": "#/$defs/ActionUnsuccesfulInformation"
+                }
+              },
+              "required": [
+                "ErrorInformation"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "DELIVERResponse": {
+                  "$ref": "#/$defs/DELIVERResponse"
+                }
+              },
+              "required": [
+                "DELIVERResponse"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "GETCSPCONFIGResponse": {
+                  "$ref": "#/$defs/GETCSPCONFIGResponse"
+                }
+              },
+              "required": [
+                "GETCSPCONFIGResponse"
+              ]
+            }
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "GETRequest": {
+      "type": "object",
+      "properties": {
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        }
+      },
+      "required": [
+        "Identifier"
+      ],
+      "additionalProperties": false
+    },
+    "GETResponse": {
+      "type": "object",
+      "properties": {
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "HI1Object"
+      ],
+      "additionalProperties": false
+    },
+    "CREATERequest": {
+      "type": "object",
+      "properties": {
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "HI1Object"
+      ],
+      "additionalProperties": false
+    },
+    "CREATEResponse": {
+      "type": "object",
+      "properties": {
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        },
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "Identifier"
+      ],
+      "additionalProperties": false
+    },
+    "UPDATERequest": {
+      "type": "object",
+      "properties": {
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "HI1Object"
+      ],
+      "additionalProperties": false
+    },
+    "UPDATEResponse": {
+      "type": "object",
+      "properties": {
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        },
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "Identifier"
+      ],
+      "additionalProperties": false
+    },
+    "LISTRequest": {
+      "type": "object",
+      "properties": {
+        "ObjectType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "LastChangedTimespan": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/Timespan"
+        },
+        "MaximumObjectCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "LISTResponse": {
+      "type": "object",
+      "properties": {
+        "ListResponseRecord": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListResponseRecord"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListResponseRecord": {
+      "type": "object",
+      "properties": {
+        "ObjectType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [
+        "ObjectType",
+        "Identifier",
+        "Generation"
+      ],
+      "additionalProperties": false
+    },
+    "ActionUnsuccesfulInformation": {
+      "type": "object",
+      "properties": {
+        "ErrorCode": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ErrorDescription": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "ErrorCode",
+        "ErrorDescription"
+      ],
+      "additionalProperties": false
+    },
+    "DELIVERRequest": {
+      "type": "object",
+      "properties": {
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        },
+        "HI1Object": {
+          "$ref": "#/$defs/ConcreteHI1Object"
+        }
+      },
+      "required": [
+        "Identifier",
+        "HI1Object"
+      ],
+      "additionalProperties": false
+    },
+    "DELIVERResponse": {
+      "type": "object",
+      "properties": {
+        "Identifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        }
+      },
+      "required": [
+        "Identifier"
+      ],
+      "additionalProperties": false
+    },
+    "GETCSPCONFIGRequest": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "GETCSPCONFIGResponse": {
+      "type": "object",
+      "properties": {
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "Dictionaries": {
+          "$ref": "ts_103280_Dictionaries_2019_10#/$defs/Dictionaries"
+        },
+        "TargetFormatTypeDefinitions": {
+          "$ref": "ts_103120_Config_2024_06#/$defs/TargetFormatTypeDefinitions"
+        },
+        "TargetingConfigurations": {
+          "$ref": "ts_103120_Config_2024_06#/$defs/TargetingConfigurations"
+        },
+        "SupportedLIWorkflowEndpoints": {
+          "$ref": "ts_103120_Config_2024_06#/$defs/SupportedLIWorkflowEndpoints"
+        },
+        "SupportedLPWorkflowEndpoints": {
+          "$ref": "ts_103120_Config_2024_06#/$defs/SupportedLPWorkflowEndpoints"
+        },
+        "SupportedLDWorkflowEndpoints": {
+          "$ref": "ts_103120_Config_2024_06#/$defs/SupportedLDWorkflowEndpoints"
+        }
+      },
+      "required": [
+        "LastChanged",
+        "TargetingConfigurations"
+      ],
+      "additionalProperties": false
+    },
+    "HI1Object": {
+      "type": "object",
+      "properties": {
+        "ObjectIdentifier": {
+          "$ref": "#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "#/$defs/NationalHandlingParameters"
+        }
+      },
+      "required": [
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "AssociatedObjects": {
+      "type": "object",
+      "properties": {
+        "AssociatedObject": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ObjectIdentifier"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalHandlingParameters": {
+      "type": "object",
+      "properties": {
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "CountryCode"
+      ],
+      "additionalProperties": false
+    },
+    "ConcreteHI1Object": {
+      "oneOf": [
+        {
+          "$ref": "ts_103120_Authorisation_2020_09#/$defs/AuthorisationObject"
+        },
+        {
+          "$ref": "ts_103120_Task_2020_09#/$defs/LITaskObject"
+        },
+        {
+          "$ref": "ts_103120_Task_2020_09#/$defs/LPTaskObject"
+        },
+        {
+          "$ref": "ts_103120_Task_2020_09#/$defs/LDTaskObject"
+        },
+        {
+          "$ref": "ts_103120_Document_2020_09#/$defs/DocumentObject"
+        },
+        {
+          "$ref": "ts_103120_Notification_2016_02#/$defs/NotificationObject"
+        },
+        {
+          "$ref": "ts_103120_Delivery_2019_10#/$defs/DeliveryObject"
+        },
+        {
+          "$ref": "ts_103120_TrafficPolicy_2022_07#/$defs/TrafficPolicyObject"
+        },
+        {
+          "$ref": "ts_103120_TrafficPolicy_2022_07#/$defs/TrafficRuleObject"
+        },
+        {
+          "$ref": "ts_103120_Destination_2026_07#/$defs/LIDestinationObject"
+        },
+        {
+          "$ref": "ts_103120_Destination_2026_07#/$defs/LDDestinationObject"
+        },
+        {
+          "$ref": "ts_103120_Encryption_2026_01#/$defs/EncryptionObject"
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/HI1Message"
+}

@@ -1,0 +1,110 @@
+{
+  "$id": "ts_103120_Notification_2016_02",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "NotificationObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2016/02/Notification}NotificationObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "notification:NotificationDetails": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "notification:NotificationType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "notification:NewNotification": {
+          "type": "boolean"
+        },
+        "notification:NotificationTimestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "notification:StatusOfAssociatedObjects": {
+          "$ref": "#/$defs/ListOfAssociatedObjectStatus"
+        },
+        "notification:NationalNotificationParameters": {
+          "$ref": "#/$defs/NationalNotificationParameters"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "ListOfAssociatedObjectStatus": {
+      "type": "object",
+      "properties": {
+        "notification:AssociatedObjectStatus": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssociatedObjectStatus"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "AssociatedObjectStatus": {
+      "type": "object",
+      "properties": {
+        "notification:AssociatedObject": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "notification:Status": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "notification:Details": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        }
+      },
+      "required": [
+        "notification:AssociatedObject",
+        "notification:Status"
+      ],
+      "additionalProperties": false
+    },
+    "NationalNotificationParameters": {
+      "type": "object",
+      "properties": {
+        "notification:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "notification:CountryCode"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

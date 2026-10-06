@@ -1,0 +1,87 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:auth": "http://uri.etsi.org/03120/common/2020/09/Authorisation",
+  "@xmlns:doc": "http://uri.etsi.org/03120/common/2020/09/Document",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "69353ac0-9582-4c71-b162-86259c99de20",
+    "Timestamp": "2015-09-01T12:02:00.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "RequestPayload": {
+      "ActionRequests": {
+        "ActionRequest": [
+          {
+            "ActionIdentifier": 0,
+            "CREATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Document}DocumentObject",
+                "ObjectIdentifier": "4193f541-5e19-468e-b4a3-1c636ce115e9",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "doc:DocumentReference": "W000001",
+                "doc:DocumentTimespan": {
+                  "doc:StartTime": "2015-09-01T12:00:00Z",
+                  "doc:EndTime": "2015-12-01T12:00:00Z"
+                },
+                "doc:DocumentType": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "DocumentType",
+                  "common:Value": "Warrant"
+                },
+                "doc:DocumentSignature": [
+                  {
+                    "common:ApproverDetails": {
+                      "common:ApproverName": "John Doe",
+                      "common:ApproverContactDetails": [
+                        {
+                          "common:ApproverEmailAddress": "john.doe@example.com",
+                          "common:ApproverPhoneNumber": "442079460223"
+                        },
+                        {
+                          "common:ApproverAlternateName": "Jane Doe",
+                          "common:ApproverEmailAddress": "jane.doe@example.com",
+                          "common:ApproverPhoneNumber": "442079461110"
+                        }
+                      ]
+                    },
+                    "common:ApprovalTimestamp": "2015-09-01T12:00:00Z"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "ActionIdentifier": 1,
+            "UPDATE": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Authorisation}AuthorisationObject",
+                "ObjectIdentifier": "7dbbc880-8750-4d3c-abe7-ea4a17646045",
+                "AssociatedObjects": {
+                  "AssociatedObject": [
+                    "4193f541-5e19-468e-b4a3-1c636ce115e9"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

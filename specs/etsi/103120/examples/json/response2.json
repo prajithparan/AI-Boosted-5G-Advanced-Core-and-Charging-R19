@@ -1,0 +1,118 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:auth": "http://uri.etsi.org/03120/common/2020/09/Authorisation",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "45002c1e-dc4a-470a-9152-8e752638c86c",
+    "Timestamp": "2015-09-01T12:01:00.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "ResponsePayload": {
+      "ActionResponses": {
+        "ActionResponse": [
+          {
+            "ActionIdentifier": 0,
+            "GETResponse": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Authorisation}AuthorisationObject",
+                "ObjectIdentifier": "7dbbc880-8750-4d3c-abe7-ea4a17646045",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "Generation": 1,
+                "LastChanged": "2015-09-01T12:00:00Z",
+                "auth:AuthorisationReference": "W000001",
+                "auth:AuthorisationStatus": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "AuthorisationStatus",
+                  "common:Value": "Invalid"
+                },
+                "auth:AuthorisationTimespan": {
+                  "auth:StartTime": "2015-09-01T12:00:00Z",
+                  "auth:EndTime": "2015-12-01T12:00:00Z"
+                },
+                "auth:AuthorisationInvalidReason": {
+                  "ErrorCode": 3000,
+                  "ErrorDescription": "The Authorisation is not associated with a valid Warrant Document Object"
+                }
+              }
+            }
+          },
+          {
+            "ActionIdentifier": 0,
+            "GETResponse": {
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Task}LITaskObject",
+                "ObjectIdentifier": "2b36a78b-b628-416d-bd22-404e68a0cd36",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "Generation": 1,
+                "AssociatedObjects": {
+                  "AssociatedObject": [
+                    "7dbbc880-8750-4d3c-abe7-ea4a17646045"
+                  ]
+                },
+                "LastChanged": "2015-09-01T12:00:00Z",
+                "task:Reference": "LIID1",
+                "task:Status": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "TaskStatus",
+                  "common:Value": "Invalid"
+                },
+                "task:TargetIdentifier": {
+                  "task:TargetIdentifierValues": {
+                    "task:TargetIdentifierValue": [
+                      {
+                        "task:FormatType": {
+                          "task:FormatOwner": "ETSI",
+                          "task:FormatName": "InternationalE164"
+                        },
+                        "task:Value": "442079460223"
+                      }
+                    ]
+                  }
+                },
+                "task:DeliveryType": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "TaskDeliveryType",
+                  "common:Value": "IRIandCC"
+                },
+                "task:DeliveryDetails": {
+                  "task:DeliveryDestination": [
+                    {
+                      "task:DeliveryAddress": {
+                        "task:IPv4Address": "192.0.2.0"
+                      }
+                    }
+                  ]
+                },
+                "task:CSPID": {
+                  "CountryCode": "XX",
+                  "UniqueIdentifier": "ACTOR02"
+                },
+                "task:InvalidReason": {
+                  "ErrorCode": 3000,
+                  "ErrorDescription": "The associated Authorisation is in an Invalid state"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

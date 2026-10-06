@@ -1,0 +1,209 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:config": "http://uri.etsi.org/03120/common/2024/06/Config",
+  "@xmlns:dictionaries": "http://uri.etsi.org/03280/common/2019/10/Dictionaries",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "da735c3f-3ab9-4e9e-810e-daf84d973505",
+    "Timestamp": "2025-05-14T15:21:03.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.18.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "ResponsePayload": {
+      "ActionResponses": {
+        "ActionResponse": [
+          {
+            "ActionIdentifier": 0,
+            "GETCSPCONFIGResponse": {
+              "LastChanged": "2025-04-03T07:25:21Z",
+              "Dictionaries": {
+                "dictionaries:Dictionary": [
+                  {
+                    "dictionaries:Owner": "ACTOR02",
+                    "dictionaries:Name": "LDRequestSubtype",
+                    "dictionaries:DictionaryEntries": {
+                      "dictionaries:DictionaryEntry": [
+                        {
+                          "dictionaries:Value": "ServiceA",
+                          "dictionaries:Meaning": "Service A allows users to ..."
+                        },
+                        {
+                          "dictionaries:Value": "ServiceB",
+                          "dictionaries:Meaning": "Service B allows users to ..."
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "dictionaries:Owner": "ACTOR02",
+                    "dictionaries:Name": "LPRequestSubtype",
+                    "dictionaries:DictionaryEntries": {
+                      "dictionaries:DictionaryEntry": [
+                        {
+                          "dictionaries:Value": "ServiceA",
+                          "dictionaries:Meaning": "Service A allows users to ..."
+                        },
+                        {
+                          "dictionaries:Value": "ServiceB",
+                          "dictionaries:Meaning": "Service B allows users to ..."
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "TargetFormatTypeDefinitions": {
+                "config:FormatOwner": "ACTOR02",
+                "config:TargetFormatTypeDefinitionEntries": {
+                  "config:TargetFormatTypeDefinitionEntry": [
+                    {
+                      "config:FormatName": "ProprietaryIdentifier",
+                      "config:Description": "This is an illustration of a proprietary identifier type specific to this CSP, which consists of the string \"CSP\" followed by 10 digits",
+                      "config:FormatRegex": "^CSP[0-9]{10}$"
+                    }
+                  ]
+                }
+              },
+              "TargetingConfigurations": {
+                "config:TargetingConfiguration": [
+                  {
+                    "config:FormatName": "PropietaryIdentifier",
+                    "config:FormatOwner": "ACTOR02",
+                    "config:Guidance": "This targeting configuration defines that the service provider accepts lawful disclosure and lawful preservation requests for the propietary identifier format type described in the TargetFormatTypeDefinitions, associated with Service A for the \"Subscriber Data\" category only",
+                    "config:AssociatedLIServiceTypes": {},
+                    "config:AssociatedLDRequestTypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "SubscriberData"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLDRequestSubtypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LDRequestSubtype",
+                          "common:Value": "ServiceA"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLPRequestTypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "SubscriberData"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLPRequestSubtypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LPRequestSubtype",
+                          "common:Value": "ServiceA"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "config:FormatName": "InternationalE164",
+                    "config:FormatOwner": "ETSI",
+                    "config:Guidance": "This targeting configuration defines that the service provider accepts lawful disclosure and lawful preservation requests for a telephone number (as ETSI standard format E164 number) associated with Service A and Service B for the \"Traffic Data\" and \"Content Data\" categories",
+                    "config:AssociatedLIServiceTypes": {},
+                    "config:AssociatedLDRequestTypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "TrafficData"
+                        },
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "StoredContentData"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLDRequestSubtypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LDRequestSubtype",
+                          "common:Value": "ServiceA"
+                        },
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LDRequestSubtype",
+                          "common:Value": "ServiceB"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLPRequestTypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "TrafficData"
+                        },
+                        {
+                          "common:Owner": "ETSI",
+                          "common:Name": "RequestType",
+                          "common:Value": "StoredContentData"
+                        }
+                      ]
+                    },
+                    "config:AssociatedLPRequestSubtypes": {
+                      "common:DictionaryEntry": [
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LPRequestSubtype",
+                          "common:Value": "ServiceA"
+                        },
+                        {
+                          "common:Owner": "ACTOR02",
+                          "common:Name": "LPRequestSubtype",
+                          "common:Value": "ServiceB"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "SupportedLIWorkflowEndpoints": {},
+              "SupportedLPWorkflowEndpoints": {
+                "config:SupportedLPWorkflowEndpoint": [
+                  {
+                    "config:LPWorkflowEndpoint": {
+                      "common:Owner": "ETSI",
+                      "common:Name": "LPWorkflowEndpoint",
+                      "common:Value": "NewAuthorisation"
+                    },
+                    "config:Guidance": "This tells the LEA what endpoint to use for new warrants. For brevity, in this example, this is the only endpoint specified.",
+                    "config:URL": "https://ts103120.example.com/lp/authorisation/new"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

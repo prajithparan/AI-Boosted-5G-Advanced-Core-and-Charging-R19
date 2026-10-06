@@ -1,0 +1,68 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:auth": "http://uri.etsi.org/03120/common/2020/09/Authorisation",
+  "@xmlns:doc": "http://uri.etsi.org/03120/common/2020/09/Document",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "69353ac0-9582-4c71-b162-86259c99de20",
+    "Timestamp": "2015-09-01T12:02:00.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.13.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "ResponsePayload": {
+      "ActionResponses": {
+        "ActionResponse": [
+          {
+            "ActionIdentifier": 0,
+            "CREATEResponse": {
+              "Identifier": "4193f541-5e19-468e-b4a3-1c636ce115e9"
+            }
+          },
+          {
+            "ActionIdentifier": 1,
+            "UPDATEResponse": {
+              "Identifier": "7dbbc880-8750-4d3c-abe7-ea4a17646045",
+              "HI1Object": {
+                "@xsi:type": "{http://uri.etsi.org/03120/common/2020/09/Authorisation}AuthorisationObject",
+                "ObjectIdentifier": "7dbbc880-8750-4d3c-abe7-ea4a17646045",
+                "CountryCode": "XX",
+                "OwnerIdentifier": "ACTOR01",
+                "Generation": 2,
+                "AssociatedObjects": {
+                  "AssociatedObject": [
+                    "4193f541-5e19-468e-b4a3-1c636ce115e9"
+                  ]
+                },
+                "LastChanged": "2015-09-01T12:02:00Z",
+                "auth:AuthorisationReference": "W000001",
+                "auth:AuthorisationStatus": {
+                  "common:Owner": "ETSI",
+                  "common:Name": "AuthorisationStatus",
+                  "common:Value": "Active"
+                },
+                "auth:AuthorisationTimespan": {
+                  "auth:StartTime": "2015-09-01T12:00:00Z",
+                  "auth:EndTime": "2015-12-01T12:00:00Z"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

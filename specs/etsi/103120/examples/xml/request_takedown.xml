@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HI1Message xmlns="http://uri.etsi.org/03120/common/2019/10/Core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:task="http://uri.etsi.org/03120/common/2020/09/Task" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation" xmlns:doc="http://uri.etsi.org/03120/common/2020/09/Document">
+    <Header>
+        <SenderIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR01</UniqueIdentifier>
+        </SenderIdentifier>
+        <ReceiverIdentifier>
+            <CountryCode>XX</CountryCode>
+            <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+        </ReceiverIdentifier>
+        <TransactionIdentifier>9410d520-17c0-4a98-b081-dd2a3c771619</TransactionIdentifier>
+        <Timestamp>2026-01-19T12:00:00.000000Z</Timestamp>
+        <Version>
+            <ETSIVersion>V1.22.1</ETSIVersion>
+            <NationalProfileOwner>XX</NationalProfileOwner>
+            <NationalProfileVersion>v1.0</NationalProfileVersion>
+        </Version>
+    </Header>
+    <Payload>
+        <RequestPayload>
+            <ActionRequests>
+                <ActionRequest>
+                    <ActionIdentifier>0</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="auth:AuthorisationObject">
+                            <ObjectIdentifier>136b255e-fc86-4727-932f-878cb5b7cd27</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <auth:AuthorisationDesiredStatus>
+                                <common:Owner>ETSI</common:Owner>
+                                <common:Name>AuthorisationDesiredStatus</common:Name>
+                                <common:Value>SubmittedToCSP</common:Value>
+                            </auth:AuthorisationDesiredStatus>
+                            <auth:AuthorisationCSPID>
+                                <auth:CSPID>
+                                    <CountryCode>XX</CountryCode>
+                                    <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+                                </auth:CSPID>
+                            </auth:AuthorisationCSPID>
+                            <auth:AuthorisationServedTimestamp>2026-01-19T12:00:00Z</auth:AuthorisationServedTimestamp>
+                            <auth:AuthorisationApprovalDetails>
+                                <common:ApproverDetails>
+                                    <common:ApproverName>Name of person submitting the request</common:ApproverName>
+                                    <common:ApproverContactDetails>
+                                        <common:ApproverEmailAddress>actor01@example.com</common:ApproverEmailAddress>
+                                        <common:ApproverPhoneNumber>442079460223</common:ApproverPhoneNumber>
+                                    </common:ApproverContactDetails>
+                                </common:ApproverDetails>
+                            </auth:AuthorisationApprovalDetails>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+                <ActionRequest>
+                    <ActionIdentifier>1</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="task:TDTaskObject">
+                            <ObjectIdentifier>29939969-292d-4e9f-be5e-b74bcd7764fb</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <AssociatedObjects>
+                                <AssociatedObject>136b255e-fc86-4727-932f-878cb5b7cd27</AssociatedObject>
+                            </AssociatedObjects>
+                            <task:RequesterReference>Requester-assigned reference</task:RequesterReference>
+                            <task:DesiredStatus>
+                                <common:Owner>ETSI</common:Owner>
+                                <common:Name>TDTaskDesiredStatus</common:Name>
+                                <common:Value>Pending</common:Value>
+                            </task:DesiredStatus>
+                            <task:RequestDetails>
+                                <task:RequestValues>
+                                    <task:RequestValue>
+                                        <task:FormatType>
+                                            <task:FormatOwner>ETSI</task:FormatOwner>
+                                            <task:FormatName>EmailAddress</task:FormatName>
+                                        </task:FormatType>
+                                        <task:Value>user@example.com</task:Value>
+                                    </task:RequestValue>
+                                </task:RequestValues>
+                                <task:RequestValueRefinement>Further details refining the data related to the given RequestValues which is requested to be taken down</task:RequestValueRefinement>
+                                <task:ObservedTimes>
+                                    <task:ObservedTime>2025-12-01T12:00:00Z</task:ObservedTime>
+                                    <task:ObservedTime>2025-12-02T12:00:00Z</task:ObservedTime>
+                                    <task:ObservedTime>2025-12-03T12:00:00Z</task:ObservedTime>
+                                </task:ObservedTimes>
+                            </task:RequestDetails>
+                            <task:CSPID>
+                                <CountryCode>XX</CountryCode>
+                                <UniqueIdentifier>ACTOR02</UniqueIdentifier>
+                            </task:CSPID>
+                            <task:Deadlines>
+                                <task:TakedownDeadline>
+                                    <task:DateTime>2026-02-01T12:00:00Z</task:DateTime>
+                                    <task:NatureOfDeadline>
+                                        <common:Owner>ETSI</common:Owner>
+                                        <common:Name>TDNatureOfDeadline</common:Name>
+                                        <common:Value>Example value</common:Value>
+                                    </task:NatureOfDeadline>
+                                    <task:OtherInformation>Any other human-readable information related to the deadline</task:OtherInformation>
+                                </task:TakedownDeadline>
+                            </task:Deadlines>
+                            <task:AlternativeDisclosureReferences>
+                                <task:AlternativeDisclosureReference>
+                                    <task:ReferenceValue>Alternative disclosure reference</task:ReferenceValue>
+                                    <task:NatureOfReference>
+                                        <common:Owner>Pre-agreed owner</common:Owner>
+                                        <common:Name>Pre-agreed dictionary</common:Name>
+                                        <common:Value>Pre-agreed value</common:Value>
+                                    </task:NatureOfReference>
+                                </task:AlternativeDisclosureReference>
+                            </task:AlternativeDisclosureReferences>
+                            <task:ManualInformation>Any other human-readable information associated with the take-down</task:ManualInformation>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+                <ActionRequest>
+                    <ActionIdentifier>2</ActionIdentifier>
+                    <CREATE>
+                        <HI1Object xsi:type="doc:DocumentObject">
+                            <ObjectIdentifier>eb229e4e-e80c-4b4a-9d82-a4bb1cdffa9a</ObjectIdentifier>
+                            <CountryCode>XX</CountryCode>
+                            <OwnerIdentifier>ACTOR01</OwnerIdentifier>
+                            <AssociatedObjects>
+                                <AssociatedObject>136b255e-fc86-4727-932f-878cb5b7cd27</AssociatedObject>
+                            </AssociatedObjects>
+                            <doc:DocumentName>Document name chosen by the requester</doc:DocumentName>
+                            <doc:DocumentType>
+                                <common:Owner>ETSI</common:Owner>
+                                <common:Name>DocumentType</common:Name>
+                                <common:Value>TakedownRefinement</common:Value>
+                            </doc:DocumentType>
+                            <doc:DocumentBody>
+                                <doc:Contents>VGhpcyBpcyBub3QgYW4gaW1hZ2UgDQo=</doc:Contents>
+                                <doc:ContentType>image/jpeg</doc:ContentType>
+                            </doc:DocumentBody>
+                        </HI1Object>
+                    </CREATE>
+                </ActionRequest>
+            </ActionRequests>
+        </RequestPayload>
+    </Payload>
+</HI1Message>

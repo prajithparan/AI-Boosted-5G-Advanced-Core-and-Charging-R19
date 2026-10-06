@@ -1,0 +1,156 @@
+{
+  "$id": "ts_103120_Authorisation_2020_09",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AuthorisationObject": {
+      "type": "object",
+      "properties": {
+        "@xsi:type": {
+          "type": "string",
+          "enum": [
+            "{http://uri.etsi.org/03120/common/2020/09/Authorisation}AuthorisationObject"
+          ]
+        },
+        "ObjectIdentifier": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ObjectIdentifier"
+        },
+        "CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        },
+        "OwnerIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        },
+        "Generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExternalIdentifier": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "AssociatedObjects": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/AssociatedObjects"
+        },
+        "LastChanged": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "NationalHandlingParameters": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/NationalHandlingParameters"
+        },
+        "auth:AuthorisationReference": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "auth:AuthorisationLegalType": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "auth:AuthorisationPriority": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "auth:AuthorisationStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "auth:AuthorisationDesiredStatus": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "auth:AuthorisationTimespan": {
+          "$ref": "#/$defs/AuthorisationTimespan"
+        },
+        "auth:AuthorisationCSPID": {
+          "$ref": "#/$defs/AuthorisationCSPID"
+        },
+        "auth:AuthorisationCreationTimestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "auth:AuthorisationServedTimestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "auth:AuthorisationTerminationTimestamp": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "auth:AuthorisationApprovalDetails": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/ApprovalDetails"
+          }
+        },
+        "auth:AuthorisationInvalidReason": {
+          "$ref": "ts_103120_Core_2019_10#/$defs/ActionUnsuccesfulInformation"
+        },
+        "auth:AuthorisationFlags": {
+          "$ref": "#/$defs/AuthorisationFlags"
+        },
+        "auth:AuthorisationManualInformation": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "auth:NationalAuthorisationParameters": {
+          "$ref": "#/$defs/NationalAuthorisationParameters"
+        },
+        "auth:AuthorisationJurisdiction": {
+          "$ref": "ts_103280_2017_07#/$defs/LongString"
+        },
+        "auth:AuthorisationTypeOfCase": {
+          "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+        },
+        "auth:AuthorisationLegalEntity": {
+          "$ref": "ts_103280_2017_07#/$defs/ShortString"
+        }
+      },
+      "required": [
+        "@xsi:type",
+        "ObjectIdentifier"
+      ],
+      "additionalProperties": false
+    },
+    "AuthorisationFlags": {
+      "type": "object",
+      "properties": {
+        "auth:AuthorisationFlag": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Common_2016_02#/$defs/DictionaryEntry"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "AuthorisationTimespan": {
+      "type": "object",
+      "properties": {
+        "auth:StartTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        },
+        "auth:EndTime": {
+          "$ref": "ts_103280_2017_07#/$defs/QualifiedDateTime"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "AuthorisationCSPID": {
+      "type": "object",
+      "properties": {
+        "auth:CSPID": {
+          "type": "array",
+          "items": {
+            "$ref": "ts_103120_Core_2019_10#/$defs/EndpointID"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NationalAuthorisationParameters": {
+      "type": "object",
+      "properties": {
+        "auth:CountryCode": {
+          "$ref": "ts_103280_2017_07#/$defs/ISOCountryCode"
+        }
+      },
+      "required": [
+        "auth:CountryCode"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "@xmlns": "http://uri.etsi.org/03120/common/2019/10/Core",
+  "@xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+  "@xmlns:common": "http://uri.etsi.org/03120/common/2016/02/Common",
+  "@xmlns:task": "http://uri.etsi.org/03120/common/2020/09/Task",
+  "@xmlns:auth": "http://uri.etsi.org/03120/common/2020/09/Authorisation",
+  "Header": {
+    "SenderIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR01"
+    },
+    "ReceiverIdentifier": {
+      "CountryCode": "XX",
+      "UniqueIdentifier": "ACTOR02"
+    },
+    "TransactionIdentifier": "eb6b002d-15c3-4c3b-af6c-27ede73641e5",
+    "Timestamp": "2024-06-10T08:50:31.000000Z",
+    "Version": {
+      "ETSIVersion": "V1.16.1",
+      "NationalProfileOwner": "XX",
+      "NationalProfileVersion": "v1.0"
+    }
+  },
+  "Payload": {
+    "RequestPayload": {
+      "ActionRequests": {
+        "ActionRequest": [
+          {
+            "ActionIdentifier": 0,
+            "GETCSPCONFIG": {}
+          }
+        ]
+      }
+    }
+  }
+}

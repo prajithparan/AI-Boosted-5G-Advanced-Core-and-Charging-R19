@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:etsi="http://uri.etsi.org/03280/common/2017/07" xmlns:common="http://uri.etsi.org/03120/common/2016/02/Common" xmlns:core="http://uri.etsi.org/03120/common/2019/10/Core" xmlns="http://uri.etsi.org/03120/common/2019/10/Delivery" targetNamespace="http://uri.etsi.org/03120/common/2019/10/Delivery" elementFormDefault="qualified" attributeFormDefault="unqualified">
+    <xs:import namespace="http://uri.etsi.org/03120/common/2016/02/Common"/>
+    <xs:import namespace="http://uri.etsi.org/03120/common/2019/10/Core"/>
+    <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"/>
+    <xs:complexType name="DeliveryObject">
+        <xs:complexContent>
+            <xs:extension base="core:HI1Object">
+                <xs:sequence>
+                    <xs:element name="Reference" type="Reference" minOccurs="0"/>
+                    <xs:element name="DeliveryID" type="etsi:UUID" minOccurs="0"/>
+                    <xs:element name="SequenceNumber" type="xs:nonNegativeInteger" minOccurs="0"/>
+                    <xs:element name="LastSequence" type="xs:boolean" minOccurs="0"/>
+                    <xs:element name="Manifest" type="Manifest" minOccurs="0"/>
+                    <xs:element name="Delivery" type="Delivery" minOccurs="0"/>
+                    <xs:element name="DeliveryStatus" type="common:DictionaryEntry" minOccurs="0"/>
+                    <xs:element name="DeliveryDesiredStatus" type="common:DictionaryEntry" minOccurs="0"/>
+                    <xs:element name="EncryptionDetails" type="DeliveryEncryptionDetails" minOccurs="0"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+    <xs:complexType name="Reference">
+        <xs:choice>
+            <xs:element name="LDID" type="etsi:LDID"/>
+            <xs:element name="LIID" type="etsi:LIID"/>
+        </xs:choice>
+    </xs:complexType>
+    <xs:complexType name="Manifest">
+        <xs:choice>
+            <xs:element name="Specification" type="common:DictionaryEntry"/>
+            <xs:element name="ExternalSchema" type="ExternalSchema"/>
+        </xs:choice>
+    </xs:complexType>
+    <xs:complexType name="ExternalSchema">
+        <xs:sequence>
+            <xs:element name="ManifestID" type="etsi:LongString" minOccurs="0"/>
+            <xs:element name="ManifestContents" type="ManifestContents" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="ManifestContents">
+        <xs:choice>
+            <xs:element name="BinaryData" type="EmbeddedBinaryData"/>
+            <xs:element name="XMLSchema" type="SchemaContent"/>
+            <xs:element name="JSONSchema" type="EmbeddedJSONData"/>
+        </xs:choice>
+    </xs:complexType>
+    <xs:complexType name="SchemaContent">
+        <xs:sequence>
+            <!-- nolint: accept untyped element -->
+            <xs:element xmlns="http://www.w3.org/2001/XMLSchema" name="schema"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="Delivery">
+        <xs:choice>
+            <xs:element name="BinaryData" type="EmbeddedBinaryData"/>
+            <xs:element name="XMLData" type="EmbeddedXMLData"/>
+            <xs:element name="JSONData" type="EmbeddedJSONData"/>
+            <xs:element name="URL" type="URLObject"/>
+            <xs:element name="DataExistence" type="xs:boolean"/>
+        </xs:choice>
+    </xs:complexType>
+    <xs:complexType name="EmbeddedBinaryData">
+        <xs:sequence>
+            <xs:element name="Data" type="xs:base64Binary"/>
+            <xs:element name="ContentType" type="etsi:ShortString" minOccurs="0"/>
+            <xs:element name="Checksum" type="common:Checksum" minOccurs="0"/>
+            <xs:element name="ChecksumType" type="common:ChecksumType" minOccurs="0"/>
+            <xs:element name="Checksums" type="common:ListOfChecksumAndType" minOccurs="0"/>
+            <xs:element name="OriginalFilename" type="etsi:LongString" minOccurs="0"/>
+            <xs:element name="ContentLength" type="xs:nonNegativeInteger" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="EmbeddedXMLData">
+        <xs:sequence>
+            <xs:any namespace="##other" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="EmbeddedJSONData">
+        <xs:sequence>
+            <xs:any namespace="##other" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="URLObject">
+        <xs:sequence>
+            <xs:element name="URL" type="xs:anyURI"/>
+            <xs:element name="ContentLength" type="xs:nonNegativeInteger" minOccurs="0"/>
+            <xs:element name="ContentType" type="etsi:LongString" minOccurs="0"/>
+            <xs:element name="Expiry" type="etsi:QualifiedMicrosecondDateTime" minOccurs="0"/>
+            <xs:element name="Checksum" type="common:Checksum" minOccurs="0"/>
+            <xs:element name="OriginalFilename" type="etsi:LongString" minOccurs="0"/>
+            <xs:element name="CSPDefinedIdentifier" type="etsi:LongString" minOccurs="0"/>
+            <xs:element name="ChecksumType" type="common:ChecksumType" minOccurs="0"/>
+            <xs:element name="Checksums" type="common:ListOfChecksumAndType" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="DeliveryEncryptionDetails">
+        <xs:sequence>
+            <xs:element name="EncryptionReference" type="core:ObjectIdentifier" minOccurs="0"/>
+            <xs:element name="AdditionalInformation" type="etsi:LongString" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+</xs:schema>
