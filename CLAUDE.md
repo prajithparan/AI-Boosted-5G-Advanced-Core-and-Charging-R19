@@ -132,7 +132,7 @@ Nine items; full text in `docs/project-context/definition-of-done.md` (skill `ne
 ## Context discipline
 
 - Never Read `docs/DECISIONS.md` content whole, nor `PROMPT.md`, `CHARGING_PROMPT.md`, `README.md`, `docs/TRACEABILITY.md`.
-- ADRs: `docs/DECISIONS.md` is an index; `docs/decisions/INDEX_DETAIL.md` has status/date/decision. Then `grep -n "^## ADR-0xxx"` and Read the one file with offset/limit.
+- ADRs: `docs/DECISIONS.md` is an index; `docs/decisions/INDEX_DETAIL.md` has status/date/decision. Then `grep -n "^## ADR-0xxx"` and Read the one file with offset/limit (closed ADRs are in `docs/decisions/archive/`, ADR-0465).
 - Specs: grep the schema name, then Read only that range (skill `spec-lookup`). Never Read a generated header or a spec YAML whole.
 
 ## Compact instructions

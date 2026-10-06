@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DECISIONS = ROOT / "docs" / "DECISIONS.md"
 DIR = ROOT / "docs" / "decisions"
 OTHER = DIR / "_other"
+ARCHIVE = DIR / "archive"
 ORDER = DIR / "_order.json"
 DETAIL = DIR / "INDEX_DETAIL.md"
 PREAMBLE = OTHER / "_preamble.md"
@@ -76,7 +77,13 @@ def load_order():
 
 
 def adr_files():
-    return sorted(p for p in DIR.glob("ADR-*.md"))
+    """Live ADRs in docs/decisions/ plus closed ones in docs/decisions/archive/ (ADR-0465)."""
+    return sorted(list(DIR.glob("ADR-*.md")) + list(ARCHIVE.glob("ADR-*.md")), key=lambda p: p.name)
+
+
+def rel(path):
+    """Manifest/index name of an ADR file: 'ADR-....md' or 'archive/ADR-....md'."""
+    return Path(path).relative_to(DIR).as_posix()
 
 
 def adr_number(name):

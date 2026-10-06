@@ -5478,3 +5478,13 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | SMF IRI-POI reports PDU session events for SUPI/PEI/GPSI targets | TS 33.127 6.2.3, TS 33.128 6.2.3.2 | `nfs/smf/src/li_poi.cpp`, `nfs/smf/src/main.cpp` | `test_li_amf_e2e.cpp` LiSmfEndToEnd.* |
 | ADMF provisions each POI only with targets it can match; PEI/GPSI mapped | TS 33.127 5.3.5.3, TS 103 120 Annex C | `nfs/li-admf/src/lipf.cpp`, `lifecycle.cpp`, `hi1_service.cpp` | `test_li_admf_lipf.cpp` LiAdmfLipf.EachPoiIsToldOnlyTheTargetsItCanMatch etc. |
 
+### LI increment 7 -- content-of-communication chain (ADR-0464, ADR-0463 stage 3)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| SMF CC-TF sends X1 ActivateTask (LI_T3, PFCP session by F-SEID) to the UPF before N4 Session Establishment, withdraws it on release or failed establishment | TS 33.127 6.2.3.9, TS 103 221-1 6.2 | `nfs/smf/src/li_poi.cpp`, `libs/li-poi/src/x1_trigger.cpp` | `test_li_amf_e2e.cpp` LiSmfEndToEnd.TheCcTfTriggersTheUpfPoiForACcWarrantAndWithdrawsItOnRelease |
+| UPF CC-POI matches only the F-SEID target kind; every other UPFLIT3 identifier is refused with X1 3010 | TS 103 221-1 6.2, TS 33.127 6.2.3 | `nfs/upf/src/li_poi.cpp` | `test_li_cc_chain.cpp` LiCcChain.TheUpfPoiRefusesTargetKindsItCannotMatch |
+| X3: one PDU per packet, payload format GTP-U, FromTarget uplink / ToTarget downlink; MDF3 delivers HI3 CC to the LEMF | TS 103 221-2, TS 33.128 | `libs/li-core/src/x2x3_pdu.cpp`, `nfs/li-mdf3/src/main.cpp`, `libs/li-mdf-store/src/task_store.cpp` | `test_li_cc_chain.cpp` LiCcChain.AnUplinkAndDownlinkPacketOfATargetSessionReachTheLemfAsHi3Cc |
+
+Disclosed: the UPF `on_packet()` is a seam fed by tests; the datapath does not call it, so none of these rows proves real packet capture (ADR-0463 stage 4).
+

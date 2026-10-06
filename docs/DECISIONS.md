@@ -24,18 +24,18 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0010](decisions/ADR-0010-custom-jinja2-generator-for-tools-sbi-codegen-not-openapi.md) Custom Jinja2 generator for `tools/sbi-codegen`, not openapi-generator
 - [0011](decisions/ADR-0011-real-tls-1-3-mtls-closing-adr-0005-s-gap.md) Real TLS 1.3 + mTLS, closing ADR-0005's gap
 - [0012](decisions/ADR-0012-jwt-cpp-es256-for-nrf-s-oauth2-token-issuance-verification.md) jwt-cpp + ES256 for NRF's OAuth2 token issuance/verification
-- [0013](decisions/ADR-0013-prometheus-metrics-via-opentelemetry-cpp-s-own-exporter-not.md) Prometheus metrics via opentelemetry-cpp's own exporter, not a separate prometheus-cpp dependency
+- [0013](decisions/archive/ADR-0013-prometheus-metrics-via-opentelemetry-cpp-s-own-exporter-not.md) Prometheus metrics via opentelemetry-cpp's own exporter, not a separate prometheus-cpp dependency
 - [0014](decisions/ADR-0014-nrf-docker-image-ubuntu-24-04-multi-stage-pki-generated-at.md) NRF Docker image -- Ubuntu 24.04 multi-stage, PKI generated at container start
 - [0015](decisions/ADR-0015-nrf-specific-simplifications-in-memory-storage-partial.md) NRF-specific simplifications (in-memory storage, partial discovery/subscription semantics)
 - [0016](decisions/ADR-0016-ueransim-as-an-arms-length-ran-ue-simulator-fetched-not.md) UERANSIM as an arms-length RAN/UE simulator, fetched not vendored
-- [0017](decisions/ADR-0017-fix-tools-sbi-codegen-s-cross-file-schema-name-collision-bug.md) Fix tools/sbi-codegen's cross-file schema name collision bug
+- [0017](decisions/archive/ADR-0017-fix-tools-sbi-codegen-s-cross-file-schema-name-collision-bug.md) Fix tools/sbi-codegen's cross-file schema name collision bug
 - [0018](decisions/ADR-0018-nrf-s-own-nfinstanceid-is-a-fixed-constant-not-randomly.md) NRF's own nfInstanceId is a fixed constant, not randomly generated per run
 - [0019](decisions/ADR-0019-amf-phase-2-s-second-nf-and-the-docker-compose-shared-pki.md) AMF (Phase 2's second NF) and the docker-compose shared-PKI fix it required
 - [0020](decisions/ADR-0020-multipart-related-codec-in-sbi-core-unblocking.md) multipart/related codec in sbi-core, unblocking CreateUEContext and SMF's CreateSMContext
 - [0021](decisions/ADR-0021-smf-phase-2-s-third-nf-sm-contexts-scope-shared-json-body.md) SMF (Phase 2's third NF) -- /sm-contexts scope, shared json_body.hpp promotion
 - [0022](decisions/ADR-0022-fix-tools-sbi-codegen-s-one-cycle-poisons-the-whole-group.md) Fix tools/sbi-codegen's "one cycle poisons the whole group" topo-sort bug
 - [0023](decisions/ADR-0023-udm-phase-2-s-fourth-nf-nudm-uecm-nudm-sdm-scope.md) UDM (Phase 2's fourth NF) -- Nudm_UECM + Nudm_SDM scope
-- [0024](decisions/ADR-0024-fix-sbi-codegen-mishandling-pure-ref-only-schema-re-exports.md) Fix sbi-codegen mishandling pure `$ref`-only schema re-exports
+- [0024](decisions/archive/ADR-0024-fix-sbi-codegen-mishandling-pure-ref-only-schema-re-exports.md) Fix sbi-codegen mishandling pure `$ref`-only schema re-exports
 - [0025](decisions/ADR-0025-udr-fifth-nf-nudr-datarepository-context-data-group.md) UDR (fifth NF) -- Nudr_DataRepository context-data group
 - [0026](decisions/ADR-0026-libs-aka-crypto-milenage-ts-33-501-annex-a-eap-aka-and-udm.md) libs/aka-crypto (Milenage + TS 33.501 Annex A + EAP-AKA') and UDM's Nudm_UEAU
 - [0027](decisions/ADR-0027-ausf-sixth-nf-nausf-ueauthentication-ue-authentications.md) AUSF (sixth NF) -- Nausf_UEAuthentication ue-authentications group
@@ -51,7 +51,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0037](decisions/ADR-0037-sqn-resynchronization-ts-33-102-6-3-3-and-three-real-bugs.md) SQN resynchronization (TS 33.102 §6.3.3), and three real bugs found only by closing the loop with a real `nr-ue`
 - [0038](decisions/ADR-0038-pdu-session-establishment-accept-real-namf-communication.md) PDU Session Establishment Accept -- real Namf_Communication N1N2MessageTransfer, real 5GSM codec on SMF
 - [0039](decisions/ADR-0039-phase-3-stage-0-pfcp-n4-sx-codec-infrastructure-and-the-upf.md) Phase 3 Stage 0 -- PFCP (N4/Sx) codec infrastructure, and the UPF datapath evaluation
-- [0040](decisions/ADR-0040-phase-3-stage-1-upf-eighth-nf-pfcp-heartbeat-association.md) Phase 3 Stage 1 -- UPF (eighth NF), PFCP Heartbeat + Association Setup
+- [0040](decisions/archive/ADR-0040-phase-3-stage-1-upf-eighth-nf-pfcp-heartbeat-association.md) Phase 3 Stage 1 -- UPF (eighth NF), PFCP Heartbeat + Association Setup
 - [0041](decisions/ADR-0041-phase-3-stage-2-smf-as-a-real-pfcp-client-real-nnrf.md) Phase 3 Stage 2 -- SMF as a real PFCP client, real Nnrf_NFDiscovery, real Sx Association
 - [0042](decisions/ADR-0042-phase-3-stage-3-real-n4-session-establishment-wired-into.md) Phase 3 Stage 3 -- real N4 Session Establishment, wired into CreateSMContext
 - [0043](decisions/ADR-0043-phase-3-stage-4-ebpf-xdp-gtp-u-decapsulation-datapath-fully.md) Phase 3 Stage 4 -- eBPF/XDP GTP-U decapsulation datapath (fully live-verified end to end)
@@ -86,9 +86,9 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0072](decisions/ADR-0072-real-n28-end-to-end-pcf-udr-chf-n40-n28-product.md) real N28 end-to-end (PCF/UDR/CHF) + N40/N28 product-configurability
 - [0073](decisions/ADR-0073-chf-in-ci-redis-clickhouse-its-own-postgres-real-full-n28.md) CHF-in-CI (Redis/ClickHouse/its own Postgres) + real full N28 loop closed as an automated test
 - [0074](decisions/ADR-0074-p4-8-stage-2a-ai-native-chf-online-path-predictive-quota.md) P4.8 Stage 2a -- AI-native CHF online path, predictive quota sizing (infrastructure + first capability)
-- [0075](decisions/ADR-0075-capability-completeness-mandate-vs-free5gc-open5gs-user.md) capability-completeness mandate vs free5GC/open5GS (user-directed, mandatory)
+- [0075](decisions/archive/ADR-0075-capability-completeness-mandate-vs-free5gc-open5gs-user.md) capability-completeness mandate vs free5GC/open5GS (user-directed, mandatory)
 - [0076](decisions/ADR-0076-gap-closure-task-100-part-1-real-servicerequest-real.md) gap-closure task #100 (part 1) -- real ServiceRequest, real persistent NAS security context, real 5G-GUTI assignment
-- [0077](decisions/ADR-0077-no-hardcoded-db-url-config-parameters-in-source-separate.md) no hardcoded DB URL/config parameters in source -- separate config files, mandatory project-wide (user-directed)
+- [0077](decisions/archive/ADR-0077-no-hardcoded-db-url-config-parameters-in-source-separate.md) no hardcoded DB URL/config parameters in source -- separate config files, mandatory project-wide (user-directed)
 - [0078](decisions/ADR-0078-gap-closure-task-100-part-2-real-ngap-uecontextrelease.md) gap-closure task #100 (part 2) -- real NGAP UEContextRelease{Request,Command,Complete}
 - [0079](decisions/ADR-0079-gap-closure-task-102-nrf-real-nfprofile-validation.md) gap-closure task #102 -- NRF real NFProfile validation + heartbeat-expiry timer
 - [0080](decisions/ADR-0080-gap-closure-task-103-pcf-real-npcf-policyauthorization-af.md) gap-closure task #103 -- PCF real Npcf_PolicyAuthorization (AF/IMS-facing)
@@ -97,8 +97,8 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0083](decisions/ADR-0083-gap-closure-task-106-udr-resource-type-breadth.md) gap-closure task #106 -- UDR resource-type breadth (Authentication Data + AM Policy Data)
 - [0084](decisions/ADR-0084-gap-closure-task-107-part-1-upf-real-pfcp-associationupdate.md) gap-closure task #107 (part 1) -- UPF real PFCP AssociationUpdate/AssociationRelease
 - [0085](decisions/ADR-0085-task-109-batch-1-config-file-retrofit-for-udr-chf-partial.md) task #109 batch 1 -- config-file retrofit for UDR, CHF (partial), balance-management,
-- [0086](decisions/ADR-0086-gap-closure-task-107-part-2-first-slice-upf-real-pfcp-pfd.md) gap-closure task #107 (part 2, first slice) -- UPF real PFCP PFD Management
-- [0087](decisions/ADR-0087-gap-closure-task-107-final-slice-upf-smf-real-pfcp-node.md) gap-closure task #107 (final slice) -- UPF/SMF real PFCP Node Report, and Session Set
+- [0086](decisions/archive/ADR-0086-gap-closure-task-107-part-2-first-slice-upf-real-pfcp-pfd.md) gap-closure task #107 (part 2, first slice) -- UPF real PFCP PFD Management
+- [0087](decisions/archive/ADR-0087-gap-closure-task-107-final-slice-upf-smf-real-pfcp-node.md) gap-closure task #107 (final slice) -- UPF/SMF real PFCP Node Report, and Session Set
 - [0088](decisions/ADR-0088-task-109-batch-2-config-file-retrofit-for-nrf-hello-nf-udm.md) task #109 batch 2 -- config-file retrofit for NRF, hello-nf, UDM, PCF, SMF, UPF
 - [0089](decisions/ADR-0089-gap-closure-task-108-chf-real-ts-32-298-cdr-ber-encoding.md) gap-closure task #108 -- CHF real TS 32.298 CDR (BER) encoding
 - [0090](decisions/ADR-0090-gap-closure-task-100-first-slice-of-the-n2-handover.md) gap-closure task #100 (first slice of the N2 handover remainder) -- real NGAP PathSwitchRequest
@@ -135,7 +135,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0121](decisions/ADR-0121-gap-closure-task-106-continuation-udr-real-nidd.md) gap-closure task #106 continuation -- UDR real NIDD Authorization Info context-data (self-correction of an earlier deferral)
 - [0122](decisions/ADR-0122-gap-closure-task-106-continuation-udr-real-identity-data-by.md) gap-closure task #106 continuation -- UDR real Identity Data by SUPI or GPSI (plus individual re-verification of the ee-/sdm-subscriptions and subs-to-notify deferrals)
 - [0123](decisions/ADR-0123-gap-closure-task-106-continuation-udr-real-odb-data-query.md) gap-closure task #106 continuation -- UDR real ODB Data (Query by SUPI or GPSI)
-- [0124](decisions/ADR-0124-ci-sanitize-asan-ubsan-job-confirmed-external-runner.md) CI `sanitize (asan-ubsan)` job -- confirmed external runner-shutdown pattern, not a code defect
+- [0124](decisions/archive/ADR-0124-ci-sanitize-asan-ubsan-job-confirmed-external-runner.md) CI `sanitize (asan-ubsan)` job -- confirmed external runner-shutdown pattern, not a code defect
 - [0125](decisions/ADR-0125-gap-closure-task-106-continuation-udr-real-sms-management.md) gap-closure task #106 continuation -- UDR real SMS Management Subscription Data
 - [0126](decisions/ADR-0126-gap-closure-task-106-continuation-udr-real-sms-subscription.md) gap-closure task #106 continuation -- UDR real SMS Subscription Data
 - [0127](decisions/ADR-0127-gap-closure-task-106-continuation-udr-real-trace-data.md) gap-closure task #106 continuation -- UDR real Trace Data
@@ -161,7 +161,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0147](decisions/ADR-0147-gap-closure-task-106-continuation-udr-real-aggregate-ue.md) gap-closure task #106 continuation -- UDR real aggregate UE Update Confirmation Data
 - [0148](decisions/ADR-0148-gap-closure-task-106-continuation-udr-real-event-exposure.md) gap-closure task #106 continuation -- UDR real Event Exposure Subscriptions
 - [0149](decisions/ADR-0149-gap-closure-task-106-continuation-udr-real-subs-to-notify.md) gap-closure task #106 continuation -- UDR real Subs To Notify collection + individual
-- [0150](decisions/ADR-0150-chf-raise-aiquotasizer-s-hardcoded-inference-latency-budget.md) CHF -- raise AiQuotaSizer's hardcoded inference latency budget after a real,
+- [0150](decisions/archive/ADR-0150-chf-raise-aiquotasizer-s-hardcoded-inference-latency-budget.md) CHF -- raise AiQuotaSizer's hardcoded inference latency budget after a real,
 - [0151](decisions/ADR-0151-gap-closure-task-106-continuation-udr-real-sdm.md) gap-closure task #106 continuation -- UDR real SDM Subscriptions collection +
 - [0152](decisions/ADR-0152-gap-closure-task-106-continuation-udr-real-amf-subscription.md) gap-closure task #106 continuation -- UDR real AMF Subscription Info (Document)
 - [0153](decisions/ADR-0153-gap-closure-task-106-continuation-udr-real-smf-event.md) gap-closure task #106 continuation -- UDR real SMF Event Subscription Info
@@ -174,7 +174,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0160](decisions/ADR-0160-udr-gap-closure-survey-bare-subscription-data-ueid-ueid.md) UDR gap-closure survey -- bare `/subscription-data/{ueId}`/`{ueId}/context-data`
 - [0161](decisions/ADR-0161-real-style-form-explode-false-array-query-param-parsing.md) real `style: form, explode: false` array-query-param parsing infra in sbi-core,
 - [0162](decisions/ADR-0162-gap-closure-task-106-continuation-udr-real-pdtq-data.md) gap-closure task #106 continuation -- UDR real PDTQ Data collection + individual
-- [0163](decisions/ADR-0163-ci-real-disclosed-mitigation-for-a-recurring-sanitize-asan.md) CI -- real, disclosed mitigation for a recurring `sanitize (asan-ubsan)` runner
+- [0163](decisions/archive/ADR-0163-ci-real-disclosed-mitigation-for-a-recurring-sanitize-asan.md) CI -- real, disclosed mitigation for a recurring `sanitize (asan-ubsan)` runner
 - [0164](decisions/ADR-0164-gap-closure-task-106-continuation-udr-real-getnfgroupids.md) gap-closure task #106 continuation -- UDR real GetNfGroupIDs, the second resource
 - [0165](decisions/ADR-0165-gap-closure-task-106-continuation-udr-real-getniddaudata.md) gap-closure task #106 continuation -- UDR real GetNiddAuData, whose real blocker
 - [0166](decisions/ADR-0166-gap-closure-task-106-continuation-udr-real-bare.md) gap-closure task #106 continuation -- UDR real bare QueryUeSubscribedData, a 32-field aggregate composed entirely from already-closed sub-resources
@@ -206,18 +206,18 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0193](decisions/ADR-0193-mandatory-systematic-full-project-yaml-coverage-audit-one.md) mandatory systematic full-project YAML coverage audit, one gap at a time, ASAP priority (user-directed)
 - [0192](decisions/ADR-0192-chf-cdr-storage-migrated-from-clickhouse-to-apache-doris.md) CHF CDR storage migrated from ClickHouse to Apache Doris
 - [0194](decisions/ADR-0194-nrf-nnrf-bootstrapping-first-adr-0193-gap-closure.md) NRF `Nnrf_Bootstrapping` -- first ADR-0193 gap-closure
-- [0195](decisions/ADR-0195-ausf-nausf-upuprotection-second-adr-0193-gap-closure.md) AUSF `Nausf_UPUProtection` -- second ADR-0193 gap-closure
+- [0195](decisions/archive/ADR-0195-ausf-nausf-upuprotection-second-adr-0193-gap-closure.md) AUSF `Nausf_UPUProtection` -- second ADR-0193 gap-closure
 - [0196](decisions/ADR-0196-lmf-nlmf-broadcast-nlmf-dataexposure-third-adr-0193-gap.md) LMF `Nlmf_Broadcast` + `Nlmf_DataExposure` -- third ADR-0193 gap-closure
-- [0197](decisions/ADR-0197-udr-operator-specific-data-put-delete-correcting-adr-0111.md) UDR operator-specific-data PUT/DELETE -- correcting ADR-0111/ADR-0114's own real documentation errors
+- [0197](decisions/archive/ADR-0197-udr-operator-specific-data-put-delete-correcting-adr-0111.md) UDR operator-specific-data PUT/DELETE -- correcting ADR-0111/ADR-0114's own real documentation errors
 - [0198](decisions/ADR-0198-udr-nudr-groupidmap-real-generated-dtos-replacing-hand.md) UDR `Nudr_GroupIDmap` -- real generated DTOs, replacing hand-written ones
 - [0199](decisions/ADR-0199-amf-namf-location-namf-eventexposure-fourth-adr-0193-gap.md) AMF `Namf_Location` + `Namf_EventExposure` -- fourth ADR-0193 gap-closure
 - [0200](decisions/ADR-0200-amf-namf-aiot-namf-mbsbroadcast-namf-mbscommunication-namf.md) AMF `Namf_AIoT` + `Namf_MBSBroadcast` + `Namf_MBSCommunication` + `Namf_MT` -- fifth ADR-0193 gap-closure
 - [0201](decisions/ADR-0201-smf-nsmf-eventexposure-nsmf-nidd-sixth-adr-0193-gap-closure.md) SMF `Nsmf_EventExposure` + `Nsmf_NIDD` -- sixth ADR-0193 gap-closure
 - [0202](decisions/ADR-0202-udm-nudm-mt-nudm-niddau-nudm-rsds-nudm-ssau-nudm-ueid.md) UDM `Nudm_MT` + `Nudm_NIDDAU` + `Nudm_RSDS` + `Nudm_SSAU` + `Nudm_UEID` -- seventh ADR-0193 gap-closure
-- [0203](decisions/ADR-0203-upf-nupf-eventexposure-nupf.md) UPF `Nupf_EventExposure` + `Nupf_GetUEPrivateIPaddrAndIdentifiers` -- eighth ADR-0193 gap-closure
+- [0203](decisions/archive/ADR-0203-upf-nupf-eventexposure-nupf.md) UPF `Nupf_EventExposure` + `Nupf_GetUEPrivateIPaddrAndIdentifiers` -- eighth ADR-0193 gap-closure
 - [0204](decisions/ADR-0204-pcf-npcf-uepolicycontrol-npcf-eventexposure-ninth-adr-0193.md) PCF `Npcf_UEPolicyControl` + `Npcf_EventExposure` -- ninth ADR-0193 gap-closure (first PCF slice)
 - [0205](decisions/ADR-0205-pcf-npcf-ampolicyauthorization-npcf-mbspolicyauthorization.md) PCF `Npcf_AMPolicyAuthorization` + `Npcf_MBSPolicyAuthorization` + `Npcf_MBSPolicyControl` -- tenth ADR-0193 gap-closure (second PCF slice)
-- [0206](decisions/ADR-0206-pcf-npcf-pdtqpolicycontrol-npcf-bdtpolicycontrol-eleventh.md) PCF `Npcf_PDTQPolicyControl` + `Npcf_BDTPolicyControl` -- eleventh ADR-0193 gap-closure (third and final PCF slice)
+- [0206](decisions/archive/ADR-0206-pcf-npcf-pdtqpolicycontrol-npcf-bdtpolicycontrol-eleventh.md) PCF `Npcf_PDTQPolicyControl` + `Npcf_BDTPolicyControl` -- eleventh ADR-0193 gap-closure (third and final PCF slice)
 - [0207](decisions/ADR-0207-nef-nnef-smservice-nnef-ueid-nnef-dnaimapping-nnef.md) NEF `Nnef_SMService` + `Nnef_UEId` + `Nnef_DNAIMapping` + `Nnef_EASDeployment` -- twelfth ADR-0193 gap-closure (first NEF slice)
 - [0208](decisions/ADR-0208-nef-nnef-smcontext-nnef-authentication-nnef-ecsaddress.md) NEF `Nnef_SMContext` + `Nnef_Authentication` + `Nnef_ECSAddress` -- thirteenth ADR-0193 gap-closure (second NEF slice)
 - [0209](decisions/ADR-0209-nef-nnef-eventexposure-fourteenth-adr-0193-gap-closure.md) NEF `Nnef_EventExposure` -- fourteenth ADR-0193 gap-closure (third NEF slice); real `tools/sbi-codegen` allOf-narrowing fix; real project-wide common-data group rename
@@ -234,25 +234,25 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0220](decisions/ADR-0220-udm-nudm-uecm-tier-b-gap-closure-seventh-slice.md) UDM `Nudm_UECM` Tier-B gap-closure -- seventh slice (`GetRegistrations` bare aggregate)
 - [0221](decisions/ADR-0221-udm-nudm-uecm-tier-b-gap-closure-eighth-slice.md) UDM `Nudm_UECM` Tier-B gap-closure -- eighth slice (`SendRoutingInfoSm`)
 - [0222](decisions/ADR-0222-ci-real-disclosed-extension-of-adr-0163-s-j2-mitigation-to.md) CI -- real, disclosed extension of ADR-0163's `-j2` mitigation to `build` and
-- [0223](decisions/ADR-0223-ci-add-nefsmserviceintegration.md) CI -- add `NefSMServiceIntegration.SendSMSReturnsRealMultipartDeliveryReport` to the
+- [0223](decisions/archive/ADR-0223-ci-add-nefsmserviceintegration.md) CI -- add `NefSMServiceIntegration.SendSMSReturnsRealMultipartDeliveryReport` to the
 - [0224](decisions/ADR-0224-ci-real-root-cause-of-the-nef-integration-cascade-found-nef.md) CI -- real root cause of the `Nef*Integration` cascade found (`nef` missing from PKI
 - [0225](decisions/ADR-0225-ci-bounded-retry-on-both-build-steps-for-github-s-own.md) CI -- bounded retry on both `Build` steps for GitHub's own transient runner reclaim
-- [0226](decisions/ADR-0226-ci-job-level-auto-rerun-workflow-for-github-s-transient.md) CI -- job-level auto-rerun workflow for GitHub's transient runner reclaim, since a
+- [0226](decisions/archive/ADR-0226-ci-job-level-auto-rerun-workflow-for-github-s-transient.md) CI -- job-level auto-rerun workflow for GitHub's transient runner reclaim, since a
 - [0227](decisions/ADR-0227-udm-nudm-uecm-tier-b-gap-closure-ninth-and-final-slice.md) UDM `Nudm_UECM` Tier-B gap-closure -- ninth and final slice (`Trigger P-CSCF
 - [0228](decisions/ADR-0228-udm-nudm-sdm-tier-b-gap-closure-group-a-b-13-individual.md) UDM `Nudm_SDM` Tier-B gap-closure -- group A+B (13 individual-resource GET ops)
 - [0229](decisions/ADR-0229-ci-sanitize-asan-ubsan-drop-to-j1-asan-ubsan-leg-only.md) CI `sanitize (asan-ubsan)` -- drop to `-j1` (asan-ubsan leg only)
 - [0230](decisions/ADR-0230-udm-nudm-sdm-tier-b-gap-closure-group-c1-5-ops-local.md) UDM `Nudm_SDM` Tier-B gap-closure -- group C1 (5 ops, local composition + existing UDR routes)
 - [0231](decisions/ADR-0231-real-fix-for-udmintegration.md) real fix for `UdmIntegration.SdmDataRetrievalAndSubscriptions`'s CI exclusion (task #166)
 - [0232](decisions/ADR-0232-udm-nudm-sdm-modify-completes-subscribe-unsubscribe-modify.md) UDM `Nudm_SDM` Modify -- completes Subscribe/Unsubscribe/Modify
-- [0233](decisions/ADR-0233-udm-nudm-sdm-group-c2-corrects-adr-0230-s-own-scoping-error.md) UDM `Nudm_SDM` group C2 -- corrects ADR-0230's own scoping error
+- [0233](decisions/archive/ADR-0233-udm-nudm-sdm-group-c2-corrects-adr-0230-s-own-scoping-error.md) UDM `Nudm_SDM` group C2 -- corrects ADR-0230's own scoping error
 - [0234](decisions/ADR-0234-udm-nudm-sdm-4-of-5-sor-upu-ack-write-ops-sorackinfo-upuack.md) UDM `Nudm_SDM` -- 4 of 5 SOR/UPU/ack write ops (SorAckInfo/UpuAck/S-NSSAIs Ack/CAG Ack)
 - [0235](decisions/ADR-0235-udm-nudm-sdm-shared-data-family-6-ops.md) UDM `Nudm_SDM` -- shared-data family (6 ops: GetIndividualSharedData/GetSharedData/
 - [0236](decisions/ADR-0236-udm-nudm-sdm-identifier-lookup-group-getsupiorgpsi.md) UDM `Nudm_SDM` -- identifier-lookup group (GetSupiOrGpsi/GetMultipleIdentifiers)
 - [0237](decisions/ADR-0237-udm-nudm-pp-the-11-ops-adr-0082-disclosed-but-did-not.md) UDM `Nudm_PP` -- the 11 ops ADR-0082 disclosed but did not implement
 - [0238](decisions/ADR-0238-carrier-grade-test-framework-selection-corrects-adr-0049-s.md) Carrier-grade test framework selection -- corrects ADR-0049's named candidates
 - [0239](decisions/ADR-0239-real-server-side-request-concurrency-phase-1-of-adr-0009-s.md) Real server-side request concurrency -- Phase 1 of ADR-0009's synchronous-HTTP debt
-- [0240](decisions/ADR-0240-kernel-enforced-reaping-of-test-spawned-nf-processes-task.md) Kernel-enforced reaping of test-spawned NF processes (task #170)
-- [0241](decisions/ADR-0241-client-handle-pooling-phase-2-of-adr-0009-s-synchronous.md) Client handle pooling -- Phase 2 of ADR-0009's synchronous-HTTP debt
+- [0240](decisions/archive/ADR-0240-kernel-enforced-reaping-of-test-spawned-nf-processes-task.md) Kernel-enforced reaping of test-spawned NF processes (task #170)
+- [0241](decisions/archive/ADR-0241-client-handle-pooling-phase-2-of-adr-0009-s-synchronous.md) Client handle pooling -- Phase 2 of ADR-0009's synchronous-HTTP debt
 - [0242](decisions/ADR-0242-raii-teardown-for-test-spawned-nfs-task-166-the-other-half.md) RAII teardown for test-spawned NFs (task #166, the other half of ADR-0240)
 - [0243](decisions/ADR-0243-chf-records-the-real-ts-32-291-invocationtimestamp-instead.md) CHF records the real TS 32.291 `invocationTimeStamp` instead of its own write time
 - [0244](decisions/ADR-0244-sbi-loadgen-load-generation-harness-and-the-first-real.md) `sbi-loadgen` load-generation harness, and the first real performance defect it found (TCP_NODELAY)
@@ -261,7 +261,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0247](decisions/ADR-0247-ts-28-552-28-554-measurement-mapping-adr-0238-step-1-and.md) TS 28.552/28.554 measurement mapping (ADR-0238 step (1)) -- and two real gaps it exposes
 - [0248](decisions/ADR-0248-smf-handover-req-ack-real-n2-handover-datapath-spec.md) SMF `HANDOVER_REQ_ACK` (real N2 handover datapath), spec acquisition, and a correction to ADR-0247
 - [0249](decisions/ADR-0249-smf-handover-required-ngap-codec-promoted-to-ngap-core-and.md) SMF `HANDOVER_REQUIRED`, `ngap_codec` promoted to `ngap_core`, and AMF's missing SM context ref
-- [0250](decisions/ADR-0250-yaml-ts-cross-checking-made-standard-and-two-errors-it.md) YAML/TS cross-checking made standard -- and two errors it immediately caught
+- [0250](decisions/archive/ADR-0250-yaml-ts-cross-checking-made-standard-and-two-errors-it.md) YAML/TS cross-checking made standard -- and two errors it immediately caught
 - [0251](decisions/ADR-0251-adr-0250-s-cross-check-applied-to-every-nf-6-historical.md) ADR-0250's cross-check applied to every NF -- 6 historical staleness errors fixed
 - [0252](decisions/ADR-0252-full-nf-api-coverage-audit-all-16-nfs-every-yaml-path-vs.md) Full NF API coverage audit -- all 16 NFs, every YAML path vs the compiled binary
 - [0253](decisions/ADR-0253-udr-application-data-traffic-influence-family-first-adr.md) UDR `application-data` traffic-influence family (first ADR-0252 gap-closure)
@@ -269,12 +269,12 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0255](decisions/ADR-0255-udr-exposure-data-structured-data-for-exposure-4-paths-10.md) UDR `exposure-data` -- structured data for exposure, 4 paths, 10 operations
 - [0256](decisions/ADR-0256-udr-aiot-data-data-restoration-and-a-mis-categorisation-in.md) UDR AIoT data + data-restoration -- and a mis-categorisation in ADR-0252's own audit
 - [0257](decisions/ADR-0257-smf-small-data-mo-ops-closed-update-sor-info-re-examined.md) SMF small-data MO ops closed; `Update SOR Info` re-examined and correctly re-deferred
-- [0258](decisions/ADR-0258-amf-calls-smf-during-handover-preparation-the-fabricated-n2.md) AMF calls SMF during handover preparation -- the fabricated N2 transfer is deleted
+- [0258](decisions/archive/ADR-0258-amf-calls-smf-during-handover-preparation-the-fabricated-n2.md) AMF calls SMF during handover preparation -- the fabricated N2 transfer is deleted
 - [0259](decisions/ADR-0259-smf-s-downlink-endpoint-n2sminfotype-family-three-more-real.md) SMF's downlink-endpoint `N2SmInfoType` family -- three more real values
 - [0260](decisions/ADR-0260-the-rest-of-n2sminfotype-all-26-values-accounted-for.md) the rest of `N2SmInfoType` -- all 26 values accounted for
-- [0261](decisions/ADR-0261-handover-cancellation-the-last-named-amf-handover-gap.md) Handover Cancellation -- the last named AMF handover gap
-- [0262](decisions/ADR-0262-ts-28-552-request-success-failure-counter-split-smf-and-nrf.md) TS 28.552 request/success/failure counter split -- SMF and NRF
-- [0263](decisions/ADR-0263-the-project-s-first-measured-performance-baseline.md) the project's first measured performance baseline
+- [0261](decisions/archive/ADR-0261-handover-cancellation-the-last-named-amf-handover-gap.md) Handover Cancellation -- the last named AMF handover gap
+- [0262](decisions/archive/ADR-0262-ts-28-552-request-success-failure-counter-split-smf-and-nrf.md) TS 28.552 request/success/failure counter split -- SMF and NRF
+- [0263](decisions/archive/ADR-0263-the-project-s-first-measured-performance-baseline.md) the project's first measured performance baseline
 - [0264](decisions/ADR-0264-a-real-gnb-for-tests-the-ngap-handover-chain-gets-its-first.md) a real gNB for tests -- the NGAP handover chain gets its first end-to-end coverage
 - [0265](decisions/ADR-0265-a-real-ue-through-authentication-nas-on-top-of-adr-0264-s.md) a real UE through authentication -- NAS on top of ADR-0264's test gNB
 - [0266](decisions/ADR-0266-securitymodecomplete-amf-installs-a-real-security-context.md) SecurityModeComplete -- AMF installs a real security context for a test-driven UE
@@ -282,117 +282,117 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0268](decisions/ADR-0268-asn1c-s-open-type-presence-index-is-wrong-on-unsuccessful.md) asn1c's open-type presence index is wrong on unsuccessful-outcome NGAP PDUs
 - [0269](decisions/ADR-0269-the-full-n2-handover-relay-end-to-end-and-the-gap-that.md) the full N2 handover relay, end to end -- and the gap that closing it exposed
 - [0270](decisions/ADR-0270-amf-tells-smf-where-the-target-wants-downlink-adr-0269-s.md) AMF tells SMF where the target wants downlink -- ADR-0269's disclosed gap, closed
-- [0271](decisions/ADR-0271-the-handover-execution-phase-amf-tells-smf-the-ue-arrived.md) the handover execution phase -- AMF tells SMF the UE arrived
-- [0272](decisions/ADR-0272-the-handover-reject-branch-and-a-suite-wide-readiness.md) the handover reject branch, and a suite-wide readiness-timeout flake it surfaced
+- [0271](decisions/archive/ADR-0271-the-handover-execution-phase-amf-tells-smf-the-ue-arrived.md) the handover execution phase -- AMF tells SMF the UE arrived
+- [0272](decisions/archive/ADR-0272-the-handover-reject-branch-and-a-suite-wide-readiness.md) the handover reject branch, and a suite-wide readiness-timeout flake it surfaced
 - [0273](decisions/ADR-0273-amf-s-peer-nf-addresses-move-to-config-task-109-amf-s-share.md) AMF's peer NF addresses move to config (task #109, AMF's share)
 - [0274](decisions/ADR-0274-chf-s-peer-bss-addresses-move-to-config-task-109-chf-s-share.md) CHF's peer BSS addresses move to config (task #109, CHF's share)
-- [0275](decisions/ADR-0275-product-catalog-joins-nf-config-task-109-closed.md) product-catalog joins nf_config -- task #109 closed
+- [0275](decisions/archive/ADR-0275-product-catalog-joins-nf-config-task-109-closed.md) product-catalog joins nf_config -- task #109 closed
 - [0276](decisions/ADR-0276-nsacf-network-slice-admission-control-both-api-files-with.md) NSACF -- Network Slice Admission Control, both API files, with real reporting and EAC
 - [0277](decisions/ADR-0277-amf-and-smf-call-nsacf-the-wiring-adr-0276-disclosed-as.md) AMF and SMF call NSACF -- the wiring ADR-0276 disclosed as missing
-- [0278](decisions/ADR-0278-nsac-enforced-a-refused-ue-is-really-rejected.md) NSAC enforced -- a refused UE is really rejected
+- [0278](decisions/archive/ADR-0278-nsac-enforced-a-refused-ue-is-really-rejected.md) NSAC enforced -- a refused UE is really rejected
 - [0279](decisions/ADR-0279-smf-enforces-slice-admission-and-the-ue-is-told-why.md) SMF enforces slice admission -- and the UE is told why
 - [0280](decisions/ADR-0280-tps-spike-protection-p15-the-first-piece-of-p4-12.md) TPS spike protection (P15) -- the first piece of P4.12
-- [0281](decisions/ADR-0281-chaos-tests-against-the-money-path-p4-12.md) chaos tests against the money path (P4.12)
+- [0281](decisions/archive/ADR-0281-chaos-tests-against-the-money-path-p4-12.md) chaos tests against the money path (P4.12)
 - [0282](decisions/ADR-0282-business-alarming-p12-autoscaling-p8-and-the-compliance.md) business alarming (P12), autoscaling (P8) and the compliance matrix -- P4.12 closes
 - [0284](decisions/ADR-0284-nf-state-externalisation-is-assigned-to-the-p11-geo.md) NF state externalisation is assigned to the P11 geo-redundancy phase
-- [0283](decisions/ADR-0283-cdr-retention-and-archival-p14-archive-first-delete-second.md) CDR retention and archival (P14) -- archive first, delete second
+- [0283](decisions/archive/ADR-0283-cdr-retention-and-archival-p14-archive-first-delete-second.md) CDR retention and archival (P14) -- archive first, delete second
 - [0285](decisions/ADR-0285-a-tps-ceiling-for-the-diameter-front-door-and-one-value.md) a TPS ceiling for the Diameter front door -- and one value this project will not invent
 - [0286](decisions/ADR-0286-the-n28-sy-chain-reaches-smf-the-standing-directive-s.md) the N28/Sy chain reaches SMF -- the standing directive's missing half
 - [0287](decisions/ADR-0287-task-165-closed-the-ci-exclusion-was-stale-proved-rather.md) task #165 closed -- the CI exclusion was stale, proved rather than assumed
-- [0288](decisions/ADR-0288-ss7-m3ua-spike-protection-p15-complete-across-all-three.md) SS7/M3UA spike protection -- P15 complete across all three protocols
+- [0288](decisions/archive/ADR-0288-ss7-m3ua-spike-protection-p15-complete-across-all-three.md) SS7/M3UA spike protection -- P15 complete across all three protocols
 - [0289](decisions/ADR-0289-phase-7-gui-scope-all-product-configuration-must-be-gui.md) Phase 7 GUI scope -- all product configuration must be GUI-editable
-- [0290](decisions/ADR-0290-a-data-race-in-my-own-tps-ceilings-found-by-asking-when-the.md) a data race in my own TPS ceilings, found by asking when the accept thread starts
-- [0291](decisions/ADR-0291-the-diameter-overload-answer-is-diameter-too-busy-and-a.md) the Diameter overload answer is DIAMETER_TOO_BUSY -- and a search I gave up on too early
+- [0290](decisions/archive/ADR-0290-a-data-race-in-my-own-tps-ceilings-found-by-asking-when-the.md) a data race in my own TPS ceilings, found by asking when the accept thread starts
+- [0291](decisions/archive/ADR-0291-the-diameter-overload-answer-is-diameter-too-busy-and-a.md) the Diameter overload answer is DIAMETER_TOO_BUSY -- and a search I gave up on too early
 - [0292](decisions/ADR-0292-phase-7-gui-stack-is-decided-in-phase-7.md) Phase 7 GUI stack is decided in Phase 7
-- [0293](decisions/ADR-0293-udm-s-map-client-had-no-caller-map-is-only-now-actually-done.md) UDM's MAP client had no caller -- MAP is only now actually done
+- [0293](decisions/archive/ADR-0293-udm-s-map-client-had-no-caller-map-is-only-now-actually-done.md) UDM's MAP client had no caller -- MAP is only now actually done
 - [0294](decisions/ADR-0294-the-capability-sweep-the-summary-table-said-was-missing.md) the capability sweep the summary table said was missing, actually done
-- [0295](decisions/ADR-0295-the-diameter-and-ss7-ceilings-now-have-the-end-to-end-tests.md) the Diameter and SS7 ceilings now have the end-to-end tests ADR-0290 said they lacked
+- [0295](decisions/archive/ADR-0295-the-diameter-and-ss7-ceilings-now-have-the-end-to-end-tests.md) the Diameter and SS7 ceilings now have the end-to-end tests ADR-0290 said they lacked
 - [0296](decisions/ADR-0296-cancellocation-map-s-deregistration-half-and-a-mapping-i.md) cancelLocation -- MAP's deregistration half, and a mapping I refused to invent
 - [0297](decisions/ADR-0297-charge-what-was-used-not-what-was-reserved.md) charge what was used, not what was reserved
-- [0298](decisions/ADR-0298-cap-mid-call-re-authorization-and-the-field-that-made-it.md) CAP mid-call re-authorization, and the field that made it impossible
+- [0298](decisions/archive/ADR-0298-cap-mid-call-re-authorization-and-the-field-that-made-it.md) CAP mid-call re-authorization, and the field that made it impossible
 - [0300](decisions/ADR-0300-every-partial-and-not-supported-commercial-product-is-now.md) every Partial and Not-supported commercial product is now mandatory, plus slice-based rating
 - [0299](decisions/ADR-0299-udm-as-a-map-server-because-half-the-operations-run-the.md) UDM as a MAP server -- because half the operations run the other way
 - [0301](decisions/ADR-0301-two-codegen-defects-the-second-worse-than-the-first.md) two codegen defects, the second worse than the first
 - [0302](decisions/ADR-0302-nef-s-first-af-facing-api-and-a-filter-that-never-worked.md) NEF's first AF-facing API -- and a filter that never worked
-- [0303](decisions/ADR-0303-attribute-based-rating-c7-and-the-mechanism-c1-c2-c5-are.md) attribute-based rating -- C7, and the mechanism C1/C2/C5 are expressed in
+- [0303](decisions/archive/ADR-0303-attribute-based-rating-c7-and-the-mechanism-c1-c2-c5-are.md) attribute-based rating -- C7, and the mechanism C1/C2/C5 are expressed in
 - [0304](decisions/ADR-0304-one-missing-unit-three-closed-gaps.md) one missing unit, three closed gaps
 - [0305](decisions/ADR-0305-roaming-as-a-derived-attribute-c5-s-rating-half.md) roaming as a derived attribute -- C5's rating half
 - [0306](decisions/ADR-0306-tap-out-and-tap-in-the-correctness-core-not-yet-the-pipeline.md) TAP OUT and TAP IN -- the correctness core, not yet the pipeline
 - [0307](decisions/ADR-0307-shared-family-group-buckets-the-standard-already-had-the.md) shared / family / group buckets -- the standard already had the field
 - [0308](decisions/ADR-0308-the-throttle-pcf-decided-is-finally-enforced.md) the throttle PCF decided is finally enforced
-- [0309](decisions/ADR-0309-one-offering-several-rating-groups.md) one offering, several rating groups
+- [0309](decisions/archive/ADR-0309-one-offering-several-rating-groups.md) one offering, several rating groups
 - [0310](decisions/ADR-0310-bill-generation-and-fetching-the-spec-instead-of-recalling.md) bill generation -- and fetching the spec instead of recalling it
 - [0311](decisions/ADR-0311-native-cdr-generation-for-billing-and-two-defects-a-real.md) native CDR generation for billing -- and two defects a real engine found
 - [0312](decisions/ADR-0312-all-60-af-facing-yaml-files-wired-four-collisions-and-a.md) all 60 AF-facing YAML files wired -- four collisions, and a build hazard of my own making
 - [0313](decisions/ADR-0313-split-the-generated-implementation-not-the-generated-header.md) split the generated implementation, not the generated header
-- [0314](decisions/ADR-0314-a-bill-must-cover-the-account-not-one-subscriber-on-it.md) a bill must cover the account, not one subscriber on it
+- [0314](decisions/archive/ADR-0314-a-bill-must-cover-the-account-not-one-subscriber-on-it.md) a bill must cover the account, not one subscriber on it
 - [0315](decisions/ADR-0315-assessionwithqos-an-af-s-qos-request-becomes-a-real-pcf-app.md) AsSessionWithQoS -- an AF's QoS request becomes a real PCF app-session
 - [0316](decisions/ADR-0316-monitoringevent-two-enums-and-two-identifier-spaces-that-do.md) MonitoringEvent -- two enums and two identifier spaces that do not line up
 - [0317](decisions/ADR-0317-nef-actually-delivers-notifications.md) NEF actually delivers notifications
-- [0320](decisions/ADR-0320-smf-finally-reads-the-traffic-influence-data-nef-has-been.md) SMF finally reads the traffic-influence data NEF has been writing
-- [0321](decisions/ADR-0321-serviceparameter-af-provisioned-parameters-reach-udr.md) ServiceParameter -- AF-provisioned parameters reach UDR
-- [0322](decisions/ADR-0322-three-af-provisioning-services-in-one-batch.md) three AF provisioning services in one batch
-- [0323](decisions/ADR-0323-the-four-pp-parameter-provisioning-services.md) the four `/pp` parameter-provisioning services
-- [0324](decisions/ADR-0324-eight-more-af-facing-services-and-two-of-them-have-no-patch.md) eight more AF-facing services, and two of them have no PATCH
-- [0325](decisions/ADR-0325-ten-nef-api-roots-were-invented-and-no-test-could-see-it.md) ten NEF API roots were invented, and no test could see it
+- [0320](decisions/archive/ADR-0320-smf-finally-reads-the-traffic-influence-data-nef-has-been.md) SMF finally reads the traffic-influence data NEF has been writing
+- [0321](decisions/archive/ADR-0321-serviceparameter-af-provisioned-parameters-reach-udr.md) ServiceParameter -- AF-provisioned parameters reach UDR
+- [0322](decisions/archive/ADR-0322-three-af-provisioning-services-in-one-batch.md) three AF provisioning services in one batch
+- [0323](decisions/archive/ADR-0323-the-four-pp-parameter-provisioning-services.md) the four `/pp` parameter-provisioning services
+- [0324](decisions/archive/ADR-0324-eight-more-af-facing-services-and-two-of-them-have-no-patch.md) eight more AF-facing services, and two of them have no PATCH
+- [0325](decisions/archive/ADR-0325-ten-nef-api-roots-were-invented-and-no-test-could-see-it.md) ten NEF API roots were invented, and no test could see it
 - [0326](decisions/ADR-0326-fifteen-af-services-generated-from-the-spec-rather-than.md) fifteen AF services, generated from the spec rather than transcribed
 - [0327](decisions/ADR-0327-the-remaining-multi-path-af-services-and-four-that-cannot.md) the remaining multi-path AF services, and four that cannot be built
 - [0328](decisions/ADR-0328-n28-sy-enforcement-a-spending-limit-now-changes-the-user.md) N28/Sy enforcement -- a spending limit now changes the user plane
 - [0329](decisions/ADR-0329-the-first-comparison-against-free5gc-adr-0238-step-4.md) the first comparison against free5GC -- ADR-0238 step (4)
-- [0330](decisions/ADR-0330-unit-pooling-one-allowance-several-units.md) unit pooling -- one allowance, several units
+- [0330](decisions/archive/ADR-0330-unit-pooling-one-allowance-several-units.md) unit pooling -- one allowance, several units
 - [0331](decisions/ADR-0331-the-mcp-tool-server-and-pii-governance-built-in-from-commit.md) the MCP tool server, and PII governance built in from commit one
-- [0332](decisions/ADR-0332-two-of-adr-0331-s-tools-called-routes-that-do-not-exist.md) two of ADR-0331's tools called routes that do not exist
-- [0333](decisions/ADR-0333-the-customer-agent-a-persona-and-a-scope-not-a-program.md) the customer agent -- a persona and a scope, not a program
+- [0332](decisions/archive/ADR-0332-two-of-adr-0331-s-tools-called-routes-that-do-not-exist.md) two of ADR-0331's tools called routes that do not exist
+- [0333](decisions/archive/ADR-0333-the-customer-agent-a-persona-and-a-scope-not-a-program.md) the customer agent -- a persona and a scope, not a program
 - [0334](decisions/ADR-0334-quota-exhaustion-forecasting-and-spend-anomaly-detection.md) quota-exhaustion forecasting and spend-anomaly detection
 - [0335](decisions/ADR-0335-item-4-one-agent-built-one-blocked-one-prerequisite-started.md) item 4 -- one agent built, one blocked, one prerequisite started
-- [0336](decisions/ADR-0336-the-training-threshold-was-low-enough-to-be-cleared-by.md) the training threshold was low enough to be cleared by nothing
-- [0337](decisions/ADR-0337-a-traffic-generator-that-produces-real-cdrs-and-the-ceiling.md) a traffic generator that produces real CDRs, and the ceiling it exposed
-- [0338](decisions/ADR-0338-opt-in-cdr-batching-and-what-it-trades.md) opt-in CDR batching, and what it trades
-- [0339](decisions/ADR-0339-chf-could-not-be-run-twice-on-one-host.md) CHF could not be run twice on one host
-- [0340](decisions/ADR-0340-1m-cdrs-delivered-and-the-model-still-learned-nothing-until.md) 1M CDRs delivered, and the model still learned nothing until the data had structure
-- [0341](decisions/ADR-0341-consumer-and-enterprise-profiles-and-a-field-name-that.md) consumer and enterprise profiles, and a field name that silently voided them
-- [0349](decisions/ADR-0349-three-silent-defects-between-detected-and-stored.md) three silent defects between "detected" and "stored"
+- [0336](decisions/archive/ADR-0336-the-training-threshold-was-low-enough-to-be-cleared-by.md) the training threshold was low enough to be cleared by nothing
+- [0337](decisions/archive/ADR-0337-a-traffic-generator-that-produces-real-cdrs-and-the-ceiling.md) a traffic generator that produces real CDRs, and the ceiling it exposed
+- [0338](decisions/archive/ADR-0338-opt-in-cdr-batching-and-what-it-trades.md) opt-in CDR batching, and what it trades
+- [0339](decisions/archive/ADR-0339-chf-could-not-be-run-twice-on-one-host.md) CHF could not be run twice on one host
+- [0340](decisions/archive/ADR-0340-1m-cdrs-delivered-and-the-model-still-learned-nothing-until.md) 1M CDRs delivered, and the model still learned nothing until the data had structure
+- [0341](decisions/archive/ADR-0341-consumer-and-enterprise-profiles-and-a-field-name-that.md) consumer and enterprise profiles, and a field name that silently voided them
+- [0349](decisions/archive/ADR-0349-three-silent-defects-between-detected-and-stored.md) three silent defects between "detected" and "stored"
 - [0350](decisions/ADR-0350-the-chf-nwdaf-feature-pipeline.md) the CHF -> NWDAF feature pipeline
 - [0351](decisions/ADR-0351-avp-names-alongside-the-wire-codes-and-the-cap-gap-adr-0346.md) AVP names alongside the wire codes, and the CAP gap ADR-0346 left open
 - [0352](decisions/ADR-0352-the-partition-window-that-never-existed-and-ts-29-500.md) the partition window that never existed, and TS 29.500 duplicate-request detection
-- [0354](decisions/ADR-0354-security-compliance-assessment-against-the-3gpp-33-series.md) security compliance assessment against the 3GPP 33-series (Release 19)
-- [0355](decisions/ADR-0355-the-event-bus-chf-emits-every-cdr-to-apache-kafka-and-doris.md) the event bus -- CHF emits every CDR to Apache Kafka, and Doris consumes it
+- [0354](decisions/archive/ADR-0354-security-compliance-assessment-against-the-3gpp-33-series.md) security compliance assessment against the 3GPP 33-series (Release 19)
+- [0355](decisions/archive/ADR-0355-the-event-bus-chf-emits-every-cdr-to-apache-kafka-and-doris.md) the event bus -- CHF emits every CDR to Apache Kafka, and Doris consumes it
 - [0356](decisions/ADR-0356-the-architecture-diagram-as-an-audit-surface-and-redis.md) the architecture diagram as an audit surface, and Redis replaced by Valkey
 - [0357](decisions/ADR-0357-every-port-and-tunable-in-config-and-a-shutdown-watcher.md) every port and tunable in config, and a shutdown watcher that reaches every loop
-- [0358](decisions/ADR-0358-nwdaf-phase-a-the-anlf-two-services-two-analytics-from-real.md) NWDAF Phase A -- the AnLF, two services, two analytics, from real data
+- [0358](decisions/archive/ADR-0358-nwdaf-phase-a-the-anlf-two-services-two-analytics-from-real.md) NWDAF Phase A -- the AnLF, two services, two analytics, from real data
 - [0359](decisions/ADR-0359-the-nwdaf-ecosystem-anlf-mtlf-dccf-adrf-mfaf-on-a-scalable.md) the NWDAF ecosystem -- AnLF, MTLF, DCCF, ADRF, MFAF -- on a scalable architecture
 - [0360](decisions/ADR-0360-nwdaf-subscription-state-externalised-to-valkey-the-first.md) NWDAF subscription state externalised to Valkey -- the first replicable NWDAF
-- [0361](decisions/ADR-0361-the-readme-architecture-diagram-redrawn-in-the-project-s.md) the README architecture diagram, redrawn in the project's own poster language
+- [0361](decisions/archive/ADR-0361-the-readme-architecture-diagram-redrawn-in-the-project-s.md) the README architecture diagram, redrawn in the project's own poster language
 - [0362](decisions/ADR-0362-smf-hung-on-every-orderly-stop-kafka-in-ci-li-before-the.md) SMF hung on every orderly stop; Kafka in CI; LI before the rest of NWDAF
-- [0363](decisions/ADR-0363-ci-on-a-self-hosted-runner-on-the-lab-machine.md) CI on a self-hosted runner on the lab machine
+- [0363](decisions/archive/ADR-0363-ci-on-a-self-hosted-runner-on-the-lab-machine.md) CI on a self-hosted runner on the lab machine
 - [0364](decisions/ADR-0364-lawful-interception-the-architecture-mapping-and-increment.md) Lawful Interception -- the architecture mapping, and increment 1 (X2/X3 PDU codec + TS 33.128 payload codec)
 - [0365](decisions/ADR-0365-mfaf-the-messaging-framework-adaptor-over-kafka-and-the.md) MFAF -- the Messaging Framework Adaptor over Kafka, and the AnLF notifier lease
-- [0366](decisions/ADR-0366-dccf-data-collection-coordination-one-source-subscription.md) DCCF -- data collection coordination, one source subscription per data spec, fanned out through the MFAF
+- [0366](decisions/archive/ADR-0366-dccf-data-collection-coordination-one-source-subscription.md) DCCF -- data collection coordination, one source subscription per data spec, fanned out through the MFAF
 - [0367](decisions/ADR-0367-adrf-the-analytics-data-repository-on-doris-ml-models-on.md) ADRF -- the analytics data repository on Doris, ML models on PostgreSQL, one collection per stored spec
 - [0368](decisions/ADR-0368-nwdaf-phase-c-data-collection-via-the-dccf-nf-load-from.md) NWDAF Phase C -- data collection via the DCCF, NF_LOAD from observations, Nnwdaf_DataManagement
 - [0369](decisions/ADR-0369-the-nwdaf-containing-mtlf-nnwdaf-mlmodelprovision-a-real.md) the NWDAF containing MTLF -- Nnwdaf_MLModelProvision, a real training pipeline, ONNX inference in the AnLF
 - [0370](decisions/ADR-0370-nnwdaf-mlmodelmonitor-the-anlf-measures-its-predictions-the.md) Nnwdaf_MLModelMonitor -- the AnLF measures its predictions, the MTLF re-trains on degradation
-- [0371](decisions/ADR-0371-ci-lints-what-a-push-changed-the-full-clang-tidy-sweep-is.md) CI lints what a push changed; the full clang-tidy sweep is weekly and on demand
+- [0371](decisions/archive/ADR-0371-ci-lints-what-a-push-changed-the-full-clang-tidy-sweep-is.md) CI lints what a push changed; the full clang-tidy sweep is weekly and on demand
 - [0372](decisions/ADR-0372-lawful-interception-increment-2-the-x1-provisioning.md) Lawful Interception increment 2 -- the X1 provisioning interface (libxml2 + runtime XSD), the NE server + keepalive machine, and the X2/X3 delivery client
-- [0373](decisions/ADR-0373-lawful-interception-increment-3-foundation-the-etsi-ts-102.md) Lawful Interception increment 3 foundation -- the ETSI TS 102 232-1 PS-PDU delivery envelope, hand-derived to a 5G closure
-- [0374](decisions/ADR-0374-lawful-interception-increment-3-the-li-hi2-mediation-and.md) Lawful Interception increment 3 -- the LI_HI2 mediation and the PS-PDU envelope (`li_core::hi2`)
+- [0373](decisions/archive/ADR-0373-lawful-interception-increment-3-foundation-the-etsi-ts-102.md) Lawful Interception increment 3 foundation -- the ETSI TS 102 232-1 PS-PDU delivery envelope, hand-derived to a 5G closure
+- [0374](decisions/archive/ADR-0374-lawful-interception-increment-3-the-li-hi2-mediation-and.md) Lawful Interception increment 3 -- the LI_HI2 mediation and the PS-PDU envelope (`li_core::hi2`)
 - [0375](decisions/ADR-0375-lawful-interception-the-li-x2-li-x3-receiving-server-and.md) Lawful Interception -- the LI_X2/LI_X3 receiving server, and the first end-to-end interception path
 - [0376](decisions/ADR-0376-the-li-hi2-delivery-function-and-the-tri-payload-the-ps-pdu.md) The LI_HI2 Delivery Function, and the TRI payload the PS-PDU subset had to get back
-- [0377](decisions/ADR-0377-mdf2-the-li-mdf-mediation-and-delivery-function-for-iri-the.md) MDF2 -- the `li-mdf` Mediation and Delivery Function for IRI, the first LI process
+- [0377](decisions/archive/ADR-0377-mdf2-the-li-mdf-mediation-and-delivery-function-for-iri-the.md) MDF2 -- the `li-mdf` Mediation and Delivery Function for IRI, the first LI process
 - [0378](decisions/ADR-0378-the-amf-iri-poi-li-increment-4-six-amf-xiri-codecs-the-in.md) The AMF IRI-POI (LI increment 4) -- six AMF xIRI codecs, the in-AMF POI, and why the other five event hooks are blocked
 - [0379](decisions/ADR-0379-the-smf-nsmf-eventexposure-qos-mon-producer-slice-1-of-the.md) The SMF Nsmf_EventExposure QOS_MON producer -- slice 1 of the NWDAF SERVICE_EXPERIENCE data path
 - [0380](decisions/ADR-0380-the-nwdaf-vfl-hook-nnwdaf-vfltraining-nnwdaf-vflinference.md) The NWDAF VFL hook -- Nnwdaf_VFLTraining / Nnwdaf_VFLInference subscription surface
 - [0381](decisions/ADR-0381-the-energy-efficiency-analytic-ts-28-554-kpi-over-qos-mon.md) The energy-efficiency analytic -- TS 28.554 KPI over QOS_MON, exposed as a metric
 - [0382](decisions/ADR-0382-customer-onboarding-reaches-the-udr-a-project-owned-oam.md) Customer onboarding reaches the UDR -- a project-owned OAM provisioning API, a resumable saga, and the auth gap it does not close
 - [0383](decisions/ADR-0383-the-udm-reads-authentication-data-from-the-udr-over-nudr.md) The UDM reads authentication data from the UDR over Nudr -- onboarded subscribers can authenticate
-- [0384](decisions/ADR-0384-product-catalog-cut-over-to-the-consolidated-charging-db.md) product-catalog cut over to the consolidated charging DB -- the normalized TMF620 model, made lossless
+- [0384](decisions/archive/ADR-0384-product-catalog-cut-over-to-the-consolidated-charging-db.md) product-catalog cut over to the consolidated charging DB -- the normalized TMF620 model, made lossless
 - [0385](decisions/ADR-0385-balance-management-cut-over-to-the-consolidated-charging-db.md) balance-management cut over to the consolidated charging DB -- lossless, NULL-safe, and reachable by the CHF
 - [0386](decisions/ADR-0386-subscriber-management-cut-over-to-the-consolidated-charging.md) subscriber-management cut over to the consolidated charging DB -- TMF632 party lossless, SUPI/MSISDN as SID Resources, account FK restored
 - [0387](decisions/ADR-0387-roaming-interconnect-cut-over-to-the-consolidated-charging.md) roaming-interconnect cut over to the consolidated charging DB -- TMF651 agreements in their domain home
 - [0388](decisions/ADR-0388-the-chf-rating-store-cut-over-to-the-consolidated-charging.md) the CHF rating store cut over to the consolidated charging DB -- the consolidation is complete
 - [0389](decisions/ADR-0389-chf-rating-store-gets-a-connection-pool.md) CHF rating store gets a connection pool
 - [0440](decisions/ADR-0440-li-increment-4-prerequisite-2-the-x1.md) LI increment 4, prerequisite 2 -- the X1 IdentifierAssociationExtensions gating, and the AMF IdentifierAssociation + LocationUpdate hooks
-- [0390](decisions/ADR-0390-retire-the-per-service-bss-chf-postgresql-instances.md) retire the per-service BSS/CHF PostgreSQL instances
+- [0390](decisions/archive/ADR-0390-retire-the-per-service-bss-chf-postgresql-instances.md) retire the per-service BSS/CHF PostgreSQL instances
 - [0420](decisions/ADR-0420-phase-7-operator-gui-stack-react-json-forms-web-dear-imgui.md) Phase 7 operator GUI stack -- React + JSON Forms (web), Dear ImGui + ImPlot (local engineering console, later)
 - [0421](decisions/ADR-0421-gui-schemas-are-derived-never-re-typed-tmf620-from-the-bss.md) GUI schemas are derived, never re-typed -- TMF620 from the bss_sid DTOs, provisioning cross-checked against its source
 - [0422](decisions/ADR-0422-browser-to-nf-transport-a-c-backend-for-frontend-nf-mtls.md) Browser-to-NF transport -- a C++ backend-for-frontend, NF mTLS untouched
@@ -400,7 +400,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0424](decisions/ADR-0424-operator-authentication-oidc-authorization-code-pkce-to-a.md) Operator authentication -- OIDC (authorization code + PKCE) to a self-hosted IdP, Keycloak recommended
 - [0425](decisions/ADR-0425-nf-configuration-through-the-gui-derived-schemas-for-every.md) NF configuration through the GUI -- derived schemas for every component, versioned four-eyes changes, no fake live reload
 - [0391](decisions/ADR-0391-resolve-three-port-collisions-in-config-json.md) resolve three port collisions in config/*.json
-- [0400](decisions/ADR-0400-the-udsf-nudsf-datarepository-and-nudsf-timer-on-valkey.md) The UDSF -- Nudsf_DataRepository and Nudsf_Timer on Valkey, stateless replicas
+- [0400](decisions/archive/ADR-0400-the-udsf-nudsf-datarepository-and-nudsf-timer-on-valkey.md) The UDSF -- Nudsf_DataRepository and Nudsf_Timer on Valkey, stateless replicas
 - [0401](decisions/ADR-0401-ts-29-598-r19-yaml-defects-and-ambiguities-what-the-udsf.md) TS 29.598 R19 YAML defects and ambiguities -- what the UDSF does with each
 - [0402](decisions/ADR-0402-udsf-expiry-notifications-and-feature-advertisement.md) UDSF expiry, notifications and feature advertisement
 - [0392](decisions/ADR-0392-automatic-partition-management-for-the-charging-db-s-tier-1.md) automatic partition management for the charging DB's Tier-1 event tables (pg_partman)
@@ -417,19 +417,20 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0449](decisions/ADR-0449-pgpool-hardening-bounded-acquire-poolexhaustederror-real.md) `PgPool` hardening -- bounded `acquire()`, `PoolExhaustedError`, real 503s
 - [0450](decisions/ADR-0450-diameter-cap-connection-thread-exception-safety-pgpool.md) Diameter/CAP connection-thread exception safety + PgPool metrics
 - [0451](decisions/ADR-0451-valkey-cluster-cutover-for-udsf-deploy-docker-docker.md) Valkey Cluster cutover for UDSF (deploy/docker/docker-compose.yml only)
-- [0453](decisions/ADR-0453-every-nf-service-needs-its-config-file-mounted-found-fixed.md) every NF service needs its config file mounted -- found, fixed project-wide, and
-- [0452](decisions/ADR-0452-buildkit-cache-mounts-for-every-nf-dockerfile-vcpkg-binary.md) BuildKit cache mounts for every NF Dockerfile (vcpkg binary cache + ccache)
+- [0453](decisions/archive/ADR-0453-every-nf-service-needs-its-config-file-mounted-found-fixed.md) every NF service needs its config file mounted -- found, fixed project-wide, and
+- [0452](decisions/archive/ADR-0452-buildkit-cache-mounts-for-every-nf-dockerfile-vcpkg-binary.md) BuildKit cache mounts for every NF Dockerfile (vcpkg binary cache + ccache)
 - [0454](decisions/ADR-0454-adr-0445-s-baseline-re-measured-after-all-four-increments.md) ADR-0445's baseline, re-measured after all four increments -- method first
 - [0455](decisions/ADR-0455-the-pipeline-scale-up-can-now-rate-lab-tariff-seed-funded.md) the pipeline scale-up can now rate -- LAB tariff seed, funded buckets, 5M CDR rows
 - [0456](decisions/ADR-0456-three-red-ci-tests-root-caused-and-one-open-tsan-finding.md) three red CI tests, root-caused -- and one open TSan finding
 - [0457](decisions/ADR-0457-the-amf-iri-poi-end-to-end-through-the-real-amf-process.md) the AMF IRI-POI end to end through the real AMF process
 - [0458](decisions/ADR-0458-batched-cdrs-could-wait-forever-on-an-idle-chf-found-by-the.md) batched CDRs could wait forever on an idle CHF -- found by the pipeline's own probe
-- [0459](decisions/ADR-0459-the-amf-dropped-every-gnb-that-was-idle-for-500-ms-an.md) the AMF dropped every gNB that was idle for 500 ms -- an inherited SO_RCVTIMEO
-- [0460](decisions/ADR-0460-amflocationupdate-end-to-end-a-real-n2-handover-through-the.md) AMFLocationUpdate end to end -- a real N2 handover through the real AMF process
+- [0459](decisions/archive/ADR-0459-the-amf-dropped-every-gnb-that-was-idle-for-500-ms-an.md) the AMF dropped every gNB that was idle for 500 ms -- an inherited SO_RCVTIMEO
+- [0460](decisions/archive/ADR-0460-amflocationupdate-end-to-end-a-real-n2-handover-through-the.md) AMFLocationUpdate end to end -- a real N2 handover through the real AMF process
 - [0461](decisions/ADR-0461-amfstartofinterceptionwithregisteredue-the-poi-learns-which.md) AMFStartOfInterceptionWithRegisteredUE -- the POI learns which UEs are registered
 - [0462](decisions/ADR-0462-nfs-li-admf-li-increment-5-plan-decisions-and-step-1-the-x1.md) `nfs/li-admf` (LI increment 5) -- plan, decisions, and step 1: the X1 client codec
 - [0463](decisions/ADR-0463-smf-and-upf-pois-the-plan-the-shared-poi-runtime-and-the.md) SMF and UPF POIs -- the plan, the shared POI runtime, and the SMF xIRI codec
 - [0464](decisions/ADR-0464-cc-chain-cc-tf-in-the-smf-cc-poi-in-the-upf-x3-mdf3-adr.md) CC chain -- CC-TF in the SMF, CC-POI in the UPF, X3, MDF3 (ADR-0463 stage 3)
+- [0465](decisions/ADR-0465-closed-adrs-status-verified-against-origin-main-archived.md) Closed ADRs: status verified against origin/main, archived under docs/decisions/archive/
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

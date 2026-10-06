@@ -7,3 +7,5 @@ description: Add or look up an Architecture Decision Record in this repo. Use wh
 - Look one up: `grep -n "ADR-0xxx" docs/DECISIONS.md` for the file, or `docs/decisions/INDEX_DETAIL.md` for status/date/decision; then Read the single file.
 - After any edit that adds/renames ADR files: `python3 scripts/docs/check_adr_index.py` (fails on drift/duplicates).
 - Record rejected alternatives and every disclosed stub/simplification (CLAUDE.md guardrails 3-4).
+- Closed ADRs (work pushed to origin/main, no open-work wording) live in `docs/decisions/archive/`, not `docs/decisions/` (ADR-0465). Look-ups by number still work through `DECISIONS.md` / `INDEX_DETAIL.md`, which link the right path. To close more: `python3 scripts/docs/close_adrs.py LIST` (`<number> <commit>` per line, reviewed by a human first), then `check_adr_index.py`.
+
