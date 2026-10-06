@@ -173,6 +173,8 @@ enum class MessageType : std::uint8_t {
     RemoveAllDestinations,
     Ping,
     Keepalive,
+    ReportTaskIssue,
+    ReportNEIssue,
     Unsupported,
 };
 const char* message_type_name(MessageType t); // the RequestMessageType string
@@ -200,6 +202,29 @@ struct RemoveDestination {
 struct RemoveAllDestinations {};
 struct Ping {};
 struct Keepalive {};
+// TS 103 221-1 6.5.2 / 6.5.4: what an NE SENDS to the ADMF. An ADMF parses these; an NE answers
+// them with 1080 (it is not the intended recipient).
+enum class TaskReportType : std::uint8_t {
+    AllClear,
+    Warning,
+    NonTerminatingFault,
+    TerminatingFault,
+    ImplicitDeactivation,
+    FullyActionedAndSuccessful,
+    FullyActionedAndUnsuccessful,
+};
+struct ReportTaskIssue {
+    std::string xid;
+    TaskReportType report_type = TaskReportType::Warning;
+    std::optional<int> error_code;
+    std::optional<std::string> details;
+};
+enum class NeIssueType : std::uint8_t { Warning, FaultCleared, FaultReport, Alert };
+struct ReportNEIssue {
+    NeIssueType type = NeIssueType::Warning;
+    std::string description;
+    std::optional<int> issue_code;
+};
 struct Unsupported {
     std::string request_message_type;
 }; // the raw xsi:type, for error 1080
@@ -214,6 +239,8 @@ using RequestBody = std::variant<ActivateTask,
                                  RemoveAllDestinations,
                                  Ping,
                                  Keepalive,
+                                 ReportTaskIssue,
+                                 ReportNEIssue,
                                  Unsupported>;
 
 // The common envelope of every X1 message (table 6.1-1).
@@ -274,6 +301,45 @@ tl::expected<std::string, std::string> serialise_response(const std::vector<Resp
 
 // Build the X1TopLevelErrorResponse for an unparseable request (6.1).
 std::string serialise_top_level_error(const MessageHeader& header);
+
+// ---- ADMF (client) side, ADR-0462 -------------------------------------------------------------
+// The mirror of the NE-side codec above: the ADMF's LIPF builds X1 requests and reads the NE's
+// responses. Transport stays outside li_core (as for the server side): the ADMF process sends the
+// serialised body over sbi_core's HTTP/2 client.
+
+// Build an X1Request carrying `requests` (one or more, 6.1). Each request's header is written as
+// given and the body per its type. The result is validated against the schema before it is
+// returned (7.2.1: "shall only send messages that validate"); a failure is returned as an error
+// string, never emitted. Report* bodies (NE -> ADMF) and Unsupported are not buildable here.
+tl::expected<std::string, std::string> serialise_request(const std::vector<Request>& requests);
+
+// TS 103 221-1 6.4.2.2 TaskStatus.provisioningStatus.
+enum class ProvisioningStatus : std::uint8_t { AwaitingProvisioning, Failed, Complete };
+
+struct Fault {
+    int code = 0;
+    std::string description;
+};
+
+// A GetTaskDetailsResponse (6.4.2): the NE's stored TaskDetails and the task's status.
+struct TaskDetailsResponse {
+    MessageHeader header;
+    TaskDetails task;
+    ProvisioningStatus provisioning = ProvisioningStatus::AwaitingProvisioning;
+    std::vector<Fault> unresolved_faults;
+};
+
+using ClientResponse = std::variant<OkResponse, ErrorResponse, TaskDetailsResponse>;
+
+// An X1TopLevelErrorResponse (6.1): the NE could not process the whole request document.
+struct TopLevelErrorResponse {
+    MessageHeader header;
+};
+
+// Parse an X1Response (schema-validated first). OkResponse.type / ErrorResponse.type carry the
+// request type being answered, recovered from the response's xsi:type / requestMessageType. An
+// X1TopLevelErrorResponse is reported as an error with `top_level` set and the header filled.
+tl::expected<std::vector<ClientResponse>, ParseError> parse_response(const std::string& xml);
 
 // The schema path (the import-wiring wrapper), resolved from the build-time LI_ETSI_SCHEMA_DIR.
 const char* schema_path();

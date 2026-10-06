@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "li_core/hi2.hpp"
+#include "li_core/x1.hpp"
 #include "li_core/x2x3_client.hpp"
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/xiri.hpp"
@@ -40,6 +41,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using namespace li_core;
+namespace x1 = li_core::x1;
 
 constexpr const char* kX1Url = "https://127.0.0.1:7805/X1/NE";
 constexpr std::uint16_t kX2Port = 7806;
@@ -273,48 +275,58 @@ TEST(LiMdf, ProvisionsOverX1AndDeliversAMediatedIriToTheLemf) {
     (void)post_x1(client, x1_envelope("DeactivateAllTasksRequest", ""));
     (void)post_x1(client, x1_envelope("RemoveAllDestinationsRequest", ""));
 
-    // 1. The ADMF provisions where the records go (TS 103 221-1 6.3.1). IPAddressPort's own
-    // children come from TS 103 280, whose schema is elementFormDefault="qualified" -- so
-    // address/IPv4Address/port carry that namespace, not the X1 one.
-    const std::string destination = std::string(R"(
-    <destinationDetails>
-      <dId>)") + kDid + R"(</dId>
-      <deliveryType>X2andX3</deliveryType>
-      <deliveryAddress><ipAddressAndPort>
-        <c:address><c:IPv4Address>127.0.0.1</c:IPv4Address></c:address>
-        <c:port><c:TCPPort>)" + std::to_string(lemf.port()) +
-                                    R"(</c:TCPPort></c:port>
-      </ipAddressAndPort></deliveryAddress>
-    </destinationDetails>)";
-    const auto create = post_x1(client, x1_envelope("CreateDestinationRequest", destination));
+    // 1. The ADMF provisions where the records go (TS 103 221-1 6.3.1). Both requests are built
+    // by li_core's X1 client codec (ADR-0462) -- the code the ADMF's LIPF uses -- so this also
+    // proves the real MDF2 accepts what that codec emits and that its answers parse.
+    const auto expect_ok = [](const std::string& body, x1::MessageType type) {
+        const auto responses = x1::parse_response(body);
+        ASSERT_TRUE(responses.has_value()) << responses.error().detail << "\n" << body;
+        ASSERT_EQ(responses->size(), 1u) << body;
+        const auto* ok = std::get_if<x1::OkResponse>(&(*responses)[0]);
+        ASSERT_NE(ok, nullptr) << body;
+        EXPECT_EQ(ok->type, type);
+    };
+    const auto request_of = [](x1::MessageType type, x1::RequestBody body, const char* txn) {
+        x1::Request r;
+        r.header = {"admf-test", "mdf2-01", "2026-10-06T00:00:00.000000Z", "v1.23.1", txn};
+        r.type = type;
+        r.body = std::move(body);
+        const auto xml = x1::serialise_request({r});
+        return xml.has_value() ? *xml : std::string();
+    };
+
+    x1::DestinationDetails destination;
+    destination.did = kDid;
+    destination.delivery = x1::DeliveryType::X2AndX3;
+    destination.address = {x1::DeliveryAddress::Kind::IpAddressAndPort,
+                           "127.0.0.1:" + std::to_string(lemf.port())};
+    const auto create = post_x1(
+        client,
+        request_of(x1::MessageType::CreateDestination,
+                   x1::CreateDestination{destination},
+                   "00000000-0000-4000-8000-0000000000c1"));
     ASSERT_TRUE(create.has_value()) << create.error();
     EXPECT_EQ(create->status, 200);
-    EXPECT_NE(create->body.find("CreateDestinationResponse"), std::string::npos) << create->body;
-    EXPECT_EQ(create->body.find("ErrorResponse"), std::string::npos) << create->body;
+    ASSERT_NO_FATAL_FAILURE(expect_ok(create->body, x1::MessageType::CreateDestination));
 
     // 2. ...and the warrant itself. The LIID rides in the Annex C.2.2 MediationDetails, which is
     // how clause 5.1.2's "XID to LIID(s) mapping" reaches an MDF.
-    const std::string task = std::string(R"(
-    <taskDetails>
-      <xId>)") + kXid + R"(</xId>
-      <targetIdentifiers>
-        <targetIdentifier><supiimsi>204081234567890</supiimsi></targetIdentifier>
-      </targetIdentifiers>
-      <deliveryType>X2Only</deliveryType>
-      <listOfDIDs><dId>)" + kDid +
-                             R"(</dId></listOfDIDs>
-      <listOfMediationDetails>
-        <mediationDetails>
-          <LIID>)" + kLiid + R"(</LIID>
-          <deliveryType>HI2Only</deliveryType>
-        </mediationDetails>
-      </listOfMediationDetails>
-    </taskDetails>)";
-    const auto activate = post_x1(client, x1_envelope("ActivateTaskRequest", task));
+    x1::TaskDetails task;
+    task.xid = kXid;
+    task.targets.push_back({x1::TargetIdentifierKind::SupiImsi, "supiimsi", "204081234567890"});
+    task.delivery = x1::DeliveryType::X2Only;
+    task.dids = {kDid};
+    x1::MediationDetails mediation;
+    mediation.liid = kLiid;
+    mediation.delivery = x1::MediationDeliveryType::Hi2Only;
+    task.mediation_details.push_back(mediation);
+    const auto activate = post_x1(client,
+                                  request_of(x1::MessageType::ActivateTask,
+                                             x1::ActivateTask{task},
+                                             "00000000-0000-4000-8000-0000000000c2"));
     ASSERT_TRUE(activate.has_value()) << activate.error();
     EXPECT_EQ(activate->status, 200);
-    EXPECT_NE(activate->body.find("ActivateTaskResponse"), std::string::npos) << activate->body;
-    EXPECT_EQ(activate->body.find("ErrorResponse"), std::string::npos) << activate->body;
+    ASSERT_NO_FATAL_FAILURE(expect_ok(activate->body, x1::MessageType::ActivateTask));
 
     // 3. An IRI-POI delivers an xIRI for that XID over LI_X2.
     X2X3ClientConfig poi_config;

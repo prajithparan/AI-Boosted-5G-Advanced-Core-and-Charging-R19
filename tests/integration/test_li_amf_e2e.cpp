@@ -37,6 +37,7 @@
 #include <variant>
 #include <vector>
 
+#include "li_core/x1.hpp"
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
@@ -140,48 +141,30 @@ sbi_core::http2::Client make_client(const char* nf) {
     return sbi_core::http2::Client(std::move(tls));
 }
 
-// `gating_xml` is the body of <taskDetailsExtensions>'s IdentifierAssociationExtensions element
-// ("All" / "IdentifierAssociation"), or empty to omit the extension (gating Absent).
+// An ActivateTask built by li_core's X1 client codec (ADR-0462) -- the same code the ADMF's LIPF
+// uses -- so these tests also prove the real AMF POI accepts what that codec emits. `gating` is
+// "All" / "IdentifierAssociation", or empty to omit IdentifierAssociationExtensions (Absent).
 std::string x1_activate(const std::string& xid,
                         const std::string& transaction_id,
                         const std::string& gating) {
-    const std::string extension =
-        gating.empty() ? std::string()
-                       : "<tgpp:IdentifierAssociationExtensions "
-                         "xmlns:tgpp=\"urn:3GPP:ns:li:3GPPX1Extensions:r19:v4\">"
-                         "<tgpp:IdentifierAssociationEventsGenerated>" +
-                             gating +
-                             "</tgpp:IdentifierAssociationEventsGenerated>"
-                             "</tgpp:IdentifierAssociationExtensions>";
-    return std::string(
-               R"(<?xml version="1.0" encoding="UTF-8"?>
-<X1Request xmlns="http://uri.etsi.org/03221/X1/2017/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://uri.etsi.org/03280/common/2017/07">
-  <x1RequestMessage xsi:type="ActivateTaskRequest">
-    <admfIdentifier>admf-test</admfIdentifier>
-    <neIdentifier>)") +
-           kNeId + R"(</neIdentifier>
-    <messageTimestamp>2026-10-05T00:00:00.000000Z</messageTimestamp>
-    <version>v1.23.1</version>
-    <x1TransactionId>)" +
-           transaction_id + R"(</x1TransactionId>
-    <taskDetails>
-      <xId>)" +
-           xid +
-           R"(</xId>
-      <targetIdentifiers>
-        <targetIdentifier><supiimsi>)" +
-           kTargetImsiDigits + R"(</supiimsi></targetIdentifier>
-      </targetIdentifiers>
-      <deliveryType>X2Only</deliveryType>
-      <listOfDIDs><dId>22222222-2222-4222-8222-222222222222</dId></listOfDIDs>
-      <taskDetailsExtensions>
-        <Owner>3GPP</Owner>
-        )" +
-           extension + R"(
-      </taskDetailsExtensions>
-    </taskDetails>
-  </x1RequestMessage>
-</X1Request>)";
+    namespace x1 = li_core::x1;
+    x1::TaskDetails task;
+    task.xid = xid;
+    task.targets.push_back({x1::TargetIdentifierKind::SupiImsi, "supiimsi", kTargetImsiDigits});
+    task.delivery = x1::DeliveryType::X2Only;
+    task.dids = {"22222222-2222-4222-8222-222222222222"};
+    if (gating == "All") {
+        task.identifier_association_events = x1::IdentifierAssociationEventsGenerated::All;
+    } else if (gating == "IdentifierAssociation") {
+        task.identifier_association_events =
+            x1::IdentifierAssociationEventsGenerated::IdentifierAssociation;
+    }
+    x1::Request request;
+    request.header = {"admf-test", kNeId, "2026-10-05T00:00:00.000000Z", "v1.23.1", transaction_id};
+    request.type = x1::MessageType::ActivateTask;
+    request.body = x1::ActivateTask{task};
+    const auto xml = x1::serialise_request({request});
+    return xml.has_value() ? *xml : std::string();
 }
 
 std::string x1_activate_all() {
@@ -692,7 +675,15 @@ TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnAReg
     // AMFStartOfInterceptionWithRegisteredUE, under A's XID, with the UE's real state.
     auto admf = make_client("amf");
     const auto a_resp = post_x1(admf, x1_activate(kXidA, "00000000-0000-4000-8000-0000000000a1", "All"));
-    ASSERT_NE(a_resp.find("ActivateTaskResponse"), std::string::npos) << a_resp;
+    {
+        const auto responses = li_core::x1::parse_response(a_resp);
+        ASSERT_TRUE(responses.has_value()) << responses.error().detail << "\n" << a_resp;
+        ASSERT_EQ(responses->size(), 1u);
+        const auto* ok = std::get_if<li_core::x1::OkResponse>(&(*responses)[0]);
+        ASSERT_NE(ok, nullptr) << a_resp;
+        EXPECT_EQ(ok->type, li_core::x1::MessageType::ActivateTask);
+        EXPECT_TRUE(ok->acknowledged_and_completed);
+    }
     ASSERT_TRUE(mdf2.wait_for(1, 10s)) << "no StartOfInterception after activating on a registered UE";
     std::this_thread::sleep_for(500ms);
     {

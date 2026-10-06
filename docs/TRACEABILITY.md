@@ -5420,3 +5420,11 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | API roots equal each YAML's servers[0].url | ADR-0325 | `service.hpp` `kDrRoot`, `kTimerRoot` | conformance `api_root_conformance` |
 | multipart/mixed + multipart/parallel codec with Content-Transfer-Encoding and zero-length parts | RFC 2046; TS 29.598 6.1.2.4 | `libs/sbi-core/src/multipart.cpp` | UdsfLogic.MultipartMixedAndParallelRoundTrip; conformance `Multipart.*` |
 | AdvancedCounting (tag-count-filter) | 6.1.3.2.3.1, 6.1.6.2.19-21 | -- | **not built** (ADR-0401): YAML encoding contradicts the TS; feature not advertised, parameter answered 400 |
+
+### LI increment 5 -- ADMF (LIPF) X1 client codec (ADR-0462, step 1 of the li-admf build)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| ADMF builds ActivateTask/ModifyTask/DeactivateTask(All)/GetTaskDetails/Create/RemoveDestination(s)/Ping/Keepalive, schema-validated before sending | TS 103 221-1 6.2-6.4, 6.6, 7.2.1 | `libs/li-core/src/x1.cpp` `serialise_request` | `test_li_x1_client.cpp` LiX1Client.* ; real AMF POI: `test_li_amf_e2e.cpp`; real MDF2: `test_li_mdf.cpp` |
+| ADMF reads OK / Error / GetTaskDetails (TaskStatus, faults) / TopLevelError responses | TS 103 221-1 6.1, 6.4.2, 7.2.2 | `x1.cpp` `parse_response` | LiX1Client.ParsesOkAndErrorResponses..., ParsesAGetTaskDetailsResponse..., TopLevelErrorAndGarbage... |
+| ADMF receives ReportTaskIssue / ReportNEIssue from an NE | TS 103 221-1 6.5.2, 6.5.4 | `x1.cpp` `read_request` | LiX1Client.ParsesTheNeToAdmfReportRequests |

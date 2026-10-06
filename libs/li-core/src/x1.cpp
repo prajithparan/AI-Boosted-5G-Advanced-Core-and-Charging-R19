@@ -1,6 +1,9 @@
 #include "li_core/x1.hpp"
 
+#include <arpa/inet.h>
+
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
@@ -324,7 +327,7 @@ struct TypeMap {
     const char* xsi;
     MessageType type;
 };
-constexpr std::array<TypeMap, 10> kTypes{{
+constexpr std::array<TypeMap, 12> kTypes{{
     {"ActivateTaskRequest", MessageType::ActivateTask},
     {"ModifyTaskRequest", MessageType::ModifyTask},
     {"DeactivateTaskRequest", MessageType::DeactivateTask},
@@ -335,7 +338,44 @@ constexpr std::array<TypeMap, 10> kTypes{{
     {"RemoveAllDestinationsRequest", MessageType::RemoveAllDestinations},
     {"PingRequest", MessageType::Ping},
     {"KeepaliveRequest", MessageType::Keepalive},
+    {"ReportTaskIssueRequest", MessageType::ReportTaskIssue},
+    {"ReportNEIssueRequest", MessageType::ReportNEIssue},
 }};
+
+TaskReportType read_task_report_type(const std::string& v) {
+    if (v == "AllClear") {
+        return TaskReportType::AllClear;
+    }
+    if (v == "NonTerminatingFault") {
+        return TaskReportType::NonTerminatingFault;
+    }
+    if (v == "TerminatingFault") {
+        return TaskReportType::TerminatingFault;
+    }
+    if (v == "ImplicitDeactivation") {
+        return TaskReportType::ImplicitDeactivation;
+    }
+    if (v == "FullyActionedAndSuccessful") {
+        return TaskReportType::FullyActionedAndSuccessful;
+    }
+    if (v == "FullyActionedAndUnsuccessful") {
+        return TaskReportType::FullyActionedAndUnsuccessful;
+    }
+    return TaskReportType::Warning;
+}
+
+NeIssueType read_ne_issue_type(const std::string& v) {
+    if (v == "FaultCleared") {
+        return NeIssueType::FaultCleared;
+    }
+    if (v == "FaultReport") {
+        return NeIssueType::FaultReport;
+    }
+    if (v == "Alert") {
+        return NeIssueType::Alert;
+    }
+    return NeIssueType::Warning;
+}
 
 Request read_request(xmlNodePtr msg) {
     Request req;
@@ -385,6 +425,27 @@ Request read_request(xmlNodePtr msg) {
         case MessageType::Keepalive:
             req.body = Keepalive{};
             break;
+        case MessageType::ReportTaskIssue: {
+            ReportTaskIssue r;
+            r.xid = child_text(msg, "xId").value_or("");
+            r.report_type = read_task_report_type(child_text(msg, "taskReportType").value_or(""));
+            if (auto c = child_text(msg, "taskIssueErrorCode")) {
+                r.error_code = std::atoi(c->c_str());
+            }
+            r.details = child_text(msg, "taskIssueDetails");
+            req.body = std::move(r);
+            break;
+        }
+        case MessageType::ReportNEIssue: {
+            ReportNEIssue r;
+            r.type = read_ne_issue_type(child_text(msg, "typeOfNeIssueMessage").value_or(""));
+            r.description = child_text(msg, "description").value_or("");
+            if (auto c = child_text(msg, "issueCode")) {
+                r.issue_code = std::atoi(c->c_str());
+            }
+            req.body = std::move(r);
+            break;
+        }
         case MessageType::Unsupported:
             req.body = Unsupported{xt};
             break;
@@ -438,6 +499,10 @@ const char* response_xsi_type(MessageType t) {
             return "PingResponse";
         case MessageType::Keepalive:
             return "KeepaliveResponse";
+        case MessageType::ReportTaskIssue:
+            return "ReportTaskIssueResponse";
+        case MessageType::ReportNEIssue:
+            return "ReportNEIssueResponse";
         case MessageType::Unsupported:
             return "ErrorResponse";
     }
@@ -468,6 +533,10 @@ const char* message_type_name(MessageType t) {
             return "Ping";
         case MessageType::Keepalive:
             return "Keepalive";
+        case MessageType::ReportTaskIssue:
+            return "ReportTaskIssue";
+        case MessageType::ReportNEIssue:
+            return "ReportNEIssue";
         case MessageType::Unsupported:
             return "ExtendedRequestMessageType";
     }
@@ -634,6 +703,360 @@ std::string serialise_top_level_error(const MessageHeader& header) {
     std::string out(reinterpret_cast<const char*>(buf), static_cast<std::size_t>(len));
     xmlFree(buf);
     xmlFreeDoc(doc);
+    return out;
+}
+
+// ---- ADMF (client) side, ADR-0462 ----------------------------------------------------------
+
+namespace {
+
+const char* delivery_text(DeliveryType d) {
+    switch (d) {
+        case DeliveryType::X2Only:
+            return "X2Only";
+        case DeliveryType::X3Only:
+            return "X3Only";
+        case DeliveryType::X2AndX3:
+            return "X2andX3";
+    }
+    return "X2andX3";
+}
+
+const char* mediation_delivery_text(MediationDeliveryType d) {
+    switch (d) {
+        case MediationDeliveryType::Hi2Only:
+            return "HI2Only";
+        case MediationDeliveryType::Hi3Only:
+            return "HI3Only";
+        case MediationDeliveryType::Hi2AndHi3:
+            return "HI2andHI3";
+    }
+    return "HI2andHI3";
+}
+
+xmlNodePtr add_node(xmlNodePtr parent, const char* name) {
+    return xmlNewChild(parent, parent->ns, reinterpret_cast<const xmlChar*>(name), nullptr);
+}
+
+void add_dids(xmlNodePtr parent,
+              const std::vector<std::string>& dids,
+              const std::vector<std::string>& dsids) {
+    xmlNodePtr list = add_node(parent, "listOfDIDs");
+    for (const auto& d : dids) {
+        add_text(list, "dId", d);
+    }
+    for (const auto& d : dsids) {
+        add_text(list, "dSId", d);
+    }
+}
+
+// The XSD choice element for a target identifier: the kind's own element, or the verbatim
+// `element` of a Kind::Other identifier.
+std::string target_element(const TargetIdentifier& t) {
+    if (!t.element.empty()) {
+        return t.element;
+    }
+    for (const auto& k : kTargetKinds) {
+        if (k.kind == t.kind) {
+            return k.element;
+        }
+    }
+    return "";
+}
+
+void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
+    xmlNodePtr td = add_node(parent, "taskDetails");
+    add_text(td, "xId", t.xid);
+    xmlNodePtr targets = add_node(td, "targetIdentifiers");
+    for (const auto& target : t.targets) {
+        xmlNodePtr ti = add_node(targets, "targetIdentifier");
+        add_text(ti, target_element(target).c_str(), target.value);
+    }
+    add_text(td, "deliveryType", delivery_text(t.delivery));
+    add_dids(td, t.dids, t.dsids);
+    if (!t.mediation_details.empty()) {
+        xmlNodePtr list = add_node(td, "listOfMediationDetails");
+        for (const auto& m : t.mediation_details) {
+            xmlNodePtr md = add_node(list, "mediationDetails");
+            add_text(md, "LIID", m.liid);
+            add_text(md, "deliveryType", mediation_delivery_text(m.delivery));
+            if (m.start_time) {
+                add_text(md, "StartTime", *m.start_time);
+            }
+            if (m.end_time) {
+                add_text(md, "EndTime", *m.end_time);
+            }
+            if (!m.dids.empty()) {
+                add_dids(md, m.dids, {});
+            }
+        }
+    }
+    if (t.correlation_id) {
+        add_text(td, "correlationID", std::to_string(*t.correlation_id));
+    }
+    if (t.implicit_deactivation_allowed) {
+        add_text(td, "implicitDeactivationAllowed", *t.implicit_deactivation_allowed ? "true" : "false");
+    }
+    if (t.product_id) {
+        add_text(td, "productID", *t.product_id);
+    }
+    if (t.identifier_association_events) {
+        // TS 33.128 table 6.2.2.1.1-1 (see read_task_gating): an ETSI Extension, Owner + the 3GPP
+        // X1 extension element.
+        xmlNodePtr ext = add_node(td, "taskDetailsExtensions");
+        add_text(ext, "Owner", "3GPP");
+        xmlNsPtr tgpp = xmlNewNs(ext,
+                                 reinterpret_cast<const xmlChar*>(k3gppX1ExtNs),
+                                 reinterpret_cast<const xmlChar*>("tgpp"));
+        xmlNodePtr ia = xmlNewChild(
+            ext, tgpp, reinterpret_cast<const xmlChar*>("IdentifierAssociationExtensions"), nullptr);
+        xmlNewTextChild(ia,
+                        tgpp,
+                        reinterpret_cast<const xmlChar*>("IdentifierAssociationEventsGenerated"),
+                        reinterpret_cast<const xmlChar*>(
+                            *t.identifier_association_events == IdentifierAssociationEventsGenerated::All
+                                ? "All"
+                                : "IdentifierAssociation"));
+    }
+}
+
+// TS 103 280 IPv6Address is the fixed form `([0-9a-f]{4}:){7}([0-9a-f]{4})` -- no `::`
+// compression, no upper case -- so any textual IPv6 is expanded to it. Anything inet_pton cannot
+// parse is passed through unchanged, so the schema check rejects it rather than this guessing.
+std::string expand_ipv6(const std::string& text) {
+    in6_addr addr{};
+    if (inet_pton(AF_INET6, text.c_str(), &addr) != 1) {
+        return text;
+    }
+    char buf[48];
+    std::snprintf(buf,
+                  sizeof(buf),
+                  "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+                  addr.s6_addr[0], addr.s6_addr[1], addr.s6_addr[2], addr.s6_addr[3],
+                  addr.s6_addr[4], addr.s6_addr[5], addr.s6_addr[6], addr.s6_addr[7],
+                  addr.s6_addr[8], addr.s6_addr[9], addr.s6_addr[10], addr.s6_addr[11],
+                  addr.s6_addr[12], addr.s6_addr[13], addr.s6_addr[14], addr.s6_addr[15]);
+    return buf;
+}
+
+void write_destination(xmlNodePtr parent, const DestinationDetails& d, xmlNsPtr c) {
+    xmlNodePtr dd = add_node(parent, "destinationDetails");
+    add_text(dd, "dId", d.did);
+    if (d.friendly_name) {
+        add_text(dd, "friendlyName", *d.friendly_name);
+    }
+    add_text(dd, "deliveryType", delivery_text(d.delivery));
+    xmlNodePtr addr = add_node(dd, "deliveryAddress");
+    switch (d.address.kind) {
+        case DeliveryAddress::Kind::IpAddressAndPort: {
+            // IPAddressPort's children are TS 103 280 elements (elementFormDefault=qualified), so
+            // they carry that namespace, not the X1 one.
+            const auto colon = d.address.value.rfind(':');
+            const std::string ip = colon == std::string::npos ? d.address.value
+                                                              : d.address.value.substr(0, colon);
+            const std::string port =
+                colon == std::string::npos ? "" : d.address.value.substr(colon + 1);
+            const bool v6 = ip.find(':') != std::string::npos;
+            xmlNodePtr ipp = add_node(addr, "ipAddressAndPort");
+            xmlNodePtr a = xmlNewChild(ipp, c, reinterpret_cast<const xmlChar*>("address"), nullptr);
+            xmlNewTextChild(a,
+                            c,
+                            reinterpret_cast<const xmlChar*>(v6 ? "IPv6Address" : "IPv4Address"),
+                            reinterpret_cast<const xmlChar*>(
+                                (v6 ? expand_ipv6(ip) : ip).c_str()));
+            xmlNodePtr p = xmlNewChild(ipp, c, reinterpret_cast<const xmlChar*>("port"), nullptr);
+            xmlNewTextChild(p,
+                            c,
+                            reinterpret_cast<const xmlChar*>("TCPPort"),
+                            reinterpret_cast<const xmlChar*>(port.c_str()));
+            break;
+        }
+        case DeliveryAddress::Kind::E164Number:
+            add_text(addr, "e164Number", d.address.value);
+            break;
+        case DeliveryAddress::Kind::Uri:
+            add_text(addr, "uri", d.address.value);
+            break;
+        case DeliveryAddress::Kind::EmailAddress:
+            add_text(addr, "emailAddress", d.address.value);
+            break;
+    }
+}
+
+} // namespace
+
+tl::expected<std::string, std::string> serialise_request(const std::vector<Request>& requests) {
+    if (requests.empty()) {
+        return tl::make_unexpected(std::string("an X1Request carries at least one request (6.1)"));
+    }
+    xmlDocPtr doc = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
+    struct DocGuard {
+        xmlDocPtr d;
+        ~DocGuard() { xmlFreeDoc(d); }
+    } guard{doc};
+    xmlNodePtr root = xmlNewNode(nullptr, reinterpret_cast<const xmlChar*>("X1Request"));
+    xmlNsPtr x1 = xmlNewNs(root, reinterpret_cast<const xmlChar*>(kX1Ns), nullptr);
+    xmlSetNs(root, x1);
+    xmlNsPtr xsi = xmlNewNs(
+        root, reinterpret_cast<const xmlChar*>(kXsiNs), reinterpret_cast<const xmlChar*>("xsi"));
+    xmlNewNs(root, reinterpret_cast<const xmlChar*>(kX1Ns), reinterpret_cast<const xmlChar*>("x1"));
+    xmlNsPtr c = xmlNewNs(root,
+                          reinterpret_cast<const xmlChar*>("http://uri.etsi.org/03280/common/2017/07"),
+                          reinterpret_cast<const xmlChar*>("c"));
+    xmlDocSetRootElement(doc, root);
+
+    for (const auto& req : requests) {
+        const char* xsi_name = nullptr;
+        for (const auto& t : kTypes) {
+            if (t.type == req.type) {
+                xsi_name = t.xsi;
+            }
+        }
+        if (xsi_name == nullptr || req.type == MessageType::ReportTaskIssue ||
+            req.type == MessageType::ReportNEIssue) {
+            return tl::make_unexpected(std::string("request type is not buildable by an ADMF: ") +
+                                       message_type_name(req.type));
+        }
+        xmlNodePtr m = xmlNewChild(root, x1, reinterpret_cast<const xmlChar*>("x1RequestMessage"), nullptr);
+        set_ns_type(m, xsi, xsi_name);
+        write_header(m, req.header);
+        switch (req.type) {
+            case MessageType::ActivateTask:
+                write_task_details(m, std::get<ActivateTask>(req.body).task);
+                break;
+            case MessageType::ModifyTask:
+                write_task_details(m, std::get<ModifyTask>(req.body).task);
+                break;
+            case MessageType::DeactivateTask:
+                add_text(m, "xId", std::get<DeactivateTask>(req.body).xid);
+                break;
+            case MessageType::GetTaskDetails:
+                add_text(m, "xId", std::get<GetTaskDetails>(req.body).xid);
+                break;
+            case MessageType::CreateDestination:
+                write_destination(m, std::get<CreateDestination>(req.body).destination, c);
+                break;
+            case MessageType::RemoveDestination:
+                add_text(m, "dId", std::get<RemoveDestination>(req.body).did);
+                break;
+            default: // DeactivateAllTasks, RemoveAllDestinations, Ping, Keepalive: header only
+                break;
+        }
+    }
+
+    xmlChar* buf = nullptr;
+    int len = 0;
+    xmlDocDumpFormatMemoryEnc(doc, &buf, &len, "UTF-8", 1);
+    std::string xml(reinterpret_cast<const char*>(buf), static_cast<std::size_t>(len));
+    xmlFree(buf);
+    if (!schema_valid(doc)) {
+        return tl::make_unexpected(std::string("built request failed schema validation"));
+    }
+    return xml;
+}
+
+namespace {
+
+MessageType type_from_name(const std::string& name) {
+    for (const auto& t : kTypes) {
+        if (name == message_type_name(t.type)) {
+            return t.type;
+        }
+    }
+    return MessageType::Unsupported;
+}
+
+ProvisioningStatus read_provisioning(const std::string& v) {
+    if (v == "complete") {
+        return ProvisioningStatus::Complete;
+    }
+    if (v == "failed") {
+        return ProvisioningStatus::Failed;
+    }
+    return ProvisioningStatus::AwaitingProvisioning;
+}
+
+} // namespace
+
+tl::expected<std::vector<ClientResponse>, ParseError> parse_response(const std::string& xml) {
+    // Same hardening as parse_request: no network, no entity substitution.
+    xmlDocPtr doc =
+        xmlReadMemory(xml.data(), static_cast<int>(xml.size()), "x1r.xml", nullptr, XML_PARSE_NONET);
+    if (doc == nullptr) {
+        return tl::make_unexpected(ParseError{true, "not well-formed XML", std::nullopt});
+    }
+    struct DocGuard {
+        xmlDocPtr d;
+        ~DocGuard() { xmlFreeDoc(d); }
+    } guard{doc};
+    xmlNodePtr root = xmlDocGetRootElement(doc);
+    if (root == nullptr) {
+        return tl::make_unexpected(ParseError{true, "empty document", std::nullopt});
+    }
+    if (is(root, "X1TopLevelErrorResponse")) {
+        return tl::make_unexpected(
+            ParseError{true, "NE answered with an X1TopLevelErrorResponse", read_header(root)});
+    }
+    if (!is(root, "X1Response")) {
+        return tl::make_unexpected(ParseError{true, "root is not X1Response", std::nullopt});
+    }
+    if (!schema_valid(doc)) {
+        return tl::make_unexpected(
+            ParseError{true, "response is not schema-valid (TS 103 221-1 7.2.1)", std::nullopt});
+    }
+    std::vector<ClientResponse> out;
+    for (xmlNodePtr m = root->children; m != nullptr; m = m->next) {
+        if (!is(m, "x1ResponseMessage")) {
+            continue;
+        }
+        const MessageHeader header = read_header(m);
+        const std::string xt = xsi_type(m);
+        if (xt == "ErrorResponse") {
+            ErrorResponse e;
+            e.header = header;
+            e.type = type_from_name(child_text(m, "requestMessageType").value_or(""));
+            if (xmlNodePtr ei = child(m, "errorInformation")) {
+                e.code = static_cast<ErrorCode>(
+                    std::atoi(child_text(ei, "errorCode").value_or("0").c_str()));
+                e.description = child_text(ei, "errorDescription").value_or("");
+            }
+            out.emplace_back(std::move(e));
+        } else if (xt == "GetTaskDetailsResponse") {
+            TaskDetailsResponse r;
+            r.header = header;
+            if (xmlNodePtr trd = child(m, "taskResponseDetails")) {
+                if (xmlNodePtr td = child(trd, "taskDetails")) {
+                    r.task = read_task_details(td);
+                }
+                if (xmlNodePtr st = child(trd, "taskStatus")) {
+                    r.provisioning = read_provisioning(child_text(st, "provisioningStatus").value_or(""));
+                    if (xmlNodePtr faults = child(st, "listOfFaults")) {
+                        for (xmlNodePtr f = faults->children; f != nullptr; f = f->next) {
+                            if (is(f, "unresolvedFault")) {
+                                r.unresolved_faults.push_back(
+                                    Fault{std::atoi(child_text(f, "errorCode").value_or("0").c_str()),
+                                          child_text(f, "errorDescription").value_or("")});
+                            }
+                        }
+                    }
+                }
+            }
+            out.emplace_back(std::move(r));
+        } else if (auto ok = child_text(m, "oK")) {
+            OkResponse r;
+            r.header = header;
+            std::string base = xt;
+            if (base.size() > 8 && base.compare(base.size() - 8, 8, "Response") == 0) {
+                base.resize(base.size() - 8);
+            }
+            r.type = type_from_name(base);
+            r.acknowledged_and_completed = (*ok == "AcknowledgedAndCompleted");
+            out.emplace_back(std::move(r));
+        } else {
+            return tl::make_unexpected(
+                ParseError{false, "unsupported response type " + xt, header});
+        }
+    }
     return out;
 }
 

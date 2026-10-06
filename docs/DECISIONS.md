@@ -33856,3 +33856,56 @@ ports; CI run 37402356790, superseded by this push, was cancelled and the contro
   PathSwitchRequest the POI was told about.
 - Targets are matched by SUPI/IMSI/NAI kinds only (as the rest of this POI); GPSI/IMEI-only
   warrants are not matched.
+
+## ADR-0462: `nfs/li-admf` (LI increment 5) -- plan, decisions, and step 1: the X1 client codec
+
+**Date:** 2026-10-06. **Status:** accepted; step 1 done, steps 2-6 below not started.
+
+**Spec sources.** ETSI TS 103 120 v1.24.1 (LI_HI1, prose; fetched by `tools/specs/fetch_etsi_specs.py`,
+gitignored) and its XSD/JSON schema sets, dictionaries and examples (vendored at
+`specs/etsi/103120/`, BSD-3-Clause, forge commit e531df05 -- supplied by the user from the forge
+archive after `forge.etsi.org/rep` timed out from this host). **The schemas are v1.23.1** (the forge
+README's newest entry) while the prose read is v1.24.1; the diff is editorial plus JSON-signing text
+(Annex I, not implemented). TS 33.127 5.3.5 defines the ADMF as LICF + LIPF: HI1 (northbound, from the
+LEA) and LI_X1 (southbound, to POIs/TFs/MDFs).
+
+**Decisions (user-approved 2026-10-06).**
+1. **XML only first.** TS 103 120 9.2.0 lets a Receiver answer "encoding not supported" for JSON; libxml2
+   XSD validation is already in `li_core`. JSON would need a JSON-Schema validator dependency, to be
+   evaluated for licence and vcpkg availability before adoption.
+2. **State in a dedicated PostgreSQL database**, not Valkey: warrants and legal documents are durable
+   records, not rebuildable cache, and TS 33.127 5.6 puts LI functions in a separate security domain
+   (a new Compose service, approved).
+3. **Scope: the H.5 LI lifecycle workflow profile only.** Out of scope, recorded as gaps: LD/LP/TD
+   profiles, traffic and IRI policies, JSON signing/encryption (9.2.3, Annex I), national profiles,
+   LI_X0 and virtualised-deployment lifecycle, SMF/UPF provisioning (those POIs do not exist yet), LI
+   service discovery (endpoints come from `config/li-admf.json`).
+Like `li-mdf`, the ADMF is NOT an SBI NF and does not register with the NRF (TS 33.127 5.5: POIs/TFs/
+MDFs are not within NRF service discovery) -- DoD step 2 is N/A, not skipped.
+
+**Build order (one commit each, tests first).** (1) X1 client codec in `li_core` [done below];
+(2) HI1 XML codec + validation wrapper (tested on ETSI's own examples); (3) `li-admf` skeleton: config,
+mTLS listener, PostgreSQL store; (4) the six H.5 endpoints (`/li/authorisation/{new,extension,
+cancellation}`, `/li/task/{addition,cancellation,change-delivery}`) + the LICF warrant->X1 mapping;
+(5) Notifications to the LEA and status reflection; (6) end-to-end LEA -> ADMF -> AMF POI -> MDF2,
+Compose/config-mount/Helm per the Definition of Done.
+
+**Step 1 -- what was built.** `li_core::x1` grew the ADMF half of the codec: `serialise_request`
+(every ADMF->NE request, schema-validated before it is returned -- 7.2.1), `parse_response` (OK, Error
+and GetTaskDetails responses with TaskStatus and faults; an X1TopLevelErrorResponse is reported as an
+error), and the NE->ADMF `ReportTaskIssue` / `ReportNEIssue` requests (parsed; the NE side answers 1080).
+Transport stays outside `li_core`, as on the server side. Facts worth keeping:
+- TS 103 280 `IPv6Address` is the fixed `([0-9a-f]{4}:){7}[0-9a-f]{4}` form, no `::` compression: the writer
+  expands any textual IPv6 (inet_pton), and a value it cannot parse is passed through so the schema check
+  rejects it rather than the codec guessing.
+- Destination addresses are written with TCPPort (X2/X3 run over TCP); the reader still accepts either.
+- The writer refuses (error, never emits) a request that fails the schema, e.g. a non-UUID `xId`.
+**Proof.** `LiX1Client.*` (8 conformance tests: full-fidelity ActivateTask round trip incl. mediation
+details/LIID/gating, all other request types and multi-request containers, never-emit-invalid, OK/Error/
+GetTaskDetails/top-level-error/XXE response parsing, Report* parsing, 1080 from the NE side). And against
+the REAL processes over real X1/mTLS: `li_amf_e2e_integration_tests` and `li_mdf_integration_tests` now
+build their X1 requests with `serialise_request` and parse the answers with `parse_response` -- the real
+AMF POI and the real MDF2 accept what the codec emits.
+**Disclosed.** GetTaskDetails is parsed on the client side but the NE side (AMF POI, MDF2) still answers it
+1080; ModifyDestination, GetDestinationDetails, GetNEStatus, GetAll*, ListAllDetails and the generic-object
+messages are not modelled.
