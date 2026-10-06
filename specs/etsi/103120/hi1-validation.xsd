@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Not an ETSI file (ADR-0462). libxml2's schema loader needs a schemaLocation for every
+     imported namespace; the normative TS 103 120 schemas import their siblings, the TS 103 280
+     common namespace, the dictionaries and xmldsig by namespace only. This wrapper supplies those
+     locations and imports the normative files unchanged, so xmlSchemaParse resolves the set. The
+     authoritative schemas are still schema/xsd/ts_103120_*.xsd; this only wires the imports.
+
+     xmldsig is wired to a project-owned STUB (xmldsig-stub.xsd): the W3C schema carries a DOCTYPE
+     that references DTDs libxml2 cannot fetch under XML_PARSE_NONET, and message signing
+     (TS 103 120 9.2.3, national-profile-defined) is not implemented. The stub declares only the
+     <Signature> element, content unvalidated - so a signed message is not rejected, and its
+     signature is not verified (disclosed). -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:5gc-r19:li:hi1-validation-wrapper"
+           elementFormDefault="qualified">
+  <xs:import namespace="http://www.w3.org/2000/09/xmldsig#" schemaLocation="xmldsig-stub.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03280/common/2017/07"
+             schemaLocation="../103280/TS_103_280.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03280/common/2019/10/Dictionaries"
+             schemaLocation="dictionaries/ts_103120_Dictionaries.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2016/02/Common"
+             schemaLocation="schema/xsd/ts_103120_Common.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2024/06/Config"
+             schemaLocation="schema/xsd/ts_103120_Config.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2016/02/Notification"
+             schemaLocation="schema/xsd/ts_103120_Notification.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2020/09/Authorisation"
+             schemaLocation="schema/xsd/ts_103120_Authorisation.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2020/09/Document"
+             schemaLocation="schema/xsd/ts_103120_Document.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2020/09/Task"
+             schemaLocation="schema/xsd/ts_103120_Task.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2019/10/Delivery"
+             schemaLocation="schema/xsd/ts_103120_Delivery.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2022/07/TrafficPolicy"
+             schemaLocation="schema/xsd/ts_103120_TrafficPolicy.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2026/01/IRIPolicy"
+             schemaLocation="schema/xsd/ts_103120_IRIPolicy.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2026/01/Encryption"
+             schemaLocation="schema/xsd/ts_103120_Encryption.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2026/07/Destination"
+             schemaLocation="schema/xsd/ts_103120_Destination.xsd"/>
+  <xs:import namespace="http://uri.etsi.org/03120/common/2019/10/Core"
+             schemaLocation="schema/xsd/ts_103120_Core.xsd"/>
+</xs:schema>

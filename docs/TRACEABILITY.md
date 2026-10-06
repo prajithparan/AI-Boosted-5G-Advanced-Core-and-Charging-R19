@@ -5428,3 +5428,13 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | ADMF builds ActivateTask/ModifyTask/DeactivateTask(All)/GetTaskDetails/Create/RemoveDestination(s)/Ping/Keepalive, schema-validated before sending | TS 103 221-1 6.2-6.4, 6.6, 7.2.1 | `libs/li-core/src/x1.cpp` `serialise_request` | `test_li_x1_client.cpp` LiX1Client.* ; real AMF POI: `test_li_amf_e2e.cpp`; real MDF2: `test_li_mdf.cpp` |
 | ADMF reads OK / Error / GetTaskDetails (TaskStatus, faults) / TopLevelError responses | TS 103 221-1 6.1, 6.4.2, 7.2.2 | `x1.cpp` `parse_response` | LiX1Client.ParsesOkAndErrorResponses..., ParsesAGetTaskDetailsResponse..., TopLevelErrorAndGarbage... |
 | ADMF receives ReportTaskIssue / ReportNEIssue from an NE | TS 103 221-1 6.5.2, 6.5.4 | `x1.cpp` `read_request` | LiX1Client.ParsesTheNeToAdmfReportRequests |
+
+### LI increment 5 -- HI1 XML codec (ADR-0462, step 2 of the li-admf build)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| HI1 message header, version pattern, request/response payloads, schema-validated both ways | TS 103 120 6.1-6.3, 9.2.1, 9.2.2 | `libs/li-core/src/hi1.cpp` `parse_request/parse_response/serialise_*`; `specs/etsi/103120/hi1-validation.xsd` | `test_li_hi1.cpp` LiHi1.EveryEtsiExampleRequestAndResponseParses, EtsiExamplesRoundTripThroughTheWriter, BadMessagesAreRejected..., TheWriterNeverEmitsAnInvalidMessage |
+| GET / CREATE / UPDATE / LIST / DELIVER / GETCSPCONFIG actions and responses | TS 103 120 6.4.5-6.4.11 | `hi1.cpp` | LiHi1.ARequestOfEveryVerbValidatesAndParsesBack, ResponsesOfEveryKindValidateAndParseBack, EtsiResponsesRoundTripIncludingTheCspConfig |
+| Authorisation / LITask objects: typed reads and schema-ordered edits | TS 103 120 7.1, 7.2, 8.2 | `hi1.cpp` `Object`, `view_authorisation`, `view_litask` | LiHi1.TheLiLifecycleExampleReadsBackTheValuesEtsiPrinted, ObjectEditsLandAtTheirSchemaPosition... |
+| NotificationObject built by the CSP | TS 103 120 7.4 | `hi1.cpp` `make_notification` | LiHi1.ANotificationObjectIsBuiltAndValidates |
+

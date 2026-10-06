@@ -33909,3 +33909,34 @@ AMF POI and the real MDF2 accept what the codec emits.
 **Disclosed.** GetTaskDetails is parsed on the client side but the NE side (AMF POI, MDF2) still answers it
 1080; ModifyDestination, GetDestinationDetails, GetNEStatus, GetAll*, ListAllDetails and the generic-object
 messages are not modelled.
+
+**ADR-0462, step 2 (2026-10-06): the HI1 XML codec.** `li_core::hi1` (`hi1.hpp`/`hi1.cpp`) parses and builds
+TS 103 120 messages: Request/Response with GET, CREATE, UPDATE, LIST, DELIVER and GETCSPCONFIG actions (and
+their responses, per-action `ErrorInformation`, and the message-level failure of 9.2.2). Every message is
+validated against the schema set, in both directions, through the project-owned wrapper
+`specs/etsi/103120/hi1-validation.xsd` (libxml2 needs a schemaLocation per import; the normative files
+import by namespace only). Decisions and facts worth keeping:
+- **Objects are held as self-contained XML, not re-modelled.** An HI1Object has 15-20 optional members, several
+  deep and nationally extensible; modelling each would silently drop what it missed, and a warrant must come
+  back from GET exactly as the LEA created it. `Object` gives typed reads of the members the ADMF uses
+  (`view_authorisation`, `view_litask`) and ORDERED edits: a replaced or inserted member lands at its XSD-
+  sequence position (the order tables in `hi1.cpp` are transcribed from the XSD sequences; the negative control
+  below proves the schema check catches a wrong order). An edit to a member the type does not have is an error.
+- **xmldsig is a project-owned stub** (`xmldsig-stub.xsd`): the W3C schema has a DOCTYPE referencing DTDs libxml2
+  cannot fetch under NONET, and signing (9.2.3, national-profile-defined) is not implemented. A signed message
+  is therefore accepted and its signature NOT verified -- disclosed.
+- **xsi:type is a QName inside a value**, which libxml2's namespace reconciliation cannot see; `extract_object`
+  collects those prefixes first and re-declares them on the copied root, so an object stays self-contained.
+- A stored/echoed HI1Object keeps the sender's prefixes; only objects the codec itself builds use its fixed ones.
+- 26 of ETSI's 27 example messages validate against the wrapper; the 27th (`request5-XML-Delivery.xml`) carries
+  extension content from ETSI's example-only `FooServiceSchema.xsd` and is correctly refused.
+**Proof.** `LiHi1.*` (12 conformance tests): every ETSI request/response example parses (>= 15 requests, >= 8
+responses); values read back from `request1.xml` match what ETSI printed (LIID1, E.164 442079460223, IRIandCC,
+192.0.2.0, Authorisation W000001); examples round-trip through the writer (which validates what it emits);
+GETCSPCONFIG response from ETSI's `response_config.xml` reads back; edits land at schema position and a message
+carrying the edited object validates; a request of every verb and a response of every kind round-trip; bad
+input (garbage, wrong root, schema-invalid with the header recovered, request-as-response, XXE) is refused; the
+writer refuses an invalid message. **Negative control run:** with insertion forced to append, the edit test
+fails with the schema's own "AuthorisationDesiredStatus: This element is not expected".
+**Disclosed.** XML only (decision 1); the Dictionaries element of a GETCSPCONFIG response is not modelled; LD/LP/
+TD/TrafficPolicy/IRIPolicy objects parse as `ObjectType::Other` and round-trip but have no typed view.

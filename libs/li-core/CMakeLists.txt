@@ -22,6 +22,7 @@ add_library(li_core SHARED
     src/xiri.cpp
     src/x1.cpp
     src/x1_server.cpp
+    src/hi1.cpp
     src/x2x3_client.cpp
     src/hi2.cpp
     src/x2x3_server.cpp
