@@ -33967,3 +33967,47 @@ the real process over real HTTPS + mTLS (GETCSPCONFIG, a workflow path, garbage 
 unbound certificate -> 403, and exactly 4 audit rows for the 4 exchanges). **Disclosed.** Step 3's `lea_bindings` is
 the whole LEA authorisation model (no per-endpoint ACL by workflow); the GETCSPCONFIG `LastChanged` is the process
 start time; no Docker image / compose service / Helm chart for the ADMF process itself yet (step 6).
+
+**ADR-0462, step 4 (2026-10-06): the six LI lifecycle workflows, the LIPF and the reconcile loop.** `Lifecycle`
+(`nfs/li-admf/src/lifecycle.{hpp,cpp}`) implements TS 103 120 Annex H.5 on its own two-phase shape; `Lipf`
+(`lipf.{hpp,cpp}`) is the X1 client that provisions the POIs and the MDF2; `Hi1Service` routes by path (table H.0b).
+- **Request phase (`handle`).** The message must meet the endpoint's requirements (H.5.3.3-H.5.8.3: which verbs, which
+  object types, how many) or the whole request is refused top-level (3005/3007) and nothing changes (H.5.2.2.3). Every
+  action is then validated BEFORE anything is written: CREATE (Notification -> 3007, Receiver-only; Generation or a
+  Receiver-owned Status supplied -> 3007; existing id -> 3010; unresolved link -> 3016, expired target -> 3017, link to
+  an object refused in the same message -> 3018; Document ContentType off the H.5.2.3.4 list -> 3007) and UPDATE
+  (unknown / another LEA's object -> 3011; Expired/Cancelled/Rejected -> 3012; Status supplied -> 3006; stale Generation
+  -> 3008; then the workflow's own tables H.1-H.5). If ANY action is refused, none is applied: the refused ones carry
+  their own error and every other action says "not applied" (H.5.2.2.4) rather than looking accepted. Valid requests are
+  stored in ONE transaction (`Hi1Store::apply`), Generation = 1 / +1, initial statuses AwaitingApproval, and the
+  positive acknowledgement is returned. UPDATE is the field-level merge of 6.4.7 (`Object::merge`).
+- **Review-and-action phase (`reconcile_once`).** Driven only by stored state, idempotent, crash-safe (the worker wakes
+  on a request and on an interval): an Authorisation is reviewed atomically with its initial tasks -- if any task cannot
+  be provisioned in this deployment (no CC-POI, an identifier no POI can match, no destination) the WHOLE authorisation,
+  its tasks and documents are Rejected with the reason (H.5.2.2.4's "all the requested changes are rejected"); otherwise
+  Approved and the tasks provisioned through the LIPF, Active on success, Error (retried on `retry_interval`) on an NE
+  failure. DesiredStatus Cancelled/Rejected/Suspended, an expired EndTime, an extension and a change of delivery are all
+  just differences between desired and provisioned state that the same pass resolves. A task with a future StartTime
+  is AwaitingProvisioning. Every change set per Authorisation is announced by one NotificationObject (7.4) naming the new
+  statuses and, for a rejection, the reason and the request's transaction id (H.5.2.2.4).
+- **LIPF.** Per task: the MDF2 destinations (a deterministic DID from XID + address, so a retry and a deprovision find
+  the same one), the MDF2 task carrying the XID -> LIID mapping (Annex C.2.2 MediationDetails), then every POI's task with
+  the deployment's identifier-association gating. All-or-nothing: a refusal rolls back what the call created; an
+  existing XID converges by ModifyTask; deprovisioning is idempotent (X1 2020 counts as done). A task that needs CC is
+  REFUSED, never silently downgraded to IRI-only.
+- **Access control.** Every object carries its owning LEA (the EndpointID its mTLS peer is onboarded as); GET/LIST/UPDATE
+  see only that LEA's objects (a foreign id is "not found", 3014/3011) and LIST is capped (`maximum_list_records`).
+- **Mapping choices (implementation-defined, not in the spec).** HI1 TargetIdentifierValue FormatName SUPIIMSI/SUPINAI/
+  IMSI/NAI -> the X1 supiimsi/supinai/imsi/nai identifier; TaskDeliveryType IRIOnly/CCOnly/IRIandCC -> X2Only/X3Only/
+  X2andX3 (HI2/HI3 on the MDF2); an absent task DesiredStatus is treated as Active once its Authorisation is approved
+  (ETSI's own example request carries none); the LITask's ObjectIdentifier is the X1 XID; delivery addresses must be
+  IPAddressPort (DestinationReference/URL/FQDN are refused as Invalid).
+**Proof.** `li_admf_integration_tests` is now 36 tests: 16 lifecycle tests against real PostgreSQL and in-memory NEs built
+on li_core's real X1 server codec (acknowledged-first-then-actioned, shape refusal, all-or-nothing, create rules incl.
+3010/3016/3018, CC rejection of the whole authorisation, future start, NE failure and recovery, extension incl. tables H.1/H.2,
+authorisation and task cancellation, task addition (and refusal on a cancelled authorisation), change of delivery with the old
+destination retired, expiry, LEA isolation, update rules) + 7 LIPF tests + the step-3 tests.
+**Disclosed gaps.** Notifications are stored and pollable (GET/LIST) but not yet pushed to the LEA (DELIVER, step 5); the
+task Timespan.ProvisioningTime/TerminationTime members and TaskStatus reflection from X1 GetTaskDetails/ReportTaskIssue
+are not yet used (step 5); the review is automated -- there is no human-approval hook (a national-profile matter);
+TrafficPolicy/IRIPolicy references on a task are stored but ignored; a task that goes Invalid is re-evaluated each pass.

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "li_core/hi1.hpp"
+#include "lifecycle.hpp"
 
 // The ADMF's LI_HI1 receiver (ADR-0462): transport-independent request handling for ETSI TS 103 120.
 // main.cpp feeds it the body of an HTTPS POST and the mTLS peer's identity; it returns the response
@@ -44,10 +45,14 @@ struct Hi1Reply {
 
 class Hi1Service {
 public:
-    explicit Hi1Service(Hi1Config config);
+    // `lifecycle` may be null (message-level behaviour only: every action but GETCSPCONFIG is then
+    // refused 3001). It is not owned and must outlive the service.
+    explicit Hi1Service(Hi1Config config, Lifecycle* lifecycle = nullptr);
 
-    // `peer_cert_cn` is the verified mTLS client certificate CN.
+    // `peer_cert_cn` is the verified mTLS client certificate CN; `path` the request path, which
+    // selects the workflow endpoint (TS 103 120 table H.0b).
     [[nodiscard]] Hi1Reply handle(std::string_view peer_cert_cn,
+                                  std::string_view path,
                                   std::string_view content_type,
                                   const std::string& body) const;
 
@@ -56,6 +61,7 @@ public:
 private:
     Hi1Config config_;
     std::string config_last_changed_;
+    Lifecycle* lifecycle_;
 };
 
 // A fresh RFC 9562 version-4 UUID (for a response whose request carried no readable transaction id).

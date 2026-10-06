@@ -108,6 +108,9 @@ public:
     [[nodiscard]] std::optional<std::string> text(std::string_view field) const;
     [[nodiscard]] std::optional<DictionaryEntry> entry(std::string_view field) const;
     [[nodiscard]] std::vector<std::string> associated_objects() const;
+    // The text of a nested member, by local-name path from the object root, e.g.
+    // {"DocumentBody", "ContentType"}. nullopt if any step is absent.
+    [[nodiscard]] std::optional<std::string> text_at(const std::vector<std::string>& path) const;
 
     // Ordered edits. `field` must be a member of this object's type (base HI1Object members or
     // the type's own) -- anything else is an error, never a guess. A new member is inserted at its
@@ -116,6 +119,19 @@ public:
     tl::expected<void, std::string> set_entry(std::string_view field, const DictionaryEntry& entry);
     tl::expected<void, std::string> set_associated_objects(const std::vector<std::string>& ids);
     bool remove(std::string_view field);
+
+    // Set an ActionUnsuccesfulInformation member (AuthorisationInvalidReason / InvalidReason /
+    // DocumentInvalidReason): ErrorCode + ErrorDescription, at its schema position.
+    tl::expected<void, std::string> set_failure(std::string_view field, std::uint32_t code, const std::string& description);
+
+    // The local names of the members present (ObjectIdentifier included), in document order.
+    [[nodiscard]] std::vector<std::string> members() const;
+
+    // TS 103 120 6.4.7 UPDATE semantics: every member present in `update` replaces the stored one
+    // wholesale (a list member is overwritten, never appended to; an empty list clears it); a member
+    // absent from `update` is left unchanged. ObjectIdentifier is never changed. The two objects
+    // must be of the same type, else an error.
+    tl::expected<void, std::string> merge(const Object& update);
 
 private:
     std::string xml_;

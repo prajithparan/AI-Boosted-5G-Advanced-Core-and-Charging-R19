@@ -8,9 +8,9 @@
 find_package(OpenSSL REQUIRED)
 find_package(libpqxx CONFIG REQUIRED)
 
-add_library(li_admf_core STATIC src/hi1_service.cpp src/hi1_store.cpp)
+add_library(li_admf_core STATIC src/hi1_service.cpp src/hi1_store.cpp src/lipf.cpp src/lifecycle.cpp)
 target_include_directories(li_admf_core PUBLIC src)
-target_link_libraries(li_admf_core PUBLIC li_core nf_config sbi_core libpqxx::pqxx)
+target_link_libraries(li_admf_core PUBLIC li_core nf_config sbi_core libpqxx::pqxx OpenSSL::Crypto)
 
 add_executable(li-admf src/main.cpp)
 target_link_libraries(li-admf PRIVATE li_admf_core OpenSSL::SSL OpenSSL::Crypto)

@@ -23,6 +23,8 @@
 
 #include "hi1_service.hpp"
 #include "hi1_store.hpp"
+#include "lifecycle.hpp"
+#include "lipf.hpp"
 #include "nf_config/nf_config.hpp"
 #include "nf_config/pg_pool.hpp"
 
@@ -78,7 +80,42 @@ int main() {
     li_admf::Hi1Store store(pool);
     store.ensure_schema(); // fail fast: an ADMF that cannot record its audit trail must not serve
 
-    li_admf::Hi1Service service(std::move(hi1));
+    // The LIPF: the X1 client that provisions the POIs and the MDF2, over the same mTLS identity.
+    li_admf::LipfConfig lipf_config;
+    lipf_config.admf_identifier = config.at("x1_admf_identifier").get<std::string>();
+    lipf_config.x1_version = config.at("x1_version").get<std::string>();
+    lipf_config.cc_capable = config.at("cc_capable").get<bool>();
+    if (const auto ia = config.at("poi_identifier_association_events").get<std::string>(); ia == "All") {
+        lipf_config.poi_identifier_association = li_core::x1::IdentifierAssociationEventsGenerated::All;
+    } else if (ia == "IdentifierAssociation") {
+        lipf_config.poi_identifier_association = li_core::x1::IdentifierAssociationEventsGenerated::IdentifierAssociation;
+    } else if (ia != "Absent") {
+        nf_config::fatal("poi_identifier_association_events must be All, IdentifierAssociation or Absent");
+    }
+    std::vector<li_admf::NetworkElement> elements;
+    for (const auto& ne : config.at("network_elements")) {
+        elements.push_back({ne.at("name").get<std::string>(),
+                            ne.at("role").get<std::string>(),
+                            ne.at("ne_identifier").get<std::string>(),
+                            ne.at("x1_url").get<std::string>()});
+    }
+    li_admf::HttpX1Transport x1_transport(sbi_core::http2::TlsConfig{
+        .cert_path = CERTS_DIR "/li-admf/cert.pem",
+        .key_path = CERTS_DIR "/li-admf/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+    li_admf::Lipf lipf(lipf_config, std::move(elements), x1_transport);
+
+    li_admf::LifecycleConfig lifecycle_config;
+    lifecycle_config.self = hi1.self;
+    lifecycle_config.reconcile_interval = std::chrono::seconds(config.at("reconcile_interval_seconds").get<int>());
+    lifecycle_config.retry_interval = std::chrono::seconds(config.at("retry_interval_seconds").get<int>());
+    lifecycle_config.maximum_list_records = config.at("maximum_list_records").get<std::uint64_t>();
+    lifecycle_config.extra_document_content_types =
+        config.at("extra_document_content_types").get<std::vector<std::string>>();
+    li_admf::Lifecycle lifecycle(lifecycle_config, store, lipf);
+
+    li_admf::Hi1Service service(std::move(hi1), &lifecycle);
 
     auto meter = sbi_core::get_meter("li-admf");
     auto requests = meter->CreateUInt64Counter("li_admf_hi1_requests_total", "HI1 requests received");
@@ -99,7 +136,7 @@ int main() {
             if (const auto it = request.headers.find("content-type"); it != request.headers.end()) {
                 content_type = it->second;
             }
-            const auto reply = service.handle(request.peer_cert_cn, content_type, request.body);
+            const auto reply = service.handle(request.peer_cert_cn, path, content_type, request.body);
             if (reply.outcome != "ok") {
                 rejected->Add(1);
             }
@@ -127,8 +164,10 @@ int main() {
             return response;
         });
     }
+    lifecycle.start();
     server.start();
     spdlog::info("li-admf: LI_HI1 on https://0.0.0.0:{} (TLS 1.3 + mTLS)", hi1_port);
     sbi_core::run_multi_threaded(ioc);
+    lifecycle.stop();
     return 0;
 }

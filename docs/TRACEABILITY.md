@@ -5447,3 +5447,17 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | GETCSPCONFIG response (workflow endpoints, target formats) | TS 103 120 6.4.11, H.5 table H.0b | `hi1_service.cpp` `build_csp_config` | LiAdmfService.GetCspConfigPublishesTheSixLiWorkflowEndpoints |
 | Warrant store and append-only audit of every exchange | TS 33.127 5.6 (separate security domain), 103 120 audit | `hi1_store.cpp`, `schema.sql` | LiAdmfStore.*, LiAdmfProcess (4 exchanges -> 4 audit rows) |
 
+### LI increment 5 -- the LI lifecycle workflows, LIPF and reconcile loop (ADR-0462, step 4)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| New Authorisation: CREATE auth + tasks + documents, ack first, review/action after, Notification | TS 103 120 H.5.2.2, H.5.3 | `nfs/li-admf/src/lifecycle.cpp` `Impl::handle`, `reconcile`, `review_new` | `test_li_admf_lifecycle.cpp` NewAuthorisationIsAcknowledgedFirstThenActionedAndNotified |
+| Request that misses the endpoint's requirements changes nothing; one refused action refuses all | H.5.2.2.3, H.5.2.2.4 | `lifecycle.cpp` `check_shape`, `handle` | ARequestThatMissesTheWorkflowRequirementsChangesNothing, OneBadActionRefusesTheWholeRequest... |
+| CREATE/UPDATE object rules (Generation, Receiver-owned Status, links, content types, merge) | 6.4.6, 6.4.7, 7.1.3, 7.2.5, 8.2.3, H.5.2.3.4, Annex D | `lifecycle.cpp` `prepare_create/prepare_update`; `libs/li-core hi1.cpp` `Object::merge` | CreateRules..., UpdateRulesStatusGenerationAndMerge |
+| Authorisation Extension (tables H.1, H.2) | H.5.4 | `lifecycle.cpp` | ExtensionMovesTheEndDate..., ExtensionConstraintsOfTablesH1AndH2 |
+| Authorisation Cancellation / Task Cancellation | H.5.5, H.5.7 | `lifecycle.cpp` `action_authorisation`, `retire_task` | AuthorisationCancellation..., TaskAdditionThenTaskCancellation... |
+| Task Addition | H.5.6 | `lifecycle.cpp` | TaskAdditionThenTaskCancellation..., TaskAdditionToACancelledAuthorisationIsRefused |
+| Change of Delivery (table H.5) | H.5.8 | `lifecycle.cpp`, `lipf.cpp` `change_delivery`, `retire_destinations` | ChangeOfDeliveryMovesTheDestinationOnTheMdf2 |
+| Provision/deprovision POI + MDF2 over X1, all-or-nothing | TS 33.127 5.3.5.3, TS 103 221-1 6.2, 6.3, Annex C.2.2 | `nfs/li-admf/src/lipf.cpp` | `test_li_admf_lipf.cpp` LiAdmfLipf.* |
+| Expiry, future start, NE failure and recovery, LEA isolation | 7.2.7, 8.2.5, 6.4.8 | `lifecycle.cpp` | AnExpiredAuthorisation..., AFutureStart..., ANeFailure..., AnLeaSeesOnlyItsOwnObjects |
+

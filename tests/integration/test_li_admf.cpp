@@ -98,7 +98,7 @@ const hi1::Failure& top_failure(const hi1::Response& r) {
 
 TEST(LiAdmfService, GetCspConfigPublishesTheSixLiWorkflowEndpoints) {
     const Hi1Service service(config());
-    const auto reply = service.handle(kPeerCn, "text/xml", build(config_request()));
+    const auto reply = service.handle(kPeerCn, "/", "text/xml", build(config_request()));
     EXPECT_EQ(reply.outcome, "ok");
     const auto response = answer_of(reply);
 
@@ -125,14 +125,14 @@ TEST(LiAdmfService, GetCspConfigPublishesTheSixLiWorkflowEndpoints) {
 
 TEST(LiAdmfService, AnUnboundClientCertificateNeverReachesTheMessageLayer) {
     const Hi1Service service(config());
-    const auto reply = service.handle("some-other-nf", "text/xml", build(config_request()));
+    const auto reply = service.handle("some-other-nf", "/", "text/xml", build(config_request()));
     EXPECT_EQ(reply.http_status, 403);
     EXPECT_TRUE(reply.body.empty());
 }
 
 TEST(LiAdmfService, OnlyTheXmlEncodingIsSupported) {
     const Hi1Service service(config());
-    const auto reply = service.handle(kPeerCn, "application/json", "{}");
+    const auto reply = service.handle(kPeerCn, "/", "application/json", "{}");
     const auto response = answer_of(reply);
     EXPECT_EQ(top_failure(response).code, 3019U);
     EXPECT_FALSE(response.header.transaction_id.empty()); // a fresh one: the request was unreadable
@@ -140,7 +140,7 @@ TEST(LiAdmfService, OnlyTheXmlEncodingIsSupported) {
 
 TEST(LiAdmfService, AnUnparseableMessageIsATopLevelValidationError) {
     const Hi1Service service(config());
-    const auto reply = service.handle(kPeerCn, "text/xml", "<not-hi1/>");
+    const auto reply = service.handle(kPeerCn, "/", "text/xml", "<not-hi1/>");
     EXPECT_EQ(top_failure(answer_of(reply)).code, 3020U);
 
     // A schema-invalid message still gets a reply addressed to its sender, with ITS transaction id.
@@ -148,7 +148,7 @@ TEST(LiAdmfService, AnUnparseableMessageIsATopLevelValidationError) {
     const auto pos = xml.find("<ActionIdentifier>");
     ASSERT_NE(pos, std::string::npos);
     xml.erase(pos, xml.find("</ActionIdentifier>") + 19 - pos);
-    const auto invalid = answer_of(service.handle(kPeerCn, "text/xml", xml));
+    const auto invalid = answer_of(service.handle(kPeerCn, "/", "text/xml", xml));
     EXPECT_EQ(top_failure(invalid).code, 3020U);
     EXPECT_EQ(invalid.header.transaction_id, "c02358b2-76cf-4ba4-a8eb-f6436ccaea2e");
     EXPECT_EQ(invalid.header.receiver, (hi1::EndpointId{"GB", "LEA-SIM-01"}));
@@ -158,7 +158,7 @@ TEST(LiAdmfService, AnUnsupportedVersionListsTheSupportedOnes) {
     const Hi1Service service(config());
     hi1::Request r = config_request();
     r.header.version.etsi_version = "V1.2.1";
-    const auto failure = top_failure(answer_of(service.handle(kPeerCn, "text/xml", build(r))));
+    const auto failure = top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(r))));
     EXPECT_EQ(failure.code, 3021U);
     EXPECT_NE(failure.description.find("V1.23.1"), std::string::npos) << failure.description;
 }
@@ -167,12 +167,12 @@ TEST(LiAdmfService, TheEndpointIdentitiesMustMatch) {
     const Hi1Service service(config());
     hi1::Request wrong_receiver = config_request();
     wrong_receiver.header.receiver = {"GB", "SOMEONE-ELSE"};
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "text/xml", build(wrong_receiver)))).code, 3007U);
+    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(wrong_receiver)))).code, 3007U);
 
     // The mTLS peer may only speak for the EndpointID it is onboarded as.
     hi1::Request wrong_sender = config_request();
     wrong_sender.header.sender = {"GB", "LEA-IMPERSONATOR"};
-    const auto reply = service.handle(kPeerCn, "text/xml", build(wrong_sender));
+    const auto reply = service.handle(kPeerCn, "/", "text/xml", build(wrong_sender));
     EXPECT_EQ(top_failure(answer_of(reply)).code, 3007U);
     EXPECT_EQ(reply.outcome, "rejected");
 }
@@ -180,17 +180,17 @@ TEST(LiAdmfService, TheEndpointIdentitiesMustMatch) {
 TEST(LiAdmfService, ActionIdentifiersMustStartAtZeroAndCountUp) {
     const Hi1Service service(config());
     hi1::Request skipped = config_request(1); // starts at 1
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "text/xml", build(skipped)))).code, 3007U);
+    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(skipped)))).code, 3007U);
 
     hi1::Request duplicate;
     duplicate.header = request_header();
     duplicate.actions = {{0, hi1::GetCspConfigAction{}}, {0, hi1::GetCspConfigAction{}}};
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "text/xml", build(duplicate)))).code, 3002U);
+    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(duplicate)))).code, 3002U);
 
     hi1::Request in_order;
     in_order.header = request_header();
     in_order.actions = {{0, hi1::GetCspConfigAction{}}, {1, hi1::GetCspConfigAction{}}};
-    const auto ok = answer_of(service.handle(kPeerCn, "text/xml", build(in_order)));
+    const auto ok = answer_of(service.handle(kPeerCn, "/", "text/xml", build(in_order)));
     EXPECT_EQ(std::get<std::vector<hi1::ActionResult>>(ok.payload).size(), 2U);
 }
 
@@ -201,7 +201,7 @@ TEST(LiAdmfService, ActionsNotYetImplementedAreRefusedExplicitlyNeverAccepted) {
     hi1::Request r;
     r.header = request_header();
     r.actions = {{0, hi1::GetAction{"7dbbc880-8750-4d3c-abe7-ea4a17646045"}}};
-    const auto response = answer_of(service.handle(kPeerCn, "text/xml", build(r)));
+    const auto response = answer_of(service.handle(kPeerCn, "/", "text/xml", build(r)));
     const auto& results = std::get<std::vector<hi1::ActionResult>>(response.payload);
     ASSERT_EQ(results.size(), 1U);
     const auto* failure = std::get_if<hi1::Failure>(&results[0].outcome);

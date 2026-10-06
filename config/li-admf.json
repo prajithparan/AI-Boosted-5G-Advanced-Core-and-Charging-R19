@@ -12,12 +12,36 @@
     "owner": "XX",
     "version": "v1.0"
   },
-  "supported_etsi_versions": ["V1.23.1"],
+  "supported_etsi_versions": [
+    "V1.23.1"
+  ],
   "lea_bindings": [
     {
       "peer_cert_cn": "lea-sim",
       "country_code": "GB",
       "unique_identifier": "LEA-SIM-01"
     }
-  ]
+  ],
+  "x1_admf_identifier": "admf-01",
+  "x1_version": "v1.23.1",
+  "network_elements": [
+    {
+      "name": "amf-poi",
+      "role": "poi",
+      "ne_identifier": "amf-poi-01",
+      "x1_url": "https://127.0.0.1:7807/X1/NE"
+    },
+    {
+      "name": "mdf2",
+      "role": "mdf2",
+      "ne_identifier": "mdf2-01",
+      "x1_url": "https://127.0.0.1:7805/X1/NE"
+    }
+  ],
+  "poi_identifier_association_events": "All",
+  "cc_capable": false,
+  "reconcile_interval_seconds": 5,
+  "retry_interval_seconds": 60,
+  "maximum_list_records": 500,
+  "extra_document_content_types": []
 }

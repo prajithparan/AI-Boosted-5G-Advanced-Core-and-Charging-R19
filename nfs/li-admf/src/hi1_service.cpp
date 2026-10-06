@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <map>
 #include <random>
 #include <set>
 
@@ -59,8 +60,8 @@ std::string now_timestamp() {
     return format_utc(std::chrono::system_clock::now(), false);
 }
 
-Hi1Service::Hi1Service(Hi1Config config)
-    : config_(std::move(config)), config_last_changed_(now_timestamp()) {}
+Hi1Service::Hi1Service(Hi1Config config, Lifecycle* lifecycle)
+    : config_(std::move(config)), config_last_changed_(now_timestamp()), lifecycle_(lifecycle) {}
 
 namespace {
 
@@ -155,6 +156,7 @@ hi1::CspConfig build_csp_config(const Hi1Config& cfg, const std::string& last_ch
 } // namespace
 
 Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
+                            std::string_view path,
                             std::string_view content_type,
                             const std::string& body) const {
     Hi1Reply reply;
@@ -240,19 +242,59 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
         }
     }
 
+    const auto workflow = workflow_for_path(path);
+    if (!workflow) {
+        return rejection(reply, answer, hi1::ErrorCode::ImproperValue, "no HI1 workflow endpoint at " + std::string(path));
+    }
+    const bool has_config = std::any_of(req.actions.begin(), req.actions.end(), [](const hi1::Action& a) {
+        return std::holds_alternative<hi1::GetCspConfigAction>(a.body);
+    });
+    if (has_config && *workflow != Workflow::None) {
+        return rejection(reply, answer, hi1::ErrorCode::ImproperValue,
+                         "GETCSPCONFIG is taken at the API base URL, not at a workflow endpoint");
+    }
+
     hi1::Response resp;
     resp.header = answer;
     std::vector<hi1::ActionResult> results;
-    for (const auto& action : req.actions) {
-        hi1::ActionResult r;
-        r.id = action.id;
-        if (std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
-            r.outcome = hi1::ConfigResult{build_csp_config(config_, config_last_changed_)};
-        } else {
-            r.outcome = hi1::Failure{static_cast<std::uint32_t>(hi1::ErrorCode::FeatureNotSupported),
-                                     "this action is not implemented yet (ADR-0462 step 4)"};
+    if (lifecycle_ == nullptr) {
+        // No lifecycle engine: only GETCSPCONFIG is served; nothing else is silently accepted.
+        for (const auto& action : req.actions) {
+            hi1::ActionResult r;
+            r.id = action.id;
+            if (std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
+                r.outcome = hi1::ConfigResult{build_csp_config(config_, config_last_changed_)};
+            } else {
+                r.outcome = hi1::Failure{static_cast<std::uint32_t>(hi1::ErrorCode::FeatureNotSupported),
+                                         "this action is not implemented (no lifecycle engine)"};
+            }
+            results.push_back(std::move(r));
         }
-        results.push_back(std::move(r));
+    } else {
+        std::vector<hi1::Action> for_lifecycle;
+        for (const auto& action : req.actions) {
+            if (!std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
+                for_lifecycle.push_back(action);
+            }
+        }
+        Lifecycle::Outcome outcome;
+        if (!for_lifecycle.empty() || *workflow != Workflow::None) {
+            outcome = lifecycle_->handle(*workflow, lea->endpoint, req.header, for_lifecycle);
+        }
+        if (outcome.rejected) {
+            return rejection(reply, answer, static_cast<hi1::ErrorCode>(outcome.rejected->code), outcome.rejected->description);
+        }
+        std::map<std::uint64_t, hi1::ActionResult> by_id;
+        for (auto& r : outcome.results) {
+            by_id[r.id] = std::move(r);
+        }
+        for (const auto& action : req.actions) {
+            if (std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
+                results.push_back({action.id, hi1::ConfigResult{build_csp_config(config_, config_last_changed_)}});
+            } else {
+                results.push_back(std::move(by_id.at(action.id)));
+            }
+        }
     }
     resp.payload = std::move(results);
     auto xml = hi1::serialise_response(resp);

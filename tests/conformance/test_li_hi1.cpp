@@ -200,6 +200,51 @@ TEST(LiHi1, ObjectEditsLandAtTheirSchemaPositionAndTheMessageStillValidates) {
     EXPECT_FALSE(auth.remove("AuthorisationServedTimestamp"));
 }
 
+TEST(LiHi1, MergeFollowsTheUpdateSemanticsOfClause647) {
+    Object stored = parsed_authorisation(); // Reference W000001, Timespan 2015-09-01 .. 2015-12-01
+    ASSERT_TRUE(stored.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Approved"}).has_value());
+
+    // The update names only the Timespan (new end date) and a manual note; everything else is absent.
+    const auto update = Object::from_xml(R"(<HI1Object xmlns="http://uri.etsi.org/03120/common/2019/10/Core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation"
+      xsi:type="auth:AuthorisationObject"><ObjectIdentifier>7dbbc880-8750-4d3c-abe7-ea4a17646045</ObjectIdentifier>
+      <auth:AuthorisationTimespan><auth:EndTime>2016-03-01T12:00:00Z</auth:EndTime></auth:AuthorisationTimespan>
+      <auth:AuthorisationManualInformation>extended</auth:AuthorisationManualInformation></HI1Object>)");
+    ASSERT_TRUE(update.has_value()) << update.error();
+    ASSERT_TRUE(stored.merge(*update).has_value());
+
+    const auto view = view_authorisation(stored);
+    EXPECT_EQ(view.end_time, "2016-03-01T12:00:00Z");
+    EXPECT_FALSE(view.start_time.has_value()) << "a single-valued structure present in the update replaces the stored one wholesale";
+    EXPECT_EQ(view.reference, "W000001");             // absent in the update: unchanged
+    EXPECT_EQ(view.status->value, "Approved");         // absent in the update: unchanged
+    EXPECT_EQ(stored.text("AuthorisationManualInformation"), "extended");
+
+    // The merged object is still schema-valid, with every member at its schema position.
+    Response resp;
+    resp.header = sample_header();
+    resp.payload = std::vector<ActionResult>{{0, GetResult{stored}}};
+    EXPECT_TRUE(serialise_response(resp).has_value());
+
+    // A different object type cannot be merged in.
+    const auto task = std::get<CreateAction>(parse_request(slurp(examples() / "request1.xml"))->actions[1].body).object;
+    EXPECT_FALSE(stored.merge(task).has_value());
+
+    const auto names = stored.members();
+    EXPECT_EQ(names.front(), "ObjectIdentifier");
+}
+
+TEST(LiHi1, AnInvalidReasonIsPlacedAndValidates) {
+    Object auth = parsed_authorisation();
+    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Rejected"}).has_value());
+    ASSERT_TRUE(auth.set_failure("AuthorisationInvalidReason", 3001, "no CC-POI <deployed>").has_value());
+    Response resp;
+    resp.header = sample_header();
+    resp.payload = std::vector<ActionResult>{{0, GetResult{auth}}};
+    EXPECT_TRUE(serialise_response(resp).has_value());
+    EXPECT_FALSE(auth.set_failure("Status", 1, "x").has_value()); // an LITask member, not an Authorisation one
+}
+
 TEST(LiHi1, TextValuesAreEscapedNotInterpreted) {
     Object auth = parsed_authorisation();
     ASSERT_TRUE(auth.set_text("AuthorisationManualInformation", "a < b && c > \"d\" </x>").has_value());

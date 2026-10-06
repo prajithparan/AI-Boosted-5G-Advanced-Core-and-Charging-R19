@@ -207,7 +207,7 @@ gtest_discover_tests(li_mdf_integration_tests)
 
 # ADR-0462: the ADMF's LI_HI1 receiver at three levels -- Hi1Service (no deps), the PostgreSQL
 # store and the real li-admf process over mTLS (both skip without the postgres-li database).
-add_executable(li_admf_integration_tests test_li_admf.cpp)
+add_executable(li_admf_integration_tests test_li_admf.cpp test_li_admf_lipf.cpp test_li_admf_lifecycle.cpp)
 target_link_libraries(li_admf_integration_tests PRIVATE
     li_admf_core li_core sbi_core nf_config libpqxx::pqxx OpenSSL::SSL OpenSSL::Crypto
     GTest::gtest GTest::gtest_main)

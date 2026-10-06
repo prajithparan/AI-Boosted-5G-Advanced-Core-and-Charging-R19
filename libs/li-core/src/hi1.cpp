@@ -372,6 +372,21 @@ std::optional<DictionaryEntry> Object::entry(std::string_view field) const {
     return read_entry(child(xmlDocGetRootElement(doc.d), std::string(field).c_str()));
 }
 
+std::optional<std::string> Object::text_at(const std::vector<std::string>& path) const {
+    Doc doc = parse_xml(xml_);
+    if (!doc) {
+        return std::nullopt;
+    }
+    xmlNodePtr n = xmlDocGetRootElement(doc.d);
+    for (const auto& step : path) {
+        n = child(n, step.c_str());
+        if (n == nullptr) {
+            return std::nullopt;
+        }
+    }
+    return text_of(n);
+}
+
 std::vector<std::string> Object::associated_objects() const {
     std::vector<std::string> out;
     Doc doc = parse_xml(xml_);
@@ -494,6 +509,35 @@ tl::expected<void, std::string> Object::set_entry(std::string_view field, const 
     return {};
 }
 
+tl::expected<void, std::string> Object::set_failure(std::string_view field,
+                                                    std::uint32_t code,
+                                                    const std::string& description) {
+    const auto slot = slot_of(type_, field);
+    if (!slot) {
+        return tl::make_unexpected("object type " + type_name_ + " has no member " + std::string(field));
+    }
+    Doc doc = parse_xml(xml_);
+    if (!doc) {
+        return tl::make_unexpected(std::string("stored object is not well-formed"));
+    }
+    xmlNodePtr root = xmlDocGetRootElement(doc.d);
+    xmlNsPtr ns = ensure_ns(doc.d, root, slot->ns, slot->prefix);
+    xmlNsPtr core = ensure_ns(doc.d, root, kCoreNs, "");
+    xmlNodePtr fresh = xmlNewDocNode(doc.d, ns, X(std::string(field).c_str()), nullptr);
+    const auto add = [&](const char* name, const std::string& v) {
+        xmlNodePtr c = xmlNewDocNode(doc.d, core, X(name), nullptr);
+        xmlChar* enc = xmlEncodeSpecialChars(doc.d, X(v.c_str()));
+        xmlNodeSetContent(c, enc);
+        xmlFree(enc);
+        xmlAddChild(fresh, c);
+    };
+    add("ErrorCode", std::to_string(code));
+    add("ErrorDescription", description);
+    place_member(type_, root, fresh, slot->index);
+    xml_ = dump_node(doc.d, root);
+    return {};
+}
+
 tl::expected<void, std::string> Object::set_associated_objects(const std::vector<std::string>& ids) {
     Doc doc = parse_xml(xml_);
     if (!doc) {
@@ -528,6 +572,49 @@ bool Object::remove(std::string_view field) {
     xmlFreeNode(n);
     xml_ = dump_node(doc.d, root);
     return true;
+}
+
+std::vector<std::string> Object::members() const {
+    std::vector<std::string> out;
+    Doc doc = parse_xml(xml_);
+    if (!doc) {
+        return out;
+    }
+    for (xmlNodePtr n = xmlDocGetRootElement(doc.d)->children; n != nullptr; n = n->next) {
+        if (n->type == XML_ELEMENT_NODE) {
+            out.emplace_back(C(n->name));
+        }
+    }
+    return out;
+}
+
+tl::expected<void, std::string> Object::merge(const Object& update) {
+    if (update.type_ != type_ || update.type_name_ != type_name_) {
+        return tl::make_unexpected("an UPDATE must carry the same object type (" + type_name_ + ")");
+    }
+    Doc doc = parse_xml(xml_);
+    Doc src = parse_xml(update.xml_);
+    if (!doc || !src) {
+        return tl::make_unexpected(std::string("object is not well-formed"));
+    }
+    xmlNodePtr root = xmlDocGetRootElement(doc.d);
+    for (xmlNodePtr n = xmlDocGetRootElement(src.d)->children; n != nullptr; n = n->next) {
+        if (n->type != XML_ELEMENT_NODE || xmlStrcmp(n->name, X("ObjectIdentifier")) == 0) {
+            continue;
+        }
+        const auto slot = slot_of(type_, C(n->name));
+        if (!slot) {
+            return tl::make_unexpected("object type " + type_name_ + " has no member " + C(n->name));
+        }
+        xmlNodePtr copy = xmlDocCopyNode(n, doc.d, 1);
+        if (copy == nullptr) {
+            return tl::make_unexpected(std::string("could not copy a member"));
+        }
+        place_member(type_, root, copy, slot->index);
+    }
+    xmlReconciliateNs(doc.d, root);
+    xml_ = dump_node(doc.d, root);
+    return {};
 }
 
 // ---- views --------------------------------------------------------------------------------------
