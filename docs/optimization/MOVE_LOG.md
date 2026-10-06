@@ -15,7 +15,7 @@ All moves are verbatim; `python3 scripts/docs/verify_claude_md_move.py` checks t
 | Charging domain: CHF bullet, SID bullet (list), Deliverable bullet | CLAUDE.md | kept |
 | Charging domain: SID bullet parenthetical (TM Forum API extension history) | docs/project-context/tmforum-extension-history.md | moved |
 | AI pipelines (NWDAF-centric) | docs/project-context/ai-pipelines.md | moved |
-| Definition of done: item 7 first sentences (config:ro rule) | CLAUDE.md (also in the file below: small deliberate duplicate) | kept |
+| Definition of done: item 7 first sentences (config:ro rule) | CLAUDE.md (single copy; definition-of-done.md points to it instead of repeating it) | kept |
 | Definition of done: all nine items, full text | docs/project-context/definition-of-done.md (skill new-nf-checklist points here) | moved |
 | Phase 9 -- production documentation | docs/project-context/phase9-production-documentation.md | moved |
 | Project decisions (resolved at kickoff) | docs/project-context/kickoff-decisions.md | moved |

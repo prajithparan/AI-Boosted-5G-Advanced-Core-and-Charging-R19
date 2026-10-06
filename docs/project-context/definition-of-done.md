@@ -9,13 +9,7 @@ Moved verbatim from CLAUDE.md (section "Definition of done (per NF)", full text)
 5. OpenTelemetry spans + Prometheus metrics emitted.
 6. Conformance test against the generated OpenAPI schema (request AND
    response).
-7. Docker image + Compose entry + Helm chart. The compose entry's own
-   `volumes:` MUST include `- ../../config:/build/config:ro` from the
-   moment it is written -- never discovered missing later by a crash
-   (ADR-0453, user-directed, mandatory: this class of mistake, a fresh
-   NF container unable to even start because no mechanism ever shipped
-   it its own `config/<nf>.json`, found live across ~25 of 28 existing
-   NF services and must never recur). A Dockerfile `COPY`ing the config
+7. [Opening of item 7 (the `config:ro` mount rule, ADR-0453) is kept once, verbatim, in `CLAUDE.md` section "Definition of done (per NF)" -- not repeated here.] A Dockerfile `COPY`ing the config
    file into the image is not an acceptable substitute -- the bind
    mount is the one, only mechanism, so a config edit takes effect on
    restart without an image rebuild, same as every other runtime value

@@ -189,7 +189,7 @@
 -`docs/benchmark-chf-2026-10-02-after/`. This result is scoped exactly to finding #1 -- balance
 -reservation (still a live SBI call), settlement atomicity and the synchronous HTTP client are
 -unrelated, unaddressed items ADR-0445 named separately.
-+Full section (moved verbatim): [`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md#capability-completeness-gap-closure-moved-from-readmemd).
++Full section (moved verbatim, links adjusted for the new location): [`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md#capability-completeness-gap-closure-moved-from-readmemd).
  
  <h2 align="center">Repository layout</h2>
  
@@ -339,12 +339,12 @@
 +except `Update SOR Info`.**
 +
 +The full evidence base, current per-resource breakdown, and what's still open lives in
-+[`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md); the ADR trail (ADR-0075
-+onward) is in [`docs/DECISIONS.md`](docs/DECISIONS.md).
++[`docs/CAPABILITY_GAP_ANALYSIS.md`](CAPABILITY_GAP_ANALYSIS.md); the ADR trail (ADR-0075
++onward) is in [`docs/DECISIONS.md`](DECISIONS.md).
 +
 +Standing engineering debt and what's left before carrier-grade status (ADR-0049) is tracked in
-+[`docs/DECISIONS.md`](docs/DECISIONS.md) and
-+[`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md). Carrier-grade test framework
++[`docs/DECISIONS.md`](DECISIONS.md) and
++[`docs/CAPABILITY_GAP_ANALYSIS.md`](CAPABILITY_GAP_ANALYSIS.md). Carrier-grade test framework
 +selected (ADR-0238): 3GPP TS 28.552 + TS 28.554, correcting ADR-0049's original ETSI NFV-TST/REL
 +candidates once investigation found those target the NFV-MANO orchestration layer this project
 +doesn't have. First concrete step against the synchronous-HTTP-client debt item now closed
