@@ -55,6 +55,51 @@
     },
     "qos_mon_interval_seconds": {
       "type": "integer"
+    },
+    "li_poi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "x1_bind_address": {
+          "type": "string"
+        },
+        "x1_port": {
+          "type": "integer"
+        },
+        "ne_identifier": {
+          "type": "string"
+        },
+        "network_function_id": {
+          "type": "string"
+        },
+        "interception_point_id": {
+          "type": "string"
+        },
+        "mdf2_host": {
+          "type": "string"
+        },
+        "mdf2_port": {
+          "type": "integer"
+        },
+        "mdf2_sni": {
+          "type": "string"
+        },
+        "x1_keepalive_p1_seconds": {
+          "type": "integer"
+        },
+        "x1_keepalive_p2_seconds": {
+          "type": "integer"
+        },
+        "x1_keepalive_p3_seconds": {
+          "type": "integer"
+        },
+        "x1_allow_deactivate_all": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "required": [
@@ -75,6 +120,7 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "qos_mon_interval_seconds: present in the file but no source line visibly reads it"
+    "qos_mon_interval_seconds: present in the file but no source line visibly reads it",
+    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

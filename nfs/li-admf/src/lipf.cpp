@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "hi1_service.hpp"
@@ -59,23 +60,49 @@ std::string Lipf::destination_id(const std::string& xid, const std::string& addr
     return buf;
 }
 
-namespace {
-
-bool supported_target(x1::TargetIdentifierKind kind) {
-    // The identifiers the AMF IRI-POI matches a registering UE's SUPI against.
-    return kind == x1::TargetIdentifierKind::SupiImsi ||
-           kind == x1::TargetIdentifierKind::SupiNai || kind == x1::TargetIdentifierKind::Imsi ||
-           kind == x1::TargetIdentifierKind::Nai;
+std::optional<std::string> hi1_format_for_element(const std::string& element) {
+    static const std::pair<const char*, const char*> kMap[] = {
+        {"supiimsi", "SUPIIMSI"},
+        {"supinai", "SUPINAI"},
+        {"imsi", "IMSI"},
+        {"nai", "NAI"},
+        {"peiImei", "PEIIMEI"},
+        {"peiImeisv", "PEIIMEISV"},
+        {"gpsiMsisdn", "GPSIMSISDN"},
+        {"gpsiNai", "GPSINAI"},
+    };
+    for (const auto& [e, f] : kMap) {
+        if (element == e) {
+            return std::string(f);
+        }
+    }
+    return std::nullopt;
 }
 
-} // namespace
+bool Lipf::poi_accepts(const NetworkElement& ne, const std::string& element) {
+    if (ne.target_elements.empty()) {
+        static const char* kAmfSet[] = {"supiimsi", "supinai", "imsi", "nai"};
+        for (const char* e : kAmfSet) {
+            if (element == e) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return std::find(ne.target_elements.begin(), ne.target_elements.end(), element) !=
+           ne.target_elements.end();
+}
 
 std::optional<std::string> Lipf::infeasible(const TaskSpec& spec) const {
     if (spec.targets.empty()) {
         return "the task names no target identifier";
     }
     for (const auto& t : spec.targets) {
-        if (!supported_target(t.kind)) {
+        const bool carried =
+            std::any_of(elements_.begin(), elements_.end(), [&](const NetworkElement& ne) {
+                return ne.role == "poi" && poi_accepts(ne, t.element);
+            });
+        if (!carried) {
             return "target identifier '" + t.element +
                    "' cannot be matched by any POI in this deployment";
         }
@@ -122,10 +149,16 @@ x1::TaskDetails Lipf::mdf2_task(const TaskSpec& spec) const {
     return t;
 }
 
-x1::TaskDetails Lipf::poi_task(const TaskSpec& spec) const {
+x1::TaskDetails Lipf::poi_task(const TaskSpec& spec, const NetworkElement& ne) const {
     x1::TaskDetails t;
     t.xid = spec.xid;
-    t.targets = spec.targets;
+    // Only the targets THIS POI can match: an SMF is told a PEI, the AMF is not (it would refuse
+    // it, 3010).
+    for (const auto& target : spec.targets) {
+        if (poi_accepts(ne, target.element)) {
+            t.targets.push_back(target);
+        }
+    }
     t.delivery =
         x1::DeliveryType::X2Only; // an IRI-POI streams over X2; CC would be X3 (no CC-POI yet)
     // The POI's own X2 destination is its configured MDF2 (the POI ignores Destination routing,
@@ -227,9 +260,14 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
         if (ne.role != "poi") {
             continue;
         }
-        auto r = send(ne, x1::MessageType::ActivateTask, x1::ActivateTask{poi_task(spec)});
+        const auto task = poi_task(spec, ne);
+        if (task.targets.empty()) {
+            continue; // none of this warrant's targets is one this POI can match: nothing to tell
+                      // it
+        }
+        auto r = send(ne, x1::MessageType::ActivateTask, x1::ActivateTask{task});
         if (!r.ok && r.x1_error == static_cast<int>(x1::ErrorCode::XidAlreadyExists)) {
-            r = send(ne, x1::MessageType::ModifyTask, x1::ModifyTask{poi_task(spec)});
+            r = send(ne, x1::MessageType::ModifyTask, x1::ModifyTask{task});
         }
         if (!r.ok) {
             return fail(r);

@@ -30,14 +30,36 @@
       "role": "poi",
       "ne_identifier": "amf-poi-01",
       "x1_url": "https://amf:7807/X1/NE",
-      "peer_cert_cn": "amf"
+      "peer_cert_cn": "amf",
+      "target_elements": [
+        "supiimsi",
+        "supinai",
+        "imsi",
+        "nai"
+      ]
+    },
+    {
+      "name": "smf-poi",
+      "role": "poi",
+      "ne_identifier": "smf-poi-01",
+      "x1_url": "https://smf:7809/X1/NE",
+      "peer_cert_cn": "smf",
+      "target_elements": [
+        "supiimsi",
+        "supinai",
+        "peiImei",
+        "peiImeisv",
+        "gpsiMsisdn",
+        "gpsiNai"
+      ]
     },
     {
       "name": "mdf2",
       "role": "mdf2",
       "ne_identifier": "mdf2-01",
       "x1_url": "https://li-mdf:7805/X1/NE",
-      "peer_cert_cn": "li-mdf"
+      "peer_cert_cn": "li-mdf",
+      "target_elements": []
     }
   ],
   "poi_identifier_association_events": "All",

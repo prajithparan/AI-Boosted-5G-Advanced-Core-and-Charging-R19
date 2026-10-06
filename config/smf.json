@@ -9,5 +9,20 @@
   "amf_base_url": "https://127.0.0.1:7778",
   "chf_base_url": "https://127.0.0.1:7784",
   "udr_base_url": "https://127.0.0.1:7781",
-  "qos_mon_interval_seconds": 30
+  "qos_mon_interval_seconds": 30,
+  "li_poi": {
+    "enabled": false,
+    "x1_bind_address": "0.0.0.0",
+    "x1_port": 7809,
+    "ne_identifier": "smf-poi-01",
+    "network_function_id": "smf-01.5gc.example.net",
+    "interception_point_id": "SMF-IRI-POI-1",
+    "mdf2_host": "127.0.0.1",
+    "mdf2_port": 7806,
+    "mdf2_sni": "localhost",
+    "x1_keepalive_p1_seconds": 60,
+    "x1_keepalive_p2_seconds": 180,
+    "x1_keepalive_p3_seconds": 300,
+    "x1_allow_deactivate_all": true
+  }
 }

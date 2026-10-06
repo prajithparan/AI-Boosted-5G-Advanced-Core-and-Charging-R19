@@ -849,6 +849,19 @@ struct Lifecycle::Impl {
         if (n == "NAI") {
             return {K::Nai, "nai", v.value};
         }
+        // TS 33.127 6.2.3.1.2: the identifier formats an SMF POI supports beyond SUPI.
+        if (n == "PEIIMEI") {
+            return {K::PeiImei, "peiImei", v.value};
+        }
+        if (n == "PEIIMEISV") {
+            return {K::PeiImeisv, "peiImeisv", v.value};
+        }
+        if (n == "GPSIMSISDN") {
+            return {K::GpsiMsisdn, "gpsiMsisdn", v.value};
+        }
+        if (n == "GPSINAI") {
+            return {K::GpsiNai, "gpsiNai", v.value};
+        }
         return {K::Other, n, v.value}; // Lipf::infeasible names it and refuses
     }
 

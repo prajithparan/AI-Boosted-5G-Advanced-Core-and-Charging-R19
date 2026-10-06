@@ -30,6 +30,9 @@ struct Hi1Config {
     std::vector<std::string> supported_etsi_versions; // ETSIVersion values accepted ("V1.23.1")
     std::string public_base_url;                      // advertised in GETCSPCONFIG workflow URLs
     std::vector<LeaBinding> leas;
+    // The HI1 target FormatNames this CSP can action (the union over its POIs); empty = the
+    // AMF-only default (SUPIIMSI, SUPINAI, IMSI, NAI).
+    std::vector<std::string> target_formats;
 };
 
 struct Hi1Reply {

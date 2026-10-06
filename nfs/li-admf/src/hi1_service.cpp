@@ -152,7 +152,10 @@ hi1::CspConfig build_csp_config(const Hi1Config& cfg, const std::string& last_ch
     c.last_changed = last_changed;
     // Only formats ETSI itself defines (Annex C); the target identifiers this CSP can action are
     // the subscriber identities the POIs match on (AMF POI: SUPI/IMSI/NAI kinds).
-    for (const char* format : {"SUPIIMSI", "SUPINAI", "IMSI", "NAI"}) {
+    const std::vector<std::string> formats =
+        cfg.target_formats.empty() ? std::vector<std::string>{"SUPIIMSI", "SUPINAI", "IMSI", "NAI"}
+                                   : cfg.target_formats;
+    for (const auto& format : formats) {
         c.targeting.push_back({format, "ETSI", std::nullopt, {}});
     }
     for (const auto& w : kLiWorkflows) {

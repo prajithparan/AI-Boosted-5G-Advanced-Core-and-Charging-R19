@@ -5469,3 +5469,12 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | ADMF receives ReportTaskIssue / ReportNEIssue (`/X1/ADMF`), peer certificate bound to its NE | TS 103 221-1 6.5.2, 6.5.4, 7.2.2.2 | `nfs/li-admf/src/main.cpp`, `lifecycle.cpp` `task_issue/ne_issue`; `libs/li-core x1_server.cpp` | LiX1Client.AnAdmfServerHandlesReports..., LiAdmfLifecycle.ATerminatingFault..., LiAdmfProcess.TheNesReportToTheAdmf... |
 | Warrant served over HI1 -> POI + MDF2 provisioned over X1 -> real UE intercepted -> LIID on the HI2 record -> cancellation stops it | TS 33.127 5.3.5, TS 103 120 H.5.3/H.5.5, TS 103 221-1 6.2, TS 102 232-1 | `nfs/li-admf`, `nfs/li-mdf`, `nfs/amf/src/li_poi.cpp` | `test_li_amf_e2e.cpp` LiAdmfEndToEnd.AWarrantServedOverHi1InterceptsARealUeAndStopsWhenCancelled |
 
+### LI increment 6 -- SMF POI and shared POI runtime (ADR-0463, stages 1-2)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| Shared POI: X1 server, warrant store, keepalive monitor, X2 framing, 3010 for unsupported target kinds | TS 103 221-1 6.2, 6.6.2, TS 103 221-2; TS 33.127 6.2.3 | `libs/li-poi/src/poi_runtime.cpp` | `test_li_poi_runtime.cpp` LiPoiRuntime.* |
+| SMF xIRI records (establishment, modification, release, start of interception, unsuccessful) | TS 33.128 6.2.3.2 | `libs/li-core/src/xiri.cpp` | `test_li_core.cpp` XiriSmf.* |
+| SMF IRI-POI reports PDU session events for SUPI/PEI/GPSI targets | TS 33.127 6.2.3, TS 33.128 6.2.3.2 | `nfs/smf/src/li_poi.cpp`, `nfs/smf/src/main.cpp` | `test_li_amf_e2e.cpp` LiSmfEndToEnd.* |
+| ADMF provisions each POI only with targets it can match; PEI/GPSI mapped | TS 33.127 5.3.5.3, TS 103 120 Annex C | `nfs/li-admf/src/lipf.cpp`, `lifecycle.cpp`, `hi1_service.cpp` | `test_li_admf_lipf.cpp` LiAdmfLipf.EachPoiIsToldOnlyTheTargetsItCanMatch etc. |
+

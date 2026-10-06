@@ -44,6 +44,7 @@
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
+#include "li_poi/poi_runtime.hpp"
 #include "loopback_lemf.hpp"
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"
@@ -398,6 +399,48 @@ void wait_for_upf_sx_association(int max_attempts = 40) {
            << last_failure;
 }
 
+// A full N2 handover of the UE's PDU session from `source` to `target` (TS 23.502 4.9.1.3): the
+// target admits it on its own thread (AMF blocks for the answer inside the one HandoverRequired
+// call), the source gets the HandoverCommand, then the target sends HandoverNotify reporting
+// `target_cell`.
+void complete_n2_handover(NgapTestGnb& source,
+                          NgapTestGnb& target,
+                          const RegisteredUe& ue,
+                          std::uint32_t source_ran_ue_id,
+                          std::uint8_t pdu_session_id,
+                          std::uint64_t target_cell) {
+    // The target admits the handover on its own thread (AMF blocks for the answer inside the one
+    // HandoverRequired call).
+    std::string target_failure;
+    std::thread target_thread([&] {
+        const auto request = target.receive_raw();
+        NgapTestGnb::HandoverRequestInfo info;
+        if (request.empty() || !NgapTestGnb::parse_handover_request(request, info)) {
+            target_failure = "no decodable HandoverRequest reached the target gNB";
+            return;
+        }
+        const auto ack = target.build_handover_request_acknowledge(
+            info.amf_ue_id, kTargetRanUeId, info.pdu_session_ids);
+        if (ack.empty()) {
+            target_failure = "could not build a HandoverRequestAcknowledge";
+            return;
+        }
+        target.send_raw(ack);
+    });
+    const auto required = source.build_handover_required(
+        ue.amf_ue_id, source_ran_ue_id, kTargetGnbId, pdu_session_id);
+    ASSERT_FALSE(required.empty());
+    source.send_raw(required);
+    const auto command = source.receive_raw();
+    target_thread.join();
+    ASSERT_TRUE(target_failure.empty()) << target_failure;
+    ASSERT_FALSE(command.empty()) << "no HandoverCommand -- the relay did not complete";
+    ASSERT_EQ(NgapTestGnb::summarize(command).outcome, NgapTestGnb::Outcome::Successful);
+
+    // Execution: the UE has arrived in the target's cell.
+    target.send_raw(target.build_handover_notify(ue.amf_ue_id, kTargetRanUeId, target_cell));
+}
+
 } // namespace
 
 TEST(LiAmfEndToEnd, RealAmfEmitsRegistrationAndDeregistrationXirisForATarget) {
@@ -580,36 +623,8 @@ TEST(LiAmfEndToEnd, RealAmfEmitsLocationUpdateXiriOnN2HandoverNotify) {
     ASSERT_NO_FATAL_FAILURE(establish_pdu_session(source, ue, kUeRanId));
     ASSERT_TRUE(mdf2.wait_for(2, 10s)) << "expected Registration + IdentifierAssociation first";
 
-    // The target admits the handover on its own thread (AMF blocks for the answer inside the one
-    // HandoverRequired call).
-    std::string target_failure;
-    std::thread target_thread([&] {
-        const auto request = target.receive_raw();
-        NgapTestGnb::HandoverRequestInfo info;
-        if (request.empty() || !NgapTestGnb::parse_handover_request(request, info)) {
-            target_failure = "no decodable HandoverRequest reached the target gNB";
-            return;
-        }
-        const auto ack = target.build_handover_request_acknowledge(
-            info.amf_ue_id, kTargetRanUeId, info.pdu_session_ids);
-        if (ack.empty()) {
-            target_failure = "could not build a HandoverRequestAcknowledge";
-            return;
-        }
-        target.send_raw(ack);
-    });
-    const auto required =
-        source.build_handover_required(ue.amf_ue_id, kUeRanId, kTargetGnbId, kPduSessionId);
-    ASSERT_FALSE(required.empty());
-    source.send_raw(required);
-    const auto command = source.receive_raw();
-    target_thread.join();
-    ASSERT_TRUE(target_failure.empty()) << target_failure;
-    ASSERT_FALSE(command.empty()) << "no HandoverCommand -- the relay did not complete";
-    ASSERT_EQ(NgapTestGnb::summarize(command).outcome, NgapTestGnb::Outcome::Successful);
-
-    // Execution: the UE has arrived in the target's cell.
-    target.send_raw(target.build_handover_notify(ue.amf_ue_id, kTargetRanUeId, kTargetCellId));
+    ASSERT_NO_FATAL_FAILURE(
+        complete_n2_handover(source, target, ue, kUeRanId, kPduSessionId, kTargetCellId));
     ASSERT_TRUE(mdf2.wait_for(3, 10s)) << "no AMFLocationUpdate after HandoverNotify";
     std::this_thread::sleep_for(500ms);
 
@@ -1051,4 +1066,352 @@ TEST(LiAdmfEndToEnd, AWarrantServedOverHi1InterceptsARealUeAndStopsWhenCancelled
     const auto& note_results = std::get<std::vector<hi1::ActionResult>>(notes->payload);
     EXPECT_GE(std::get<hi1::ListResult>(note_results.at(0).outcome).records.size(), 2U)
         << "one notification for the approval/activation, one for the cancellation";
+}
+
+// ADR-0463: the SMF's IRI-POI (TS 33.127 6.2.3) through the REAL smf process, a real UPF (so the
+// PDU session gets a real N3 F-TEID from PFCP) and a real AMF/UE. The warrant is provisioned over
+// real LI_X1 straight into the SMF's POI (the ADMF's mapping of PEI/GPSI/SMF targets is the next
+// stage), and the xIRIs are read off a loopback MDF2's real LI_X2 server and decoded with the same
+// codec the MDF2 uses.
+namespace smf_poi {
+
+constexpr std::uint16_t kSmfX1Port = 19841;
+constexpr const char* kSmfX1Url = "https://127.0.0.1:19841/X1/NE";
+constexpr const char* kSmfXid = "5a5a5a5a-5a5a-45a5-85a5-5a5a5a5a5a5a";
+constexpr const char* kSmfNeId = "smf-poi-e2e";
+
+std::string write_li_enabled_smf_config(std::uint16_t mdf2_port) {
+    std::ifstream in(SMF_CONFIG_TEMPLATE);
+    nlohmann::json cfg = nlohmann::json::parse(in);
+    auto& lp = cfg["li_poi"];
+    lp["enabled"] = true;
+    lp["x1_bind_address"] = "127.0.0.1";
+    lp["x1_port"] = kSmfX1Port;
+    lp["ne_identifier"] = kSmfNeId;
+    lp["mdf2_host"] = "127.0.0.1";
+    lp["mdf2_port"] = mdf2_port;
+    lp["mdf2_sni"] = "localhost";
+    const std::string path = std::string(::testing::TempDir()) + "smf_li_e2e.json";
+    std::ofstream(path) << cfg.dump(2);
+    return path;
+}
+
+// An ActivateTask for the SMF POI built by the X1 client codec: SUPI (IMSI) targets, IRI only.
+std::string
+activate_xml(const std::string& xid, const std::string& imsi_digits, const std::string& txn) {
+    namespace x1 = li_core::x1;
+    x1::TaskDetails task;
+    task.xid = xid;
+    task.targets.push_back({x1::TargetIdentifierKind::SupiImsi, "supiimsi", imsi_digits});
+    task.delivery = x1::DeliveryType::X2Only;
+    task.dids = {"22222222-2222-4222-8222-222222222222"};
+    x1::Request request;
+    request.header = {"admf-test", kSmfNeId, "2026-10-06T00:00:00.000000Z", "v1.23.1", txn};
+    request.type = x1::MessageType::ActivateTask;
+    request.body = x1::ActivateTask{task};
+    const auto xml = x1::serialise_request({request});
+    return xml.has_value() ? *xml : std::string();
+}
+
+bool provision(sbi_core::http2::Client& admf, const std::string& body) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = kSmfX1Url;
+    req.headers.emplace("content-type", "application/xml");
+    req.body = body;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (const auto r = admf.send(req); r.has_value()) {
+            return r->status == 200 && r->body.find("ErrorResponse") == std::string::npos;
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+    return false;
+}
+
+template <typename Event> std::vector<Event> events_of(const std::vector<li_core::Pdu>& pdus) {
+    std::vector<Event> out;
+    for (const auto& pdu : pdus) {
+        const auto decoded = xiri::decode_xiri_payload(pdu.payload);
+        if (decoded.has_value()) {
+            if (const auto* e = std::get_if<Event>(&decoded->event)) {
+                out.push_back(*e);
+            }
+        }
+    }
+    return out;
+}
+
+std::string imsi_of(const std::optional<xiri::Supi>& supi) {
+    return supi.has_value() && std::holds_alternative<xiri::Imsi>(*supi)
+               ? std::get<xiri::Imsi>(*supi).digits
+               : "";
+}
+
+} // namespace smf_poi
+
+TEST(LiSmfEndToEnd, RealSmfReportsEstablishmentAndModificationOfATargetsPduSession) {
+    using namespace smf_poi;
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto smf_config = write_li_enabled_smf_config(mdf2_server.bound_port());
+    ::setenv("SMF_CONFIG_FILE", smf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess upf{UPF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    ::unsetenv("SMF_CONFIG_FILE");
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ASSERT_GT(smf.pid(), 0);
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    auto admf = make_client("hello-nf");
+    ASSERT_TRUE(provision(
+        admf, activate_xml(kSmfXid, kTargetImsiDigits, "00000000-0000-4000-8000-0000000000f1")))
+        << "the SMF's LI_X1 listener never accepted the task -- li_poi not enabled?";
+
+    NgapTestGnb source;
+    ASSERT_TRUE(source.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(source.ng_setup(kSourceGnbId));
+    NgapTestGnb target;
+    ASSERT_TRUE(target.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(target.ng_setup(kTargetGnbId));
+    constexpr std::uint32_t kUeRanId = 1;
+    constexpr std::uint8_t kPduSessionId = 5;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(source, kUeRanId, ue));
+
+    // 1. PDU session establishment: the Accept goes out, the session is active ->
+    // SMFPDUSessionEstablishment.
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(source, ue, kUeRanId));
+    ASSERT_TRUE(mdf2.wait_for(1, 15s)) << "no SMFPDUSessionEstablishment";
+    {
+        const auto est = events_of<xiri::SmfPduSessionEstablishment>(mdf2.take());
+        ASSERT_EQ(est.size(), 1U);
+        const auto& e = est[0];
+        EXPECT_EQ(imsi_of(e.ids.supi), kTargetImsiDigits);
+        EXPECT_EQ(e.pdu_session_id, kPduSessionId);
+        EXPECT_EQ(e.dnn, "internet");
+        EXPECT_EQ(e.pdu_session_type, xiri::PduSessionType::IPv4);
+        EXPECT_EQ(e.request_type, xiri::SmRequestType::InitialRequest);
+        ASSERT_TRUE(e.snssai.has_value());
+        EXPECT_EQ(e.snssai->sst, 1);
+        ASSERT_TRUE(e.snssai->sd.has_value());
+        EXPECT_EQ((*e.snssai->sd)[2], 1); // SD 000001
+        // The tunnel is the one the real UPF allocated over PFCP, not a placeholder.
+        EXPECT_NE(e.gtp_tunnel.teid, 0U);
+        EXPECT_TRUE(e.gtp_tunnel.ipv4.has_value());
+        EXPECT_EQ(e.access_type, xiri::AccessType::ThreeGppAccess);
+    }
+
+    // 2. An N2 handover completes: the SMF answers UpdateSMContext(hoState=COMPLETED) ->
+    // SMFPDUSessionModification.
+    ASSERT_NO_FATAL_FAILURE(
+        complete_n2_handover(source, target, ue, kUeRanId, kPduSessionId, kTargetCellId));
+    for (int i = 0; i < 100 && events_of<xiri::SmfPduSessionModification>(mdf2.take()).empty();
+         ++i) {
+        std::this_thread::sleep_for(100ms);
+    }
+    {
+        const auto mods = events_of<xiri::SmfPduSessionModification>(mdf2.take());
+        ASSERT_EQ(mods.size(), 1U);
+        EXPECT_EQ(imsi_of(mods[0].ids.supi), kTargetImsiDigits);
+        EXPECT_EQ(mods[0].pdu_session_id, kPduSessionId);
+        EXPECT_EQ(mods[0].request_type, xiri::SmRequestType::ModificationRequest);
+    }
+
+    // Nothing else leaked: exactly establishment and modification (and no unsuccessful records).
+    EXPECT_TRUE(events_of<xiri::SmfUnsuccessfulProcedure>(mdf2.take()).empty());
+    mdf2_server.stop();
+}
+
+TEST(LiSmfEndToEnd, AWarrantActivatedOnAnEstablishedSessionStartsInterceptionOnlyForTheTarget) {
+    using namespace smf_poi;
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto smf_config = write_li_enabled_smf_config(mdf2_server.bound_port());
+    ::setenv("SMF_CONFIG_FILE", smf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess upf{UPF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    ::unsetenv("SMF_CONFIG_FILE");
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    // The UE registers and establishes its PDU session BEFORE any warrant exists.
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kUeRanId = 1;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kUeRanId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kUeRanId));
+    std::this_thread::sleep_for(500ms);
+    ASSERT_EQ(mdf2.take().size(), 0U) << "no warrant yet -- nothing may be delivered";
+
+    // A warrant on SOMEONE ELSE is activated first: it must not start an interception on this UE.
+    auto admf = make_client("hello-nf");
+    ASSERT_TRUE(provision(admf,
+                          activate_xml("6b6b6b6b-6b6b-46b6-86b6-6b6b6b6b6b6b",
+                                       "999700000099999",
+                                       "00000000-0000-4000-8000-0000000000f2")));
+    std::this_thread::sleep_for(1500ms);
+    EXPECT_EQ(mdf2.take().size(), 0U) << "a warrant on another subscriber started an interception";
+
+    // The warrant on THIS UE: SMFStartOfInterceptionWithEstablishedPDUSession, once, under its XID.
+    ASSERT_TRUE(provision(
+        admf, activate_xml(kSmfXid, kTargetImsiDigits, "00000000-0000-4000-8000-0000000000f3")));
+    ASSERT_TRUE(mdf2.wait_for(1, 15s))
+        << "no start-of-interception record for an already-established session";
+    std::this_thread::sleep_for(500ms);
+    const auto pdus = mdf2.take();
+    ASSERT_EQ(pdus.size(), 1U);
+    EXPECT_EQ(pdus[0].xid, *li_poi::uuid_to_bytes(kSmfXid));
+    EXPECT_EQ(pdus[0].payload_direction, li_core::PayloadDirection::NotApplicable); // 6.2.3.2.5
+    const auto soi = events_of<xiri::SmfStartOfInterceptionWithEstablishedPduSession>(pdus);
+    ASSERT_EQ(soi.size(), 1U);
+    EXPECT_EQ(imsi_of(soi[0].ids.supi), kTargetImsiDigits);
+    EXPECT_EQ(soi[0].pdu_session_id, 5);
+    EXPECT_EQ(soi[0].dnn, "internet");
+    EXPECT_NE(soi[0].gtp_tunnel.teid, 0U);
+    EXPECT_EQ(soi[0].request_type, xiri::SmRequestType::ExistingPduSession);
+    mdf2_server.stop();
+}
+
+TEST(LiSmfEndToEnd, ARefusedEstablishmentForATargetProducesAnUnsuccessfulProcedureRecord) {
+    using namespace smf_poi;
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto smf_config = write_li_enabled_smf_config(mdf2_server.bound_port());
+    ::setenv("SMF_CONFIG_FILE", smf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    ::unsetenv("SMF_CONFIG_FILE");
+    ASSERT_GT(smf.pid(), 0);
+    ASSERT_NO_FATAL_FAILURE(wait_for_sbi_peers({kSmfProbe}));
+
+    auto admf = make_client("hello-nf");
+    ASSERT_TRUE(provision(
+        admf, activate_xml(kSmfXid, kTargetImsiDigits, "00000000-0000-4000-8000-0000000000f4")));
+
+    // A CreateSMContext straight to the SMF (as the AMF would send) for the target, which the SMF
+    // cannot honour: no PCF exists, so the SM Policy Association cannot be established (500).
+    auto client = make_client("hello-nf");
+    sbi_core::http2::ClientRequest tok;
+    tok.method = "POST";
+    tok.url = "https://127.0.0.1:7777/oauth2/token";
+    tok.headers.emplace("content-type", "application/x-www-form-urlencoded");
+    tok.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmf-pdusession&"
+               "targetNfType=SMF";
+    std::string token;
+    for (int attempt = 0; attempt < 100 && token.empty(); ++attempt) {
+        if (const auto r = client.send(tok); r.has_value() && r->status == 200) {
+            token = nlohmann::json::parse(r->body).at("access_token").get<std::string>();
+        } else {
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+    ASSERT_FALSE(token.empty());
+    sbi_core::multipart::Part part;
+    part.content_type = "application/json";
+    part.body = nlohmann::json{{"servingNfId", "00000000-0000-4000-8000-0000000000aa"},
+                               {"servingNetwork", {{"mcc", "999"}, {"mnc", "70"}}},
+                               {"anType", "3GPP_ACCESS"},
+                               {"smContextStatusUri", "https://example.com/sm-status"},
+                               {"supi", std::string("imsi-") + kTargetImsiDigits},
+                               {"pduSessionId", 7},
+                               {"dnn", "internet"},
+                               {"sNssai", {{"sst", 1}}}}
+                    .dump();
+    const auto encoded = sbi_core::multipart::encode({part});
+    sbi_core::http2::ClientRequest create;
+    create.method = "POST";
+    create.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts";
+    create.headers.emplace("content-type", encoded.content_type_header);
+    create.headers.emplace("authorization", "Bearer " + token);
+    create.body = encoded.body;
+    const auto reply = client.send(create);
+    ASSERT_TRUE(reply.has_value());
+    ASSERT_GE(reply->status, 400) << "the SMF unexpectedly accepted the session: " << reply->body;
+
+    ASSERT_TRUE(mdf2.wait_for(1, 15s)) << "no SMFUnsuccessfulProcedure for a refused establishment";
+    const auto failures = events_of<xiri::SmfUnsuccessfulProcedure>(mdf2.take());
+    ASSERT_EQ(failures.size(), 1U);
+    const auto& f = failures[0];
+    EXPECT_EQ(f.failed_procedure, xiri::SmFailedProcedure::PduSessionEstablishment);
+    EXPECT_EQ(f.initiator, xiri::SmInitiator::Ue);
+    EXPECT_EQ(f.failure_cause, 31); // the implementation-defined mapping for a non-overload refusal
+    EXPECT_EQ(imsi_of(f.ids.supi), kTargetImsiDigits);
+    EXPECT_EQ(f.pdu_session_id, 7);
+    EXPECT_EQ(f.dnn, "internet");
+    // No establishment was reported for a session that never existed.
+    EXPECT_TRUE(events_of<xiri::SmfPduSessionEstablishment>(mdf2.take()).empty());
+    mdf2_server.stop();
+}
+
+TEST(LiSmfEndToEnd, ADeregisteringTargetsPduSessionIsReportedAsReleased) {
+    using namespace smf_poi;
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto smf_config = write_li_enabled_smf_config(mdf2_server.bound_port());
+    ::setenv("SMF_CONFIG_FILE", smf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess upf{UPF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    ::unsetenv("SMF_CONFIG_FILE");
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    auto admf = make_client("hello-nf");
+    ASSERT_TRUE(provision(
+        admf, activate_xml(kSmfXid, kTargetImsiDigits, "00000000-0000-4000-8000-0000000000f5")));
+
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kUeRanId = 1;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kUeRanId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kUeRanId));
+    ASSERT_TRUE(mdf2.wait_for(1, 15s)) << "no SMFPDUSessionEstablishment";
+
+    // The UE deregisters: the AMF releases the SM context -> SMFPDUSessionRelease
+    // (TS 33.128 6.2.3.2.4).
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kUeRanId,
+        nf_test::build_deregistration_request(
+            ue.keys, /*uplink_count=*/3, ue.guti_value, /*switch_off=*/false)));
+    for (int i = 0; i < 150 && events_of<xiri::SmfPduSessionRelease>(mdf2.take()).empty(); ++i) {
+        std::this_thread::sleep_for(100ms);
+    }
+    const auto releases = events_of<xiri::SmfPduSessionRelease>(mdf2.take());
+    ASSERT_EQ(releases.size(), 1U) << "no SMFPDUSessionRelease after the UE deregistered";
+    EXPECT_EQ(imsi_of(std::optional<xiri::Supi>(releases[0].supi)), kTargetImsiDigits);
+    EXPECT_EQ(releases[0].pdu_session_id, 5);
+    mdf2_server.stop();
 }

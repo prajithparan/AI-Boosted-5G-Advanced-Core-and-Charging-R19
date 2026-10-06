@@ -161,6 +161,61 @@ TEST(LiAdmfLipf, ChangeDeliveryAddsTheNewDestinationAndRemapsTheMdf2Task) {
     EXPECT_EQ(net.mdf.tasks[kXid].mediation_details[0].dids, std::vector<std::string>{new_did});
 }
 
+const std::vector<NetworkElement> kElementsWithSmf = {
+    {"amf-poi", "poi", "amf-1", "u1", "amf", {"supiimsi", "supinai", "imsi", "nai"}},
+    {"smf-poi",
+     "poi",
+     "smf-1",
+     "u3",
+     "smf",
+     {"supiimsi", "supinai", "peiImei", "peiImeisv", "gpsiMsisdn", "gpsiNai"}},
+    {"mdf2", "mdf2", "mdf2-01", "u2", "li-mdf", {}},
+};
+
+TEST(LiAdmfLipf, EachPoiIsToldOnlyTheTargetsItCanMatch) {
+    FakeTransport net;
+    Lipf lipf(config(), kElementsWithSmf, net);
+    TaskSpec s = spec();
+    s.targets.push_back({x1::TargetIdentifierKind::PeiImei, "peiImei", "49015420323751"});
+    s.targets.push_back({x1::TargetIdentifierKind::GpsiMsisdn, "gpsiMsisdn", "447700900123"});
+    const auto r = lipf.provision(s);
+    ASSERT_TRUE(r.ok) << r.detail;
+    // The AMF POI would refuse a PEI/GPSI with 3010; it is never sent one.
+    ASSERT_EQ(net.amf.tasks.count(kXid), 1U);
+    ASSERT_EQ(net.amf.tasks[kXid].targets.size(), 1U);
+    EXPECT_EQ(net.amf.tasks[kXid].targets[0].element, "supiimsi");
+    // The SMF POI gets the SUPI, PEI and GPSI.
+    ASSERT_EQ(net.smf.tasks.count(kXid), 1U);
+    EXPECT_EQ(net.smf.tasks[kXid].targets.size(), 3U);
+    // The MDF2 sees the whole warrant (it needs the XID -> LIID mapping, not the matching).
+    EXPECT_EQ(net.mdf.tasks[kXid].targets.size(), 3U);
+}
+
+TEST(LiAdmfLipf, ATaskOnlyOnePoiCanCarryLeavesTheOthersUntouchedAndAnUncarryableOneIsRefused) {
+    FakeTransport net;
+    Lipf lipf(config(), kElementsWithSmf, net);
+    TaskSpec pei_only = spec();
+    pei_only.targets = {{x1::TargetIdentifierKind::PeiImeisv, "peiImeisv", "4901542032375123"}};
+    ASSERT_TRUE(lipf.provision(pei_only).ok);
+    EXPECT_TRUE(net.amf.log.empty()) << "the AMF POI was contacted for a target it cannot match";
+    EXPECT_EQ(net.smf.tasks.count(kXid), 1U);
+
+    // A plain IMEI element (not one of the SMF's PEI formats) is carried by no POI.
+    TaskSpec imei = spec();
+    imei.xid = "99999999-9999-4999-8999-999999999999";
+    imei.targets = {{x1::TargetIdentifierKind::Imei, "imei", "49015420323751"}};
+    const auto r = lipf.provision(imei);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NE(r.detail.find("imei"), std::string::npos) << r.detail;
+}
+
+TEST(LiAdmfLipf, TheHi1FormatForAnX1ElementIsTheAnnexCName) {
+    EXPECT_EQ(li_admf::hi1_format_for_element("peiImei"), "PEIIMEI");
+    EXPECT_EQ(li_admf::hi1_format_for_element("gpsiMsisdn"), "GPSIMSISDN");
+    EXPECT_EQ(li_admf::hi1_format_for_element("supiimsi"), "SUPIIMSI");
+    EXPECT_FALSE(li_admf::hi1_format_for_element("imei").has_value());
+}
+
 TEST(LiAdmfLipf, KeepalivesGoToEveryNeAndAFailureIsReportedPerNe) {
     FakeTransport net;
     Lipf lipf(config(), kElements, net);

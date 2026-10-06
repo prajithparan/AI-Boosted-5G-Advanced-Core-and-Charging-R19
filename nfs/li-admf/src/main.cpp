@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -107,7 +108,8 @@ int main() {
                             ne.at("role").get<std::string>(),
                             ne.at("ne_identifier").get<std::string>(),
                             ne.at("x1_url").get<std::string>(),
-                            ne.at("peer_cert_cn").get<std::string>()});
+                            ne.at("peer_cert_cn").get<std::string>(),
+                            ne.at("target_elements").get<std::vector<std::string>>()});
     }
     li_admf::HttpX1Transport x1_transport(sbi_core::http2::TlsConfig{
         .cert_path = CERTS_DIR "/li-admf/cert.pem",
@@ -115,6 +117,21 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     });
     const auto network_elements = elements; // the X1 listener below needs the same list
+    // The HI1 target formats this CSP can action: the union over its POIs (GETCSPCONFIG advertises
+    // them).
+    for (const auto& ne : network_elements) {
+        if (ne.role != "poi") {
+            continue;
+        }
+        for (const auto& element : ne.target_elements) {
+            if (const auto format = li_admf::hi1_format_for_element(element);
+                format &&
+                std::find(hi1.target_formats.begin(), hi1.target_formats.end(), *format) ==
+                    hi1.target_formats.end()) {
+                hi1.target_formats.push_back(*format);
+            }
+        }
+    }
     li_admf::Lipf lipf(lipf_config, std::move(elements), x1_transport);
 
     li_admf::LifecycleConfig lifecycle_config;

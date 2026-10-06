@@ -136,6 +136,7 @@
 #include "TS29542_Nsmf_NIDD.hpp"
 #include "ambr.hpp"
 #include "event_subscription_store.hpp"
+#include "li_poi.hpp"
 #include "nas_5gsm_codec.hpp"
 #include "ngap_core/ngap_codec.hpp"
 #include "pfcp_core/common_ies.hpp"
@@ -2146,6 +2147,32 @@ int main() {
     });
 
     smf::SmContextStore sm_contexts;
+
+    // LI IRI-POI (TS 33.127 6.2.3, ADR-0463), disabled unless config/smf.json's li_poi.enabled is
+    // true. Process lifetime; nullptr keeps the SMF's behaviour unchanged.
+    std::unique_ptr<smf::SmfLiPoi> li_poi;
+    if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
+        const auto& lp = config.at("li_poi");
+        li_poi::Config poi_cfg;
+        poi_cfg.x1_bind_address = lp.value("x1_bind_address", std::string{"0.0.0.0"});
+        poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
+        poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"smf-poi"});
+        poi_cfg.network_function_id = lp.value("network_function_id", smf_instance_id);
+        poi_cfg.interception_point_id =
+            lp.value("interception_point_id", std::string{"SMF-IRI-POI-1"});
+        poi_cfg.mdf2_host = lp.at("mdf2_host").get<std::string>();
+        poi_cfg.mdf2_port = lp.at("mdf2_port").get<std::uint16_t>();
+        poi_cfg.mdf2_sni = lp.value("mdf2_sni", std::string{});
+        poi_cfg.cert_path = CERTS_DIR "/smf/cert.pem";
+        poi_cfg.key_path = CERTS_DIR "/smf/key.pem";
+        poi_cfg.ca_path = CERTS_DIR "/ca/ca.crt";
+        poi_cfg.x1_keepalive_p1_seconds = lp.value("x1_keepalive_p1_seconds", 60);
+        poi_cfg.x1_keepalive_p2_seconds = lp.value("x1_keepalive_p2_seconds", 180);
+        poi_cfg.x1_keepalive_p3_seconds = lp.value("x1_keepalive_p3_seconds", 300);
+        poi_cfg.x1_allow_deactivate_all = lp.value("x1_allow_deactivate_all", true);
+        li_poi = std::make_unique<smf::SmfLiPoi>(std::move(poi_cfg));
+        li_poi->start();
+    }
     UpfEndpointStore upf_endpoint_store;
     // ADR-0201: Nsmf_EventExposure's subscription resource.
     smf::EventSubscriptionStore event_subs;
@@ -2679,6 +2706,14 @@ int main() {
                                                      : amf_resp.error());
                         } else {
                             n1n2_transfer_counter->Add(1);
+                            // ADR-0463: "the SMF sends PDU SESSION ESTABLISHMENT ACCEPT" (TS 33.128
+                            // 6.2.3.2.2) is the LI establishment trigger -- recorded here, read by
+                            // the route wrapper that owns the POI.
+                            if (auto accepted = sm_contexts.get(sm_context_ref);
+                                accepted.has_value()) {
+                                (*accepted)["acceptSent"] = true;
+                                sm_contexts.update(sm_context_ref, *accepted);
+                            }
                             spdlog::info("smf: PDU Session Establishment Accept delivered to AMF "
                                          "for SUPI {}, pduSessionId {}",
                                          *body->supi,
@@ -2724,7 +2759,9 @@ int main() {
          &pdu_session_creation_fail_counter,
          &nsacf_client,
          &nsacf_oauth,
-         &nsacf_base_url](const sbi_core::http2::Request& req) {
+         &nsacf_base_url,
+         &li_poi,
+         &sm_contexts](const sbi_core::http2::Request& req) {
             auto resp = create_sm_context_inner(req);
             if (resp.status == 401) {
                 return resp;
@@ -2741,6 +2778,7 @@ int main() {
             std::int64_t sst_for_nsac = 0;
             std::optional<std::string> sd_for_nsac;
             std::string req_type = "absent";
+            std::optional<json> li_body; // the CreateSMContext JSON part, for the LI POI (ADR-0463)
             const auto content_type_it = req.headers.find("content-type");
             const auto parts =
                 content_type_it != req.headers.end() &&
@@ -2751,6 +2789,7 @@ int main() {
             if (parts.has_value() && !parts->empty()) {
                 try {
                     const auto body = json::parse((*parts)[0].body);
+                    li_body = body;
                     if (body.contains("servingNetwork")) {
                         const auto& sn = body.at("servingNetwork");
                         if (sn.contains("mcc") && sn.contains("mnc")) {
@@ -2809,7 +2848,39 @@ int main() {
                                             sst_for_nsac,
                                             sd_for_nsac,
                                             /*increase=*/true);
+
+                // ADR-0463: TS 33.128 6.2.3.2.2 -- the PDU session is active once the SMF has sent
+                // the Accept. The session's UPF tunnel is the one N4 establishment allocated (sm
+                // context).
+                if (li_poi && li_body.has_value()) {
+                    smf::LiSession li = smf::li_session_from_create(*li_body);
+                    std::string ref;
+                    if (const auto loc = resp.headers.find("location"); loc != resp.headers.end()) {
+                        ref = loc->second.substr(loc->second.find_last_of('/') + 1);
+                    }
+                    if (auto ctx = sm_contexts.get(ref); ctx.has_value()) {
+                        smf::li_set_tunnel(li, *ctx);
+                        (*ctx)["li"] = smf::li_context_record(li);
+                        const bool accept_sent = ctx->value("acceptSent", false);
+                        sm_contexts.update(ref, *ctx);
+                        if (accept_sent) {
+                            li_poi->report_establishment(li);
+                        }
+                    }
+                }
             } else {
+                // ADR-0463: TS 33.128 6.2.3.2.6 -- a refused establishment for a target UE. #26 for
+                // an overload (503), #31 "request rejected, unspecified" otherwise: this SMF
+                // returns a ProblemDetails to the AMF and sends the UE no 5GSM cause of its own, so
+                // the cause is an implementation-defined mapping, not a value taken off the wire
+                // (disclosed).
+                if (li_poi && li_body.has_value()) {
+                    smf::LiUnsuccessful failure;
+                    failure.session = smf::li_session_from_create(*li_body);
+                    failure.has_pdu_session_id = failure.session.pdu_session_id != 0;
+                    failure.five_gsm_cause = resp.status == 503 ? 26 : 31;
+                    li_poi->report_unsuccessful(failure);
+                }
                 // §5.3.1.5's subcounter is "per rejection cause". This build's rejection cause is
                 // the ProblemDetails `title` it already returns -- a real value carried on the
                 // wire, not a parallel taxonomy invented for metrics.
@@ -2978,7 +3049,7 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/modify",
-        [&verifier, &sm_contexts, &update_counter, &pfcp_peer](
+        [&verifier, &sm_contexts, &update_counter, &pfcp_peer, &li_poi](
             const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth.has_value() && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
@@ -3352,6 +3423,11 @@ int main() {
                 bin_part.body.assign(ack_bytes.begin(), ack_bytes.end());
                 const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
 
+                // ADR-0463: TS 33.128 6.2.3.2.3 -- the Xn handover (path switch) modifies the
+                // session and the SMF answers UpdateSMContext.
+                if (is_path_switch && li_poi && stored_ctx->contains("li")) {
+                    li_poi->report_modification(smf::li_session_from_context(*stored_ctx));
+                }
                 sbi_core::http2::Response resp;
                 resp.status = 200;
                 resp.headers.emplace("content-type", encoded.content_type_header);
@@ -3646,6 +3722,10 @@ int main() {
                 sbi_gen::SmContextUpdatedData resp_data{};
                 resp_data.hoState = sbi_gen::HoState{};
                 resp_data.hoState->value = sbi_gen::HoState::COMPLETED;
+                // ADR-0463: TS 33.128 6.2.3.2.3 -- N2 handover execution completed (4.9.1.3).
+                if (li_poi && completed_ctx.contains("li")) {
+                    li_poi->report_modification(smf::li_session_from_context(completed_ctx));
+                }
                 sbi_core::http2::Response resp;
                 resp.status = 200;
                 resp.headers.emplace("content-type", "application/json");
@@ -3905,6 +3985,7 @@ int main() {
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/release",
         [&verifier,
          &sm_contexts,
+         &li_poi,
          &release_counter,
          &pcf_client,
          &pcf_oauth,
@@ -3991,6 +4072,11 @@ int main() {
 
             sm_contexts.remove(sm_context_ref);
             release_counter->Add(1);
+            // ADR-0463: TS 33.128 6.2.3.2.4 -- the SMF answers ReleaseSMContext:
+            // SMFPDUSessionRelease.
+            if (li_poi && stored->contains("li")) {
+                li_poi->report_release(smf::li_session_from_context(*stored));
+            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

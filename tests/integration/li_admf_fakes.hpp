@@ -73,10 +73,11 @@ struct FakeNe {
 class FakeTransport : public li_admf::X1Transport {
 public:
     FakeNe amf;
+    FakeNe smf; // the SMF POI (network element named "smf-poi")
     FakeNe mdf;
     tl::expected<std::string, std::string> post(const NetworkElement& ne,
                                                 const std::string& body) override {
-        FakeNe& target = ne.role == "mdf2" ? mdf : amf;
+        FakeNe& target = ne.role == "mdf2" ? mdf : (ne.name == "smf-poi" ? smf : amf);
         return x1::handle_request(body, target.callbacks(ne.ne_identifier));
     }
 };

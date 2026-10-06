@@ -246,7 +246,7 @@ gtest_discover_tests(li_amf_poi_integration_tests)
 add_executable(li_amf_e2e_integration_tests
     test_li_amf_e2e.cpp ngap_test_gnb.cpp ue_nas_driver.cpp)
 target_link_libraries(li_amf_e2e_integration_tests PRIVATE
-    li_core sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
+    li_core li_poi sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
     GTest::gtest GTest::gtest_main)
 add_dependencies(li_amf_e2e_integration_tests nrf udr udm ausf pcf upf smf amf li-mdf li-admf)
 target_compile_definitions(li_amf_e2e_integration_tests PRIVATE
@@ -261,6 +261,7 @@ target_compile_definitions(li_amf_e2e_integration_tests PRIVATE
     LI_MDF_PATH="$<TARGET_FILE:li-mdf>"
     LI_ADMF_PATH="$<TARGET_FILE:li-admf>"
     AMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/amf.json"
+    SMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/smf.json"
     LI_MDF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/li-mdf.json"
     LI_ADMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/li-admf.json"
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")

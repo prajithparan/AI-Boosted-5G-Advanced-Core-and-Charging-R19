@@ -23,7 +23,15 @@ struct NetworkElement {
     std::string x1_url;        // e.g. https://127.0.0.1:7807/X1/NE
     std::string
         peer_cert_cn; // the mTLS client certificate CN it uses when it calls the ADMF's /X1/ADMF
+    // The X1 target-identifier elements this POI can match ("supiimsi", "peiImei", ...). The LIPF
+    // gives a POI only the targets it supports and refuses a task no POI can carry. Empty = the AMF
+    // set (supiimsi, supinai, imsi, nai), what every POI in this deployment could match before the
+    // SMF.
+    std::vector<std::string> target_elements;
 };
+
+// The X1 target-identifier element -> the HI1 target FormatName (TS 103 120 Annex C) it carries.
+std::optional<std::string> hi1_format_for_element(const std::string& element);
 
 // How a request reaches a network element. A seam, so the LIPF's logic is testable against the
 // real X1 server codec in memory, and the production implementation is the mTLS HTTP/2 client.
@@ -116,7 +124,9 @@ private:
     LipfResult
     send(const NetworkElement& ne, li_core::x1::MessageType type, li_core::x1::RequestBody body);
     [[nodiscard]] li_core::x1::TaskDetails mdf2_task(const TaskSpec& spec) const;
-    [[nodiscard]] li_core::x1::TaskDetails poi_task(const TaskSpec& spec) const;
+    [[nodiscard]] li_core::x1::TaskDetails poi_task(const TaskSpec& spec,
+                                                    const NetworkElement& ne) const;
+    [[nodiscard]] static bool poi_accepts(const NetworkElement& ne, const std::string& element);
 
     LipfConfig config_;
     std::vector<NetworkElement> elements_;
