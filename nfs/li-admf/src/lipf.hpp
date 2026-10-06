@@ -20,6 +20,7 @@ struct NetworkElement {
     std::string role;          // "poi" (an IRI-POI) or "mdf2" (the MDF2)
     std::string ne_identifier; // the neIdentifier its X1 server checks (TS 103 221-1 6.1)
     std::string x1_url;        // e.g. https://127.0.0.1:7807/X1/NE
+    std::string peer_cert_cn;  // the mTLS client certificate CN it uses when it calls the ADMF's /X1/ADMF
 };
 
 // How a request reaches a network element. A seam, so the LIPF's logic is testable against the
@@ -91,6 +92,16 @@ public:
     void retire_destinations(const std::string& xid, const std::vector<std::string>& addresses);
     // The task's destinations changed: create the new ones on the MDF2 and ModifyTask it.
     LipfResult change_delivery(const TaskSpec& spec);
+
+    // TS 103 221-1 6.6.2: an X1 Keepalive to every NE. An NE that hears nothing from its ADMF within
+    // TIME_P2 raises a fault and, by default, deactivates every task as a security measure -- so an
+    // ADMF that does not send these takes its own interceptions down.
+    struct KeepaliveResult {
+        std::string ne;
+        bool ok = false;
+        std::string detail;
+    };
+    std::vector<KeepaliveResult> keepalive_all();
 
     // The destination id the LIPF uses for `address` under task `xid` (deterministic, so a retry
     // and a deprovision find the same one).

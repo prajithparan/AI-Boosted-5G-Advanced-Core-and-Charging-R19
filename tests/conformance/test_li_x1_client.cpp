@@ -307,4 +307,34 @@ TEST(LiX1Client, ParsesTheNeToAdmfReportRequests) {
     EXPECT_NE(reply.find("1080"), std::string::npos) << reply;
 }
 
+TEST(LiX1Client, AnAdmfServerHandlesReportsThroughItsCallbacksAndAnNeAnswers1080) {
+    int task_reports = 0;
+    int ne_reports = 0;
+    TaskStoreCallbacks admf;
+    admf.ne_identifier = "admf-1";
+    admf.report_task_issue = [&](const ReportTaskIssue& r) -> std::optional<ErrorCode> {
+        ++task_reports;
+        return r.xid == "3fa85f64-5717-4562-b3fc-2c963f66afa6" ? std::nullopt : std::optional(ErrorCode::XidDoesNotExist);
+    };
+    admf.report_ne_issue = [&](const ReportNEIssue&) -> std::optional<ErrorCode> {
+        ++ne_reports;
+        return std::nullopt;
+    };
+    const std::string known = report_envelope("ReportTaskIssueRequest", R"(
+    <xId>3fa85f64-5717-4562-b3fc-2c963f66afa6</xId><taskReportType>TerminatingFault</taskReportType>)");
+    const std::string unknown = report_envelope("ReportTaskIssueRequest", R"(
+    <xId>11111111-1111-4111-8111-111111111111</xId><taskReportType>Warning</taskReportType>)");
+    EXPECT_EQ(handle_request(known, admf).find("ErrorResponse"), std::string::npos);
+    EXPECT_NE(handle_request(unknown, admf).find("2020"), std::string::npos); // refused with the callback's code
+    const std::string ne_issue = report_envelope("ReportNEIssueRequest", R"(
+    <typeOfNeIssueMessage>FaultReport</typeOfNeIssueMessage><description>x</description>)");
+    EXPECT_NE(handle_request(ne_issue, admf).find("ReportNEIssueResponse"), std::string::npos);
+    EXPECT_EQ(task_reports, 2);
+    EXPECT_EQ(ne_reports, 1);
+
+    TaskStoreCallbacks ne; // an NE installs neither
+    ne.ne_identifier = "amf-1";
+    EXPECT_NE(handle_request(known, ne).find("1080"), std::string::npos);
+}
+
 } // namespace

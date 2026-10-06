@@ -1101,8 +1101,20 @@ struct Lifecycle::Impl {
         wake_cv.notify_one();
     }
 
+    void keepalive() {
+        for (const auto& r : lipf.keepalive_all()) {
+            if (r.ok) {
+                spdlog::debug("li-admf: X1 keepalive to {} acknowledged", r.ne);
+            } else {
+                // The NE will raise a fault after its TIME_P2 and, by default, deactivate its tasks.
+                spdlog::error("li-admf: X1 keepalive to {} FAILED: {}", r.ne, r.detail);
+            }
+        }
+    }
+
     void worker_loop() {
         std::unique_lock<std::mutex> lock(wake_mutex);
+        auto next_keepalive = std::chrono::steady_clock::now(); // first one immediately: the NEs' P2 clocks started at boot
         while (running.load()) {
             wake_cv.wait_for(lock, config.reconcile_interval, [this] { return woken || !running.load(); });
             if (!running.load()) {
@@ -1111,12 +1123,64 @@ struct Lifecycle::Impl {
             woken = false;
             lock.unlock();
             try {
+                if (std::chrono::steady_clock::now() >= next_keepalive) {
+                    keepalive();
+                    next_keepalive = std::chrono::steady_clock::now() + config.keepalive_interval;
+                }
                 reconcile();
             } catch (const std::exception& e) {
                 spdlog::error("li-admf: lifecycle reconcile failed: {}", e.what());
             }
             lock.lock();
         }
+    }
+
+    // ReportTaskIssue (6.5.2): the NE tells the ADMF something happened to a task it holds.
+    std::optional<li_core::x1::ErrorCode> task_issue(const li_core::x1::ReportTaskIssue& report) {
+        const auto task = store.get(report.xid);
+        if (!task || task->object_type != "LITask") {
+            return li_core::x1::ErrorCode::XidDoesNotExist;
+        }
+        using R = li_core::x1::TaskReportType;
+        const std::string detail = report.details.value_or("");
+        spdlog::warn("li-admf: NE reported on task {}: type {} code {} {}",
+                     report.xid, static_cast<int>(report.report_type), report.error_code.value_or(0), detail);
+        std::optional<std::string> new_status;
+        std::optional<hi1::Failure> reason;
+        switch (report.report_type) {
+            case R::TerminatingFault:
+            case R::FullyActionedAndUnsuccessful:
+                new_status = "Error";
+                reason = hi1::Failure{3003, "the network element reported a fault on this task: " + (detail.empty() ? std::string("no details") : detail)};
+                break;
+            case R::ImplicitDeactivation:
+                new_status = "Expired"; // the NE stopped intercepting by itself (end time reached)
+                break;
+            case R::AllClear:
+            case R::Warning:
+            case R::NonTerminatingFault:
+            case R::FullyActionedAndSuccessful:
+                break; // recorded in the log; nothing about the task's state changes
+        }
+        if (!new_status || task->status == *new_status) {
+            return std::nullopt;
+        }
+        const auto auth = store.get(task->authorisation_id);
+        Batch batch;
+        if (const auto next = set_status(*task, *new_status, reason, batch)) {
+            // The network no longer holds it: make the next pass re-provision an Error task, and not retire an Expired one twice.
+            store.set_lipf_state({task->object_id, next->generation, {}, *new_status == "Error" ? "failed" : "deprovisioned", 0});
+            if (auth) {
+                emit_notification(*auth, batch);
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne, const li_core::x1::ReportNEIssue& r) {
+        // The worst an NE can say is that it lost its ADMF; that is an operator matter, so log it loudly.
+        spdlog::error("li-admf: NE {} reported {} (code {}): {}", ne, static_cast<int>(r.type), r.issue_code.value_or(0), r.description);
+        return std::nullopt;
     }
 };
 
@@ -1153,6 +1217,18 @@ Lifecycle::Outcome Lifecycle::handle(Workflow workflow,
                                      const hi1::Header& header,
                                      const std::vector<hi1::Action>& actions) {
     return impl_->handle(workflow, lea, header, actions);
+}
+
+void Lifecycle::keepalive_once() {
+    impl_->keepalive();
+}
+
+std::optional<li_core::x1::ErrorCode> Lifecycle::task_issue(const li_core::x1::ReportTaskIssue& report) {
+    return impl_->task_issue(report);
+}
+
+std::optional<li_core::x1::ErrorCode> Lifecycle::ne_issue(const std::string& ne, const li_core::x1::ReportNEIssue& report) {
+    return impl_->ne_issue(ne, report);
 }
 
 void Lifecycle::reconcile_once() {

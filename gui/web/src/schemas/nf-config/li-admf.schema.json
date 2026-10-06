@@ -102,6 +102,9 @@
           },
           "x1_url": {
             "type": "string"
+          },
+          "peer_cert_cn": {
+            "type": "string"
           }
         }
       }
@@ -123,6 +126,9 @@
     },
     "extra_document_content_types": {
       "type": "array"
+    },
+    "keepalive_interval_seconds": {
+      "type": "integer"
     }
   },
   "required": [

@@ -140,6 +140,25 @@ std::string handle_request(const std::string& xml, const TaskStoreCallbacks& cb)
                            code_text(ErrorCode::KeepaliveNotSupported));
                 }
                 break;
+            case MessageType::ReportTaskIssue: {
+                // Only an ADMF installs this; on an NE it is not the intended recipient (1080).
+                if (!cb.report_task_issue) {
+                    reject(ErrorCode::UnsupportedRequest, code_text(ErrorCode::UnsupportedRequest));
+                    break;
+                }
+                const auto err = cb.report_task_issue(std::get<ReportTaskIssue>(req.body));
+                err ? reject(*err, code_text(*err)) : accept();
+                break;
+            }
+            case MessageType::ReportNEIssue: {
+                if (!cb.report_ne_issue) {
+                    reject(ErrorCode::UnsupportedRequest, code_text(ErrorCode::UnsupportedRequest));
+                    break;
+                }
+                const auto err = cb.report_ne_issue(std::get<ReportNEIssue>(req.body));
+                err ? reject(*err, code_text(*err)) : accept();
+                break;
+            }
             case MessageType::GetTaskDetails:
             case MessageType::Unsupported:
             default:

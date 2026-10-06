@@ -34011,3 +34011,32 @@ destination retired, expiry, LEA isolation, update rules) + 7 LIPF tests + the s
 task Timespan.ProvisioningTime/TerminationTime members and TaskStatus reflection from X1 GetTaskDetails/ReportTaskIssue
 are not yet used (step 5); the review is automated -- there is no human-approval hook (a national-profile matter);
 TrafficPolicy/IRIPolicy references on a task are stored but ignored; a task that goes Invalid is re-evaluated each pass.
+
+**ADR-0462, step 5 (2026-10-06): the ADMF keeps its network elements alive and hears from them.** Two things the build
+could not run in production without:
+- **X1 Keepalive (TS 103 221-1 6.6.2).** An NE that hears nothing from its ADMF within TIME_P2 raises a fault and, by default,
+  deactivates every task (the AMF POI's config does: p2 180 s, `x1_allow_deactivate_all` true). An ADMF that does not send
+  keepalives therefore takes its own interceptions down. `Lipf::keepalive_all` sends one to every NE and
+  `Lifecycle`'s worker sends them every `keepalive_interval_seconds` (30), the first immediately, a failure per NE logged at
+  error (one NE failing never hides another).
+- **`POST /X1/ADMF` (7.2.2.2), the NE -> ADMF direction.** `li_core::x1::handle_request` gained `report_task_issue` /
+  `report_ne_issue` callbacks (an NE installs neither and still answers 1080). The ADMF route accepts only a client certificate that
+  is a configured network element's `peer_cert_cn` (else HTTP 403), checks `admfIdentifier` (1040) and that `neIdentifier` is THAT
+  element's (1060), and audits. `ReportTaskIssue`: TerminatingFault / FullyActionedAndUnsuccessful -> the task goes Error with the NE's
+  details as its InvalidReason, the LEA is notified, and the next reconcile pass re-provisions it; ImplicitDeactivation -> Expired;
+  AllClear / Warning / NonTerminatingFault / FullyActionedAndSuccessful are logged and change nothing; a task this ADMF never provisioned
+  -> X1 2020. `ReportNEIssue` is logged at error (the AMF POI's own sender is not built yet: it still only logs that the report is "due").
+**Decision: notifications are polled, not pushed.** TS 103 120 7.4 says the use of NotificationObjects is "subject to national
+agreement", and DELIVER (6.4.10) is defined for answering a lawful request with data, so pushing a Notification with it would be
+inventing a flow. The LEA reads them with GET / LIST (scoped to its own objects). A national profile that wants push is a later,
+profile-driven addition.
+**Bug found by the test, not by inspection:** `NetworkElement` gained `peer_cert_cn` BETWEEN two strings that `main.cpp` filled
+positionally, so `x1_url` and the CN were swapped and the real ADMF would have posted X1 to a certificate name. The unit tests
+use named construction and passed; the process test over real mTLS refused the AMF's own certificate and exposed it. The field is
+now last and the order documented.
+**Proof.** `LiX1Client.AnAdmfServerHandlesReportsThroughItsCallbacksAndAnNeAnswers1080`; `LiAdmfLipf.Keepalives...`;
+`LiAdmfLifecycle` x4 (terminating fault -> Error + notification + recovery on the next pass; implicit deactivation -> Expired and
+not resurrected; informational reports change nothing; stray / non-task xid -> 2020); `LiAdmfProcess.TheNesReportToTheAdmf...` over
+real mTLS (accepted, 2020, 1060, 403 for a foreign certificate). `li_admf_integration_tests` = 42.
+**Disclosed.** GetTaskDetails (a reconciliation audit of what the NEs actually hold) is built on the client side but the AMF POI and
+MDF2 still answer it 1080, so the ADMF's view of provisioning is its own record plus the NEs' reports, not a cross-check.

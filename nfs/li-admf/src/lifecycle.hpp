@@ -49,6 +49,9 @@ struct LifecycleConfig {
     std::chrono::seconds reconcile_interval{5};
     // An Error task (an NE refused or was unreachable) is retried this often.
     std::chrono::seconds retry_interval{60};
+    // TS 103 221-1 6.6.2: how often an X1 Keepalive goes to every NE. Must be comfortably shorter
+    // than the NEs' TIME_P2 (the AMF POI's default is 180 s), or they deactivate every task.
+    std::chrono::seconds keepalive_interval{30};
     // The most records a LIST returns (6.4.8: bound what one message can dump on a requester).
     std::uint64_t maximum_list_records = 500;
 };
@@ -76,6 +79,15 @@ public:
                    const li_core::hi1::EndpointId& lea,
                    const li_core::hi1::Header& header,
                    const std::vector<li_core::hi1::Action>& actions);
+
+    // TS 103 221-1 6.6.2: send a Keepalive to every NE now. The worker does this on
+    // `keepalive_interval`; public so tests and a failed first start can drive it.
+    void keepalive_once();
+
+    // What an NE reports about a task (ReportTaskIssue, 6.5.2) and about itself (ReportNEIssue,
+    // 6.5.4). The error code is the X1 answer: XidDoesNotExist for a task this ADMF never provisioned.
+    std::optional<li_core::x1::ErrorCode> task_issue(const li_core::x1::ReportTaskIssue& report);
+    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne_identifier, const li_core::x1::ReportNEIssue& report);
 
     // One review / provisioning / expiry / notification pass. Public so tests drive it
     // deterministically; the worker calls it on its interval and on wake().

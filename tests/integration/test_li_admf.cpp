@@ -402,4 +402,62 @@ TEST(LiAdmfProcess, AnLeaGetsTheCspConfigOverMtlsAndEveryExchangeIsAudited) {
     EXPECT_EQ(store.audit_count(), audited_before + 4);
 }
 
+std::string x1_report(const std::string& type, const std::string& ne_identifier, const std::string& body) {
+    return R"(<?xml version="1.0" encoding="UTF-8"?>
+<X1Request xmlns="http://uri.etsi.org/03221/X1/2017/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <x1RequestMessage xsi:type=")" + type + R"(">
+    <admfIdentifier>admf-01</admfIdentifier>
+    <neIdentifier>)" + ne_identifier + R"(</neIdentifier>
+    <messageTimestamp>2026-10-06T00:00:00.000000Z</messageTimestamp>
+    <version>v1.23.1</version>
+    <x1TransactionId>2b1e4f6a-0000-4000-8000-0000000000b1</x1TransactionId>)" + body + R"(
+  </x1RequestMessage>
+</X1Request>)";
+}
+
+TEST(LiAdmfProcess, TheNesReportToTheAdmfOverX1AndOnlyTheirOwnCertificateIsAccepted) {
+    if (!database_reachable()) {
+        GTEST_SKIP() << "PostgreSQL is not reachable at " << database_url();
+    }
+    const auto config_file = write_process_config();
+    ::setenv("LI-ADMF_CONFIG_FILE", config_file.c_str(), 1);
+    nf_test::SpawnedProcess admf{LI_ADMF_PATH};
+    ::unsetenv("LI-ADMF_CONFIG_FILE");
+    ASSERT_GT(admf.pid(), 0);
+
+    // The AMF POI's own identity: certificate CN "amf", neIdentifier "amf-poi-01" (config/li-admf.json).
+    auto amf = client_with("amf");
+    const std::string url = "https://127.0.0.1:19808/X1/ADMF";
+    const std::string ne_issue = R"(<typeOfNeIssueMessage>FaultReport</typeOfNeIssueMessage><description>no X1 request within TIME_P2</description>)";
+    std::optional<sbi_core::http2::ClientResponse> ok;
+    for (int attempt = 0; attempt < 100 && !ok.has_value(); ++attempt) {
+        ok = post(amf, url, x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue), "application/xml");
+        if (!ok.has_value()) {
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+    ASSERT_TRUE(ok.has_value()) << "li-admf never answered on /X1/ADMF";
+    EXPECT_EQ(ok->status, 200);
+    EXPECT_NE(ok->body.find("ReportNEIssueResponse"), std::string::npos) << ok->body;
+
+    // A task this ADMF never provisioned: X1 2020.
+    const auto stray = post(amf, url,
+                            x1_report("ReportTaskIssueRequest", "amf-poi-01",
+                                      "<xId>11111111-1111-4111-8111-111111111111</xId><taskReportType>TerminatingFault</taskReportType>"),
+                            "application/xml");
+    ASSERT_TRUE(stray.has_value());
+    EXPECT_NE(stray->body.find("2020"), std::string::npos) << stray->body;
+
+    // The certificate is the AMF's but the request claims to be another NE: X1 1060.
+    const auto wrong_ne = post(amf, url, x1_report("ReportNEIssueRequest", "mdf2-01", ne_issue), "application/xml");
+    ASSERT_TRUE(wrong_ne.has_value());
+    EXPECT_NE(wrong_ne->body.find("1060"), std::string::npos) << wrong_ne->body;
+
+    // A certificate that is not a configured network element is refused outright.
+    auto stranger = client_with("hello-nf");
+    const auto refused = post(stranger, url, x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue), "application/xml");
+    ASSERT_TRUE(refused.has_value());
+    EXPECT_EQ(refused->status, 403);
+}
+
 } // namespace

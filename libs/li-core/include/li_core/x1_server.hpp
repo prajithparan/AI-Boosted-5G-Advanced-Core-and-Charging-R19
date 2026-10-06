@@ -29,6 +29,10 @@ struct TaskStoreCallbacks {
     std::function<std::optional<ErrorCode>(const DestinationDetails&)> create_destination;
     std::function<std::optional<ErrorCode>(const std::string& did)> remove_destination;
     std::function<std::optional<ErrorCode>()> remove_all_destinations;
+    // What an ADMF does with the requests an NE SENDS it (TS 103 221-1 6.5.2 / 6.5.4). Unset on an
+    // NE; an NE that receives one answers 1080.
+    std::function<std::optional<ErrorCode>(const ReportTaskIssue&)> report_task_issue;
+    std::function<std::optional<ErrorCode>(const ReportNEIssue&)> report_ne_issue;
     // Optional identity check (8.x): the ADMF/NE identifiers vs. the TLS peer certificate. Return
     // the error code (1040/1060) to reject, std::nullopt to accept. If unset, identifiers are not
     // checked at the X1 layer.

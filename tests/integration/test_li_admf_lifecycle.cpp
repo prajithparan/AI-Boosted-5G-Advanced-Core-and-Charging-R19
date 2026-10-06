@@ -556,6 +556,66 @@ TEST_F(LiAdmfLifecycle, ChangeOfDeliveryMovesTheDestinationOnTheMdf2) {
     EXPECT_EQ(failure_of(bad, 0)->code, 3005U);
 }
 
+// ---- what the network reports (TS 103 221-1 6.5) ---------------------------------------------------------
+
+TEST_F(LiAdmfLifecycle, ATerminatingFaultReportedByTheNeMarksTheTaskErrorAndNotifiesTheLea) {
+    serve_standard_warrant();
+    const auto before = notifications().size();
+    x1::ReportTaskIssue fault;
+    fault.xid = uuid(2);
+    fault.report_type = x1::TaskReportType::TerminatingFault;
+    fault.error_code = 9001;
+    fault.details = "interception function crashed";
+    EXPECT_FALSE(lifecycle_->task_issue(fault).has_value());
+    EXPECT_EQ(status_of(uuid(2)), "Error");
+    const auto task_obj = hi1::Object::from_xml(store_->get(uuid(2))->xml);
+    EXPECT_NE(task_obj->text_at({"InvalidReason", "ErrorDescription"})->find("crashed"), std::string::npos);
+    EXPECT_EQ(notifications().size(), before + 1) << "the LEA is told, like any other status change";
+
+    // The next pass notices the NE no longer holds it and provisions it again.
+    lifecycle_->reconcile_once();
+    EXPECT_EQ(status_of(uuid(2)), "Active");
+}
+
+TEST_F(LiAdmfLifecycle, ImplicitDeactivationExpiresTheTaskAndInformationalReportsChangeNothing) {
+    serve_standard_warrant();
+    x1::ReportTaskIssue info;
+    info.xid = uuid(2);
+    info.report_type = x1::TaskReportType::Warning;
+    EXPECT_FALSE(lifecycle_->task_issue(info).has_value());
+    info.report_type = x1::TaskReportType::AllClear;
+    EXPECT_FALSE(lifecycle_->task_issue(info).has_value());
+    info.report_type = x1::TaskReportType::FullyActionedAndSuccessful;
+    EXPECT_FALSE(lifecycle_->task_issue(info).has_value());
+    EXPECT_EQ(status_of(uuid(2)), "Active");
+
+    info.report_type = x1::TaskReportType::ImplicitDeactivation;
+    EXPECT_FALSE(lifecycle_->task_issue(info).has_value());
+    EXPECT_EQ(status_of(uuid(2)), "Expired");
+    lifecycle_->reconcile_once();
+    EXPECT_EQ(status_of(uuid(2)), "Expired") << "an expired task is not resurrected";
+}
+
+TEST_F(LiAdmfLifecycle, AReportForATaskThisAdmfNeverProvisionedIsRefusedWithX12020) {
+    x1::ReportTaskIssue stray;
+    stray.xid = uuid(404);
+    stray.report_type = x1::TaskReportType::TerminatingFault;
+    EXPECT_EQ(lifecycle_->task_issue(stray), x1::ErrorCode::XidDoesNotExist);
+    // A document or an authorisation is not a task either.
+    serve_standard_warrant();
+    stray.xid = uuid(1);
+    EXPECT_EQ(lifecycle_->task_issue(stray), x1::ErrorCode::XidDoesNotExist);
+}
+
+TEST_F(LiAdmfLifecycle, AnNeIssueIsAcceptedAndKeepalivesDoNotDisturbTheNes) {
+    x1::ReportNEIssue issue;
+    issue.type = x1::NeIssueType::FaultReport;
+    issue.description = "no X1 request within TIME_P2";
+    EXPECT_FALSE(lifecycle_->ne_issue("amf-poi-01", issue).has_value());
+    lifecycle_->keepalive_once(); // must not throw, must not touch any task
+    EXPECT_TRUE(net_.amf.tasks.empty());
+}
+
 // ---- time, ownership, updates ----------------------------------------------------------------------------
 
 TEST_F(LiAdmfLifecycle, AnExpiredAuthorisationExpiresItsTasksAndTheyLeaveTheNetwork) {

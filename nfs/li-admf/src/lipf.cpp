@@ -238,6 +238,15 @@ LipfResult Lipf::deprovision(const TaskSpec& spec) {
     return worst;
 }
 
+std::vector<Lipf::KeepaliveResult> Lipf::keepalive_all() {
+    std::vector<KeepaliveResult> out;
+    for (const auto& ne : elements_) {
+        const auto r = send(ne, x1::MessageType::Keepalive, x1::Keepalive{});
+        out.push_back({ne.name, r.ok, r.detail});
+    }
+    return out;
+}
+
 void Lipf::retire_destinations(const std::string& xid, const std::vector<std::string>& addresses) {
     for (const auto& ne : elements_) {
         if (ne.role != "mdf2") {

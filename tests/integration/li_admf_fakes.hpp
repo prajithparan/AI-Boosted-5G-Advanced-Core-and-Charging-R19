@@ -23,10 +23,12 @@ struct FakeNe {
     std::map<std::string, x1::DestinationDetails> destinations;
     std::vector<std::string> log; // "ActivateTask xid" ... in arrival order
     std::optional<x1::ErrorCode> fail_activate;
+    bool keepalive_supported = true;
 
     x1::TaskStoreCallbacks callbacks(const std::string& ne_id) {
         x1::TaskStoreCallbacks cb;
         cb.ne_identifier = ne_id;
+        cb.keepalive_supported = keepalive_supported;
         cb.activate_task = [this](const x1::TaskDetails& t) -> std::optional<x1::ErrorCode> {
             log.push_back("ActivateTask " + t.xid);
             if (fail_activate) {

@@ -24,6 +24,7 @@
 #include "hi1_service.hpp"
 #include "hi1_store.hpp"
 #include "lifecycle.hpp"
+#include "li_core/x1_server.hpp"
 #include "lipf.hpp"
 #include "nf_config/nf_config.hpp"
 #include "nf_config/pg_pool.hpp"
@@ -97,19 +98,22 @@ int main() {
         elements.push_back({ne.at("name").get<std::string>(),
                             ne.at("role").get<std::string>(),
                             ne.at("ne_identifier").get<std::string>(),
-                            ne.at("x1_url").get<std::string>()});
+                            ne.at("x1_url").get<std::string>(),
+                            ne.at("peer_cert_cn").get<std::string>()});
     }
     li_admf::HttpX1Transport x1_transport(sbi_core::http2::TlsConfig{
         .cert_path = CERTS_DIR "/li-admf/cert.pem",
         .key_path = CERTS_DIR "/li-admf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     });
+    const auto network_elements = elements; // the X1 listener below needs the same list
     li_admf::Lipf lipf(lipf_config, std::move(elements), x1_transport);
 
     li_admf::LifecycleConfig lifecycle_config;
     lifecycle_config.self = hi1.self;
     lifecycle_config.reconcile_interval = std::chrono::seconds(config.at("reconcile_interval_seconds").get<int>());
     lifecycle_config.retry_interval = std::chrono::seconds(config.at("retry_interval_seconds").get<int>());
+    lifecycle_config.keepalive_interval = std::chrono::seconds(config.at("keepalive_interval_seconds").get<int>());
     lifecycle_config.maximum_list_records = config.at("maximum_list_records").get<std::uint64_t>();
     lifecycle_config.extra_document_content_types =
         config.at("extra_document_content_types").get<std::vector<std::string>>();
@@ -164,6 +168,45 @@ int main() {
             return response;
         });
     }
+    // LI_X1 in the other direction (TS 103 221-1 7.2.2.2): the NEs POST their ReportTaskIssue /
+    // ReportNEIssue here. Same mTLS listener; the peer certificate must be the one its NE is
+    // configured with, and the request's neIdentifier must be that NE's.
+    server.add_route("POST", "/X1/ADMF", [&](const sbi_core::http2::Request& request) {
+        const li_admf::NetworkElement* ne = nullptr;
+        for (const auto& e : network_elements) {
+            if (e.peer_cert_cn == request.peer_cert_cn) {
+                ne = &e;
+            }
+        }
+        sbi_core::http2::Response response;
+        if (ne == nullptr) {
+            spdlog::warn("li-admf: X1 report from unbound mTLS peer '{}' refused", request.peer_cert_cn);
+            response.status = 403;
+            return response;
+        }
+        li_core::x1::TaskStoreCallbacks cb;
+        cb.ne_identifier = lipf_config.admf_identifier; // this side's own identifier
+        cb.check_identity = [&](const li_core::x1::MessageHeader& h) -> std::optional<li_core::x1::ErrorCode> {
+            if (h.admf_identifier != lipf_config.admf_identifier) {
+                return li_core::x1::ErrorCode::UnexpectedAdmfIdentifier;
+            }
+            if (h.ne_identifier != ne->ne_identifier) {
+                return li_core::x1::ErrorCode::UnexpectedNeIdentifier;
+            }
+            return std::nullopt;
+        };
+        cb.report_task_issue = [&](const li_core::x1::ReportTaskIssue& r) { return lifecycle.task_issue(r); };
+        cb.report_ne_issue = [&](const li_core::x1::ReportNEIssue& r) { return lifecycle.ne_issue(ne->ne_identifier, r); };
+        response.status = 200; // X1 errors ride in the body
+        response.headers.emplace("content-type", "application/xml");
+        response.body = li_core::x1::handle_request(request.body, cb);
+        try {
+            store.audit({request.peer_cert_cn, "/X1/ADMF", "", ne->ne_identifier, 1, "ok", ""});
+        } catch (const std::exception& e) {
+            spdlog::error("li-admf: audit write failed for an X1 report: {}", e.what());
+        }
+        return response;
+    });
     lifecycle.start();
     server.start();
     spdlog::info("li-admf: LI_HI1 on https://0.0.0.0:{} (TLS 1.3 + mTLS)", hi1_port);

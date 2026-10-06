@@ -161,6 +161,22 @@ TEST(LiAdmfLipf, ChangeDeliveryAddsTheNewDestinationAndRemapsTheMdf2Task) {
     EXPECT_EQ(net.mdf.tasks[kXid].mediation_details[0].dids, std::vector<std::string>{new_did});
 }
 
+TEST(LiAdmfLipf, KeepalivesGoToEveryNeAndAFailureIsReportedPerNe) {
+    FakeTransport net;
+    Lipf lipf(config(), kElements, net);
+    auto results = lipf.keepalive_all();
+    ASSERT_EQ(results.size(), 2U);
+    EXPECT_TRUE(results[0].ok) << results[0].detail;
+    EXPECT_TRUE(results[1].ok) << results[1].detail;
+
+    net.amf.keepalive_supported = false; // answers X1 error 1070
+    results = lipf.keepalive_all();
+    EXPECT_FALSE(results[0].ok);
+    EXPECT_EQ(results[0].ne, "amf-poi");
+    EXPECT_NE(results[0].detail.find("1070"), std::string::npos) << results[0].detail;
+    EXPECT_TRUE(results[1].ok) << "one NE failing must not hide the other";
+}
+
 TEST(LiAdmfLipf, TheDestinationIdIsDeterministicAndPerTask) {
     EXPECT_EQ(Lipf::destination_id("a", "1.2.3.4:5"), Lipf::destination_id("a", "1.2.3.4:5"));
     EXPECT_NE(Lipf::destination_id("a", "1.2.3.4:5"), Lipf::destination_id("b", "1.2.3.4:5"));
