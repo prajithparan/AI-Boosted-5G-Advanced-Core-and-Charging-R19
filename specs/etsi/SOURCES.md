@@ -31,7 +31,7 @@ BSD-3-Clause licence above:
 
 ## Specification documents (NOT committed)
 
-`TS_103_221-1_v1.23.1.pdf`/`.txt` and `TS_103_221-2_v1.10.1.pdf`/`.txt` are the ETSI
+`TS_103_221-1_v1.23.1.pdf`/`.txt`, `TS_103_221-2_v1.10.1.pdf`/`.txt`, `TS_102_232-1_v3.38.1.pdf`/`.txt` and `TS_103_120_v1.24.1.pdf`/`.txt` (LI_HI1, ADR-0462) are the ETSI
 deliverables themselves. Their copyright notice reads "No part may be reproduced or utilized in
 any form or by any means ... except as authorized by written permission of ETSI", which is not
 compatible with committing them to a public repository, so they are gitignored. Fetch them for

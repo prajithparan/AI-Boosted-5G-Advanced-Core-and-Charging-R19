@@ -33,6 +33,9 @@ SPECS = [
     # profile the MDF2 delivers over. v3.38.1 is the latest published version and the one whose
     # ASN.1 module the vendored LI-PS-PDU.asn carries (module OID version43).
     ("10223201", "03.38.01", "TS_102_232-1_v3.38.1"),
+    # LI_HI1, the warrant-information interface between the LEA and the CSP's LIPF (TS 33.127
+    # clause 5.3 / 33.128 cite it undated, so the latest published version applies). ADR-0462.
+    ("103120", "01.24.01", "TS_103_120_v1.24.1"),
 ]
 
 
