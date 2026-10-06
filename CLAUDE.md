@@ -120,16 +120,14 @@ Nine items; full text in `docs/project-context/definition-of-done.md` (skill `ne
 
 ## Guardrails (repeat when output starts drifting)
 
-1. Never invent a TS number, reference point, API path, or JSON field.
-   If it's not in the YAML or spec in hand, ask.
-2. One NF (or one subsystem) per turn. Show the procedure list for
-   approval before implementing.
-3. State explicitly what is a stub, what is simplified, and what is not
-   conformant.
-4. Every architectural decision goes in `docs/DECISIONS.md`, including
-   rejected alternatives.
-5. If unsure whether something is correct, say so plainly rather than
-   producing confident code.
+1. Never invent a TS number, reference point, API path, or JSON field. If it's not in the YAML or spec in hand, ask.
+2. One NF (or one subsystem) per turn. Show the procedure list for approval before implementing.
+3. State explicitly what is a stub, what is simplified, and what is not conformant.
+4. Every architectural decision goes in `docs/DECISIONS.md`, including rejected alternatives.
+5. If unsure whether something is correct, say so plainly rather than producing confident code.
+6. Never report a metric you have not measured, and never call anything production-ready without evidence. (From PROMPT.md standing rules 5-7.)
+7. In the charging domain: the model informs, the deterministic engine decides.
+8. Configuration over code -- if a business change needs a recompile, redesign it.
 
 ## Context discipline
 

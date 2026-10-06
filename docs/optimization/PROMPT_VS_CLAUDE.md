@@ -14,4 +14,4 @@ CLAUDE.md says it "condenses PROMPT.md" and that a disagreement is a bug. Found 
 | 8 | Title/scope "Universal Charging System" (L1); P5 "100% TM Forum Open APIs and SID" | "CHF + Online Charging", explicit TMF list (OCS/UCS deliberately not the title) | narrowed on purpose, recorded in CLAUDE.md |
 | 9 | No TMF numbers at all (grep finds none) | TMF620...727 list, extended 2026-08-10 | CLAUDE.md more specific; the CLAUDE.md text calling the older list "original" refers to an earlier CLAUDE.md revision, not PROMPT.md |
 
-Not changed here: items 1-4 are rules the user wrote; adding them to CLAUDE.md changes its meaning, so it needs an explicit decision.
+Resolved 2026-10-06: items 1-3 added to CLAUDE.md as Guardrails 6-8 (user-directed). Item 4 (the P1-P15 clause of rule 4) is NOT added -- the P1-P15 list is not in CLAUDE.md, so the clause would dangle; needs a decision.

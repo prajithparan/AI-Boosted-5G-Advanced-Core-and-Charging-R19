@@ -25,3 +25,5 @@ All moves are verbatim; `python3 scripts/docs/verify_claude_md_move.py` checks t
 | NEW (not from the old file): Context discipline, Compact instructions, Session start, Moved-context pointers | CLAUDE.md | added |
 
 Note: `docs/DECISIONS.md` was separately split (scripts/docs/split_decisions.py); CLAUDE.md's references to it stay valid because the index keeps the path.
+
+Added 2026-10-06 at the user's direction: Guardrails 6-8 in CLAUDE.md are PROMPT.md standing rules 5-7 (verbatim text; guardrails 1-5 were only re-wrapped onto single lines, no wording change). The README "Capability-completeness gap-closure" section was moved verbatim to `docs/CAPABILITY_GAP_ANALYSIS.md` (relative links adjusted) and README keeps a summary + link.
