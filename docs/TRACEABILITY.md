@@ -5438,3 +5438,12 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | Authorisation / LITask objects: typed reads and schema-ordered edits | TS 103 120 7.1, 7.2, 8.2 | `hi1.cpp` `Object`, `view_authorisation`, `view_litask` | LiHi1.TheLiLifecycleExampleReadsBackTheValuesEtsiPrinted, ObjectEditsLandAtTheirSchemaPosition... |
 | NotificationObject built by the CSP | TS 103 120 7.4 | `hi1.cpp` `make_notification` | LiHi1.ANotificationObjectIsBuiltAndValidates |
 
+### LI increment 5 -- ADMF skeleton (ADR-0462, step 3 of the li-admf build)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| HI1 over HTTPS + mTLS; peer bound to an LEA EndpointID; HTTP 200 for every HI1 outcome, 403 for an unbound peer | TS 103 120 9.3.3, 9.3.4 | `nfs/li-admf/src/main.cpp`, `hi1_service.cpp` | `test_li_admf.cpp` LiAdmfService.AnUnboundClient..., LiAdmfProcess.AnLeaGetsTheCspConfigOverMtls... |
+| Encoding check, schema validation, version check, receiver/sender identity, ActionIdentifier sequence | TS 103 120 9.2.0, 9.2.2, 6.2.3, 6.2.5, 6.4.4, Annex D | `hi1_service.cpp` `Hi1Service::handle` | LiAdmfService.OnlyTheXml..., AnUnparseable..., AnUnsupportedVersion..., TheEndpointIdentities..., ActionIdentifiers... |
+| GETCSPCONFIG response (workflow endpoints, target formats) | TS 103 120 6.4.11, H.5 table H.0b | `hi1_service.cpp` `build_csp_config` | LiAdmfService.GetCspConfigPublishesTheSixLiWorkflowEndpoints |
+| Warrant store and append-only audit of every exchange | TS 33.127 5.6 (separate security domain), 103 120 audit | `hi1_store.cpp`, `schema.sql` | LiAdmfStore.*, LiAdmfProcess (4 exchanges -> 4 audit rows) |
+

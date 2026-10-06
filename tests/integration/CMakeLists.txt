@@ -205,6 +205,19 @@ target_compile_definitions(li_mdf_integration_tests PRIVATE
 add_dependencies(li_mdf_integration_tests li-mdf)
 gtest_discover_tests(li_mdf_integration_tests)
 
+# ADR-0462: the ADMF's LI_HI1 receiver at three levels -- Hi1Service (no deps), the PostgreSQL
+# store and the real li-admf process over mTLS (both skip without the postgres-li database).
+add_executable(li_admf_integration_tests test_li_admf.cpp)
+target_link_libraries(li_admf_integration_tests PRIVATE
+    li_admf_core li_core sbi_core nf_config libpqxx::pqxx OpenSSL::SSL OpenSSL::Crypto
+    GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_admf_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+    LI_ADMF_PATH="$<TARGET_FILE:li-admf>"
+    LI_ADMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/li-admf.json")
+add_dependencies(li_admf_integration_tests li-admf)
+gtest_discover_tests(li_admf_integration_tests PROPERTIES TIMEOUT 120)
+
 # ADR-0377: the AMF IRI-POI's own logic (X1 provisioning -> target store -> xIRI -> X2 emit),
 # compiling nfs/amf/src/li_poi.cpp directly against a loopback MDF2 (li_core::X2X3Server) and a
 # fake ADMF (sbi_core HTTP/2 client). No NF processes; the POI has no standalone binary. Uses a

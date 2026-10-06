@@ -113,6 +113,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # ADR-0462: the ADMF's warrant store -- its own PostgreSQL (a separate security domain,
+      # TS 33.127 5.6), mirroring compose's postgres-li (host port 5439 there, +10000 here).
+      postgres-li:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: li_admf
+          POSTGRES_PASSWORD: li_admf
+          POSTGRES_DB: li_admf
+        ports:
+          - 15439:5432
+        options: >-
+          --health-cmd "pg_isready -U li_admf"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       # ADR-0073: real Redis/Valkey for CHF's own E3 session-state persistence (ADR-0055).
       # Valkey, not Redis: Redis 7.4+ is RSALv2/SSPL, not OSI-approved (P1, ADR-0044/0356).
       redis:
@@ -301,7 +316,7 @@ jobs:
         # "failed to load TLS material .../certs/balance-management/cert.pem") plus every other
         # service whose main.cpp names a CERTS_DIR subdirectory, so the next spawned-NF test does not
         # rediscover this: grep -rhoE 'CERTS_DIR "/[a-z0-9-]+/' nfs bss is the list.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning udsf
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-admf provisioning udsf
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
@@ -404,6 +419,8 @@ jobs:
           ADRF_DATA_STORE_HOST: 127.0.0.1
           ADRF_DATA_STORE_PORT: "19030"
           ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf
+          # ADR-0462: the li-admf suite and the li-admf process it spawns share this one database.
+          LI_ADMF_DATABASE_URL: postgresql://li_admf:li_admf@localhost:15439/li_admf
           # ADR-0365: the MFAF test spawns two MFAF replicas on the CI Kafka; under TSan the test skips itself.
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1
@@ -506,6 +523,21 @@ jobs:
           - 15438:5432
         options: >-
           --health-cmd "pg_isready -U adrf"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # ADR-0462: the ADMF's warrant store -- its own PostgreSQL (a separate security domain,
+      # TS 33.127 5.6), mirroring compose's postgres-li (host port 5439 there, +10000 here).
+      postgres-li:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: li_admf
+          POSTGRES_PASSWORD: li_admf
+          POSTGRES_DB: li_admf
+        ports:
+          - 15439:5432
+        options: >-
+          --health-cmd "pg_isready -U li_admf"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -716,7 +748,7 @@ jobs:
         # them). `nef` itself was missing from this list until ADR-0224 -- real root cause of the
         # NEF*Integration test cascade misdiagnosed in ADR-0222/ADR-0223 as an HTTP/2-layer hang;
         # see ADR-0224 for the full disclosure.
-        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf provisioning udsf
+        run: ./scripts/gen-lab-pki.sh nrf hello-nf amf smf udm udr ausf pcf nef nsacf chf upf product-catalog subscriber-management roaming-interconnect nwdaf balance-management bsf eir gmlc lmf nssf scp smsf mfaf dccf adrf li-mdf li-admf provisioning udsf
 
       - name: Apply UDR PostgreSQL schema (ADR-0068)
         run: docker exec -i ${{ job.services['postgres-udr'].id }} psql -U udr -d udr < nfs/udr/schema.postgres.sql
@@ -813,6 +845,8 @@ jobs:
           ADRF_DATA_STORE_HOST: 127.0.0.1
           ADRF_DATA_STORE_PORT: "19030"
           ADRF_ML_MODEL_STORE_DATABASE_URL: postgresql://adrf:adrf@localhost:15438/adrf
+          # ADR-0462: the li-admf suite and the li-admf process it spawns share this one database.
+          LI_ADMF_DATABASE_URL: postgresql://li_admf:li_admf@localhost:15439/li_admf
           # ADR-0365: the MFAF test spawns two MFAF replicas on the CI Kafka; under TSan the test skips itself.
           MFAF_EVENT_BUS_BROKERS: 127.0.0.1:19092
           NWDAF_FEATURE_STORE_HOST: 127.0.0.1

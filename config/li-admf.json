@@ -1,0 +1,23 @@
+{
+  "hi1_port": 7808,
+  "metrics_bind_address": "0.0.0.0:9492",
+  "database_url": "postgresql://li_admf:li_admf@127.0.0.1:5439/li_admf",
+  "db_pool_size": 4,
+  "public_base_url": "https://127.0.0.1:7808",
+  "endpoint_id": {
+    "country_code": "GB",
+    "unique_identifier": "CSP-5GC-R19"
+  },
+  "national_profile": {
+    "owner": "XX",
+    "version": "v1.0"
+  },
+  "supported_etsi_versions": ["V1.23.1"],
+  "lea_bindings": [
+    {
+      "peer_cert_cn": "lea-sim",
+      "country_code": "GB",
+      "unique_identifier": "LEA-SIM-01"
+    }
+  ]
+}

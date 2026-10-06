@@ -33940,3 +33940,30 @@ writer refuses an invalid message. **Negative control run:** with insertion forc
 fails with the schema's own "AuthorisationDesiredStatus: This element is not expected".
 **Disclosed.** XML only (decision 1); the Dictionaries element of a GETCSPCONFIG response is not modelled; LD/LP/
 TD/TrafficPolicy/IRIPolicy objects parse as `ObjectType::Other` and round-trip but have no typed view.
+
+**ADR-0462, step 3 (2026-10-06): the `li-admf` skeleton.** `nfs/li-admf` (a static `li_admf_core` library plus the `li-admf`
+binary): the LI_HI1 receiver over the sbi_core TLS 1.3 + mTLS HTTP/2 server, `Hi1Service` (transport-independent
+message handling), `Hi1Store` (the PostgreSQL warrant store on the shared bounded `PgPool`), `config/li-admf.json`,
+`nfs/li-admf/schema.sql`, and a dedicated `postgres-li` database (compose + both CI service blocks, port 5439 / 15439).
+Behaviour implemented now: transport authentication (the mTLS client certificate CN must be a configured
+`lea_bindings` entry, else HTTP 403 before the message layer -- 9.3.4), XML-only encoding (3019 otherwise), schema
+validation (3020, the reply addressed to the sender with ITS transaction id, 6.2.5), ETSIVersion check (3021 listing
+the supported versions, D.1), ReceiverIdentifier == this CSP and SenderIdentifier == the EndpointID the peer is onboarded
+as (Annex D has no code for either; 3007 "improper value" is the closest and is cited in the description), Action
+Identifiers 0,1,2,... (6.4.4: duplicate -> 3002, otherwise 3007, top-level, before any action), GETCSPCONFIG (the six
+LI workflow endpoints at their table H.0b paths under `public_base_url`, and the ETSI-defined target formats the AMF POI
+can match), an append-only `hi1_audit` row for EVERY exchange including refusals, and a 503 -- not an unaudited
+answer -- if the audit write fails. HTTP status is 200 for every HI1 outcome (9.3.3), 403 only for an unbound peer.
+**Interim, stated plainly:** every action other than GETCSPCONFIG is answered 3001 (feature not supported) until step 4
+lands the six H.5 workflows -- a warrant that is acknowledged but not acted on is the worst failure an LI system can
+have, so nothing is silently accepted in the meantime.
+Facts worth keeping: the `<SERVICE>_CONFIG_FILE` override keeps hyphens (`LI-ADMF_CONFIG_FILE`, the same convention as
+`OAM-GUI-BFF_CONFIG_FILE`) -- a test that set `LI_ADMF_CONFIG_FILE` silently ran the real config on the real port; and
+pqxx 8 returns proxy types (`field_ref`/`row_ref`), so row helpers must be templates.
+**Proof.** `li_admf_integration_tests` (13): 8 service tests (config, unbound peer, JSON, unparseable + schema-invalid,
+version, identities, action ids, un-implemented actions refused), 4 store tests against real PostgreSQL (duplicate
+identifier, optimistic replace, composable bound-parameter list filters incl. a SQL-looking value, audit append) and
+the real process over real HTTPS + mTLS (GETCSPCONFIG, a workflow path, garbage -> 3020 over HTTP 200, a valid-but-
+unbound certificate -> 403, and exactly 4 audit rows for the 4 exchanges). **Disclosed.** Step 3's `lea_bindings` is
+the whole LEA authorisation model (no per-endpoint ACL by workflow); the GETCSPCONFIG `LastChanged` is the process
+start time; no Docker image / compose service / Helm chart for the ADMF process itself yet (step 6).

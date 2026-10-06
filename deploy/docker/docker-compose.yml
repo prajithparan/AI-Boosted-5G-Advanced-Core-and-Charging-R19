@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf udsf keycloak oam-gui-bff"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-admf udsf keycloak oam-gui-bff"
 
   nrf:
     build:
@@ -541,6 +541,25 @@ services:
       - "5438:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U adrf"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ADR-0462: the ADMF's warrant store -- its own PostgreSQL, a separate security domain from every
+  # NF/BSS datastore (TS 33.127 5.6), because warrants and legal documents are durable records.
+  postgres-li:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: li_admf
+      POSTGRES_PASSWORD: li_admf
+      POSTGRES_DB: li_admf
+    volumes:
+      - postgres_li_data:/var/lib/postgresql/data
+      - ../../nfs/li-admf/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U li_admf"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -1254,4 +1273,5 @@ volumes:
   postgres_chf_data:
   postgres_udr_data:
   postgres_adrf_data:
+  postgres_li_data:
   nwdaf_training_data:   # ADR-0369: the MTLF's trained models, reports and MLflow lineage
