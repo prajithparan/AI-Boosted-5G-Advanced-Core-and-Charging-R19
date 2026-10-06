@@ -21,14 +21,6 @@ and the CHF**. Target: a production-grade, spec-traceable reference
 implementation (raised from the original lab-grade scope — see ADR-0009 in
 `docs/DECISIONS.md`).
 
-The charging half, named precisely rather than by a label that would have to be
-qualified: the CHF of TS 32.290/32.291, plus the online-charging interfaces it
-terminates — Diameter Gy credit-control (RFC 4006 / TS 32.299) with quota
-management and re-authorization, Sy spending limits (TS 29.219), and CAMEL/CAP
-for the legacy voice estate. "OCS" is deliberately NOT used as the title: TS
-32.296 defines an Online Charging System as its own network function, this does
-not implement that, and a title should not need a footnote to be true.
-
 ## Source of truth (strict)
 
 - 3GPP OpenAPI YAML (REL-19) is the ONLY source for API shapes, paths,
@@ -63,49 +55,25 @@ not implement that, and a title should not need a footnote to be true.
 
 - **Build/tooling**: CMake 3.28+, Ninja, vcpkg (manifest mode),
   clang-format, clang-tidy, sanitizers (ASan/UBSan/TSan) in CI.
-- **Codegen**: openapi-generator (cpp-restsdk / cpp-pistache targets) OR a
-  custom Jinja generator — evaluated with evidence in Phase 1, not guessed.
 - **HTTP/2 + SBI**: nghttp2 (core), Boost.Beast or Pistache (service
   layer), libcurl (client), OpenSSL 3.x (TLS 1.3, mTLS).
-- **JSON**: nlohmann/json (ergonomics/GUI/config) + simdjson (hot parse
-  paths/telemetry) — benchmark before choosing per path.
-- **Async/runtime**: Boost.Asio (or libuv), lock-free MPMC queue,
-  thread-per-core where it measurably helps.
-- **PFCP/N4 + UP**: libpfcp-style codec (implement if none suitable);
-  DPDK, VPP, or eBPF/XDP for the UPF datapath — evaluate and justify.
-- **Storage**: Redis/Valkey (UDSF, session cache), PostgreSQL (UDR),
-  Apache Doris (CDR/analytics — ADR-0192 records the migration and the
-  full engine comparison), Kafka or Redpanda (event bus).
-- **Observability**: OpenTelemetry C++, Prometheus exporter, spdlog,
-  Grafana.
 - **Testing**: GoogleTest, Catch2, gMock, libFuzzer for codec fuzzing.
-- **GUI**: JSON-schema-driven. Backend exposes REST+WebSocket JSON; front
-  end renders dynamically from JSON Schema (React + JSON Forms, or Dear
-  ImGui + nlohmann/json for a native console) — both proposed, one
-  recommended in Phase 7.
-- **AI/ML**: ONNX Runtime (in-process C++ inference), optionally NVIDIA
-  Triton, MLflow (tracking), Kubeflow or Flyte (pipelines), Kafka
-  (feature stream). Training may use a Python sidecar; inference must be
-  in-process C++, never a Python call at runtime.
 - **Deployment**: Docker + Compose (lab), Helm charts (k8s), all
   reproducible from a single `make lab-up`.
+
+Remaining stack bullets (Codegen, JSON, Async, PFCP/UP, Storage, Observability, GUI, AI/ML): `docs/project-context/tech-stack-details.md`.
 
 ## Scope: Network Functions (R19)
 
 - **Tier 1** (must, Phase 2-3): NRF, AMF, SMF, UPF, PCF, UDM, UDR, AUSF,
   NSSF, NEF, SCP, BSF, CHF.
-- **Tier 2** (Phase 4): NWDAF (AnLF + MTLF), DCCF, ADRF, MFAF, NSACF,
-  TSCTSF, EASDF, UCMF, SMSF, 5G-EIR, LMF, GMLC, NSSAAF, AAnF, UDSF, SEPP
-  (vSEPP/hSEPP + N32).
-- **Tier 3** (Phase 5, R17-R19 features): MB-SMF/MB-UPF/MBSF/MBSTF
-  (5MBS), AIOTF (Ambient IoT, TS 23.369), PKMF/PAnF/SLPKMF
-  (ProSe + SL positioning), IMS AS + MF (Data Channel), MSGin5G, MNPF,
-  PIN server, SEAL/SEALDD, ADAES, CAPIF, EIF (N110-N114).
 - **Reference points**: every reference point in TS 23.501 §4.2.7 that is
   in scope for the implemented NFs, N1-N115. The numbering is sparse by
   design (N25, N39, N53-54, N64, N69, N72-79, N98 never assigned;
   N44-49/N100-109 reserved to TS 32.240; N90-95 to TS 23.503). Never
   invent numbers to fill gaps.
+
+Tier 2 / Tier 3 lists: `docs/project-context/scope-tier2-tier3.md`.
 
 ## Charging domain: 3GPP + TM Forum SID
 
@@ -116,84 +84,25 @@ not implement that, and a title should not need a footnote to be true.
   entities (Product, Service, Resource, Customer, Party, Agreement,
   ProductOffering, ProductPrice, AppliedCustomerBillingRate, CustomerBill,
   BalanceTopUp, Event), exposed via TMF620/622/632/633/635/637/638/639/651/
-  654/666/676/678/688/727. (Extended 2026-08-10 from the original 620/622/
-  632/635/637/666/676/678/727: `docs/CHARGING_MAPPING.md`'s research found
-  Service, Resource, Agreement, and BalanceTopUp each have a real
-  TM-Forum-designated home API that wasn't in the original list -- TMF633/638
-  (Service Catalog/Inventory, mirroring the existing Product Catalog=620/
-  Inventory=637 split), TMF639 (Resource Inventory), TMF651 (Agreement),
-  TMF654 (Prepay Balance) -- added rather than leaving those 4 SID entities
-  without a home API. Also note: TMF727 is Service Usage Management, not
-  Product Offering Qualification as an earlier reference implied -- that's
-  TMF679, not currently in scope. Extended again same day: `Event` (named in
-  PROMPT.md's fuller SID list but dropped from this file's condensed one) has
-  a real home, TMF688 Event Management -- added, asked and approved, same as
-  the first four. `CustomerOrder` and `Policy` remain named in PROMPT.md but
-  not here; `Policy`'s real TMF723 API is confirmed by name/number but no
-  public source for its field list was found (flagged, not resolved) --
-  neither added without being asked first.)
+  654/666/676/678/688/727.
+  (TM Forum API extension history: `docs/project-context/tmforum-extension-history.md`.)
 - Deliverable before any mapping code: `docs/CHARGING_MAPPING.md` — an
   explicit, reviewable table of 3GPP CDR field -> SID entity -> TMF API
   resource. Ambiguous mappings are marked TODO and asked about, never
   silently invented. Align to TM Forum ODA component boundaries so the
   BSS layer could be swapped for a commercial stack.
 
-## AI pipelines (NWDAF-centric)
-
-- NWDAF split into AnLF (analytics logic) and MTLF (model training logic)
-  per TS 23.288: `Nnwdaf_EventsSubscription`, `AnalyticsInfo`,
-  `DataManagement`, `MLModelProvision`, `MLModelTraining`,
-  `MLModelMonitor`.
-- Data plane: NFs emit events -> Kafka -> feature store -> training
-  (Python sidecar, training ONLY) -> ONNX artifact -> in-process C++
-  inference in AnLF via ONNX Runtime.
-- At least three working analytics: (1) NF load prediction, (2)
-  abnormal-behaviour/anomaly detection, (3) slice SLA / service-experience
-  prediction. R19 additions: energy-efficiency analytics, a
-  vertical-federated-learning (VFL) hook.
-- Every model versioned in MLflow with training-data lineage and an
-  explicit drift-monitoring path via `Nnwdaf_MLModelMonitor`.
-- Optional agentic layer: an MCP server exposing read-only NF state and
-  analytics as tools. Read-only by default; any write/config action
-  requires explicit human approval in the loop.
-
 ## Definition of done (per NF)
 
-1. API generated from the R19 YAML, with source file + branch cited.
-2. NRF registration/discovery/heartbeat working, OAuth2 token validated.
-3. All mandatory TS 23.502 procedures for that NF implemented + tested.
-4. `ProblemDetails` error handling per TS 29.500.
-5. OpenTelemetry spans + Prometheus metrics emitted.
-6. Conformance test against the generated OpenAPI schema (request AND
-   response).
+Nine items; full text in `docs/project-context/definition-of-done.md` (skill `new-nf-checklist`). The one always-visible rule:
+
 7. Docker image + Compose entry + Helm chart. The compose entry's own
    `volumes:` MUST include `- ../../config:/build/config:ro` from the
    moment it is written -- never discovered missing later by a crash
    (ADR-0453, user-directed, mandatory: this class of mistake, a fresh
    NF container unable to even start because no mechanism ever shipped
    it its own `config/<nf>.json`, found live across ~25 of 28 existing
-   NF services and must never recur). A Dockerfile `COPY`ing the config
-   file into the image is not an acceptable substitute -- the bind
-   mount is the one, only mechanism, so a config edit takes effect on
-   restart without an image rebuild, same as every other runtime value
-   in this project.
-8. Spec-traceability doc entry: procedure -> TS clause -> source file ->
-   test.
-9. Architecture diagram and product/license table in `README.md` updated:
-   the NF's box goes from dashed to solid, new datastores/products get a
-   row with their real license (conventions in `docs/ARCHITECTURE.md`).
-
-## Phase 9 — production documentation (recorded, deferred)
-
-User-directed 2026-09-14: after the build phases, deliver the professional,
-industry-standard documentation set a telco needs to deploy and operate this
-in production, covering every component -- architecture and interface
-reference, installation/deployment, a complete configuration reference (every
-config key, env override, default), operations runbook, charging operations,
-security/compliance, observability, AI/ML operations, troubleshooting, API
-reference from the YAML, per-NF conformance statements. Docs-as-code from
-this repository, never written ahead of the shipped code. Full text in
-`PROMPT.md` Phase 9.
+   NF services and must never recur).
 
 ## Working style for this project
 
@@ -222,117 +131,20 @@ this repository, never written ahead of the shipped code. Full text in
 5. If unsure whether something is correct, say so plainly rather than
    producing confident code.
 
-## Project decisions (resolved at kickoff)
+## Context discipline
 
-- **Build strategy**: Greenfield. No fork of Open5GS or free5GC; they are
-  reference reading only, not a starting codebase.
-- **Spec source**: R19 OpenAPI YAML confirmed present, archive commit
-  `bca84b60a37773133bcae97e5c6c0d10a93b47b6`, branch REL-19, release
-  status Frozen, API version March 2026. 531 files. To be extracted into
-  `specs/5G_APIs-REL-19/` with the commit hash recorded in
-  `docs/DECISIONS.md` and `docs/TRACEABILITY.md`.
-- **Phase 2 order**: full brief order — NRF -> AMF -> SMF -> UDM -> UDR ->
-  AUSF -> PCF — ending with UE registration (TS 23.502 §4.2.2.2.2) and PDU
-  session establishment (§4.3.2.2.1) end-to-end. No narrowed slice.
-- **Hosting/license**: public GitHub repository, Apache-2.0 license
-  (patent grant matters for a standards-adjacent project with likely
-  corporate forks/contributors).
-- **Dev environment**: bare-metal Ubuntu 24.04, MX450 GPU, CUDA 12.6.
-  Not WSL2/VM. UPF datapath and serious model training will still want a
-  larger lab tier when the time comes (see Reality check below).
-- **CI**: GitHub-hosted free runners. Sanitizer (ASan/UBSan/TSan) and
-  libFuzzer jobs must be designed to fit free-tier time/resource limits —
-  keep them fast and targeted rather than exhaustive; revisit if runners
-  become a bottleneck.
-- **Cadence**: long-running, multi-session project worked in small
-  increments — one NF or one subsystem per turn, matching the working
-  style rules above. Not an accelerated single-shot demo.
-- **AI/ML compute**: local MX450 is not the ceiling — larger training
-  compute is expected later. Design the training-sidecar interface
-  (Phase 5) to be swappable (e.g. pluggable backend/executor) rather than
-  hardcoding for toy-scale local training only.
+- Never Read `docs/DECISIONS.md` content whole, nor `PROMPT.md`, `CHARGING_PROMPT.md`, `README.md`, `docs/TRACEABILITY.md`.
+- ADRs: `docs/DECISIONS.md` is an index; `docs/decisions/INDEX_DETAIL.md` has status/date/decision. Then `grep -n "^## ADR-0xxx"` and Read the one file with offset/limit.
+- Specs: grep the schema name, then Read only that range (skill `spec-lookup`). Never Read a generated header or a spec YAML whole.
 
-## Reality check
+## Compact instructions
 
-- A conformant multi-NF 5GC is a multi-engineer, multi-quarter program.
-  Open5GS and free5GC each represent years of work, and neither covers
-  R19. The target is production-grade (ADR-0009), which is a
-  substantially larger undertaking than the project's original lab-grade
-  framing — treat every phase's Definition of Done as the real bar, not
-  an aspiration: full procedure coverage, real TLS/mTLS, no permanent
-  stubs. A single solo session will not get there in one pass; this is
-  still built incrementally, phase by phase, NF by NF — the destination
-  changed, not the pace.
-- Build-vs-fork (study/fork Open5GS (C) or free5GC (Go) vs. greenfield)
-  is a first-order decision affecting project economics — resolved
-  greenfield (ADR-0001).
-- Dev machine (MX450, CUDA 12.6) is fine for control-plane dev and ONNX
-  inference; UPF datapath and serious model training will want a larger
-  lab tier.
-- Known debt against the production-grade bar, tracked in
-  `docs/DECISIONS.md` ADR-0009: Phase 0's h2c-only transport (no
-  TLS/mTLS yet), the synchronous HTTP/2 client, and ~40 outstanding
-  `clang-tidy` style warnings. None of these are acceptable as a final
-  state anymore. (The "unsigned fake OAuth2 token" once listed here is
-  resolved: tokens are ES256-signed JWTs, `libs/sbi-core/src/jwt.cpp`.
-  The h2c-only transport is likewise resolved: every SBI is TLS 1.3 +
-  mTLS. Verified during the 33-series review, `docs/SECURITY_COMPLIANCE.md`.)
+When compacting, preserve: ADR numbers touched this session, the approved TS 23.502 procedure list, failing test names, disclosed stubs and simplifications, open questions.
 
-## Commercialization mandate (ADR-0049, user-directed, mandatory)
+## Session start
 
-- Intent is to commercialize this system. Two concrete requirements: (1)
-  performance and reliability must **exceed** free5GC, not just match it;
-  (2) CHF and every other component must be tested as carrier-grade
-  products against real standards/frameworks, not just this project's own
-  conformance tests against the 3GPP OpenAPI schemas.
-- Stated honestly, not softened: as of ADR-0049, **zero benchmarking of
-  any kind** has been performed against free5GC or anything else. Known
-  debt that blocks a meaningful performance claim: the synchronous HTTP/2
-  client (ADR-0009), no HA/clustering across NF instances, no
-  benchmarking/load-generation harness (Phase 8's synthetic traffic
-  generator is the intended home, not started).
-- Carrier-grade test framework selected (ADR-0238, 2026-08-30): **3GPP
-  TS 28.552** (5G performance measurements) + **TS 28.554** (5G
-  end-to-end KPIs) — real, current-through-R19 specs that measure 5G
-  Core network functions themselves. ETSI NFV-TST/NFV-REL (ADR-0049's
-  original named candidates) were investigated and found to target the
-  ETSI NFV-MANO virtualization/orchestration layer (VNF lifecycle
-  management), which this project has no plans to build (deployment is
-  plain Docker Compose/Helm, no MANO layer) — corrected, not silently
-  kept. Standard telecom "five nines" HA convention remains informal
-  industry context only, unchanged.
-- This does not retroactively make anything already built carrier-grade
-  or proven superior to free5GC — no such claim exists anywhere in this
-  codebase yet. The Reality check above (multi-engineer, multi-quarter
-  program; "carrier-grade" is a destination reached through conformance
-  and soak testing, not a label applied at commit time) still stands and
-  is not contradicted by this mandate.
+Read CLAUDE.md, the `docs/DECISIONS.md` index, the last 5 ADR files in `docs/decisions/` and the tail of `docs/TRACEABILITY.md`. This replaces the context-reset prompt in `PROMPT.md`.
 
-## Charging data-plane consistency/performance (ADR-0445, 2026-10-02)
-
-- An external architecture review (not an Anthropic/Claude model; see
-  `docs/DECISIONS.md` ADR-0445 for provenance) of CHF/UDR/balance-management's
-  persistence and performance was independently verified fact-by-fact against
-  HEAD before anything in it was acted on — every claim checked out true.
-  Decision: PostgreSQL stays authoritative for balance/ledger (ADR-0445's
-  "Option 1"); Valkey carries only non-monetary, rebuildable session state.
-  Rejected for now, revisit only with measured evidence: moving balance
-  authority into Valkey (ADR-0445's Options 2/3).
-- New known debt this surfaced, tracked in ADR-0445, not yet fixed: CHF's
-  per-session reserved-total (`ChargingDataStore::get_reserved_total`) lives
-  **only** in Valkey — PostgreSQL's `reserve_balance` ledger has no
-  `chargingDataRef` correlator, so it is not currently a rebuildable
-  projection; CHF rating does an N+1 SBI fetch per candidate
-  `ProductOfferingPrice`; Release/CCR-T/CAP settlement is unreserve-then-debit
-  as two independent calls, not one atomic operation; money is `double` in
-  C++ despite `NUMERIC` columns; UDR opens one PostgreSQL connection per
-  store object (~80, no pool) instead of using the `PgPool` CHF/BSS already
-  share; that shared `PgPool` itself blocks forever on exhaustion (no
-  deadline/backpressure/metrics); the 6-node Valkey Cluster (ADR-0443) has
-  AOF disabled and no NF points at it by default; no PostgreSQL
-  replication/failover in Compose; no migration/rollback framework for
-  domain DDL beyond first-init-only `docker-entrypoint-initdb.d` scripts.
-- Zero benchmark data exists for the charging data plane specifically
-  (distinct from ADR-0329's narrow NRF-only benchmark, which this is not).
-  No performance/HA claim about CHF may be made until ADR-0445's baseline
-  plan runs.
+## Moved context (verbatim; map in `docs/optimization/MOVE_LOG.md`)
+- `docs/project-context/`: `charging-title-rationale.md` (why "OCS" is not the title), `ai-pipelines.md` (NWDAF; training only in the Python sidecar, inference in-process C++), `phase9-production-documentation.md`, `kickoff-decisions.md`, `reality-check.md`, `commercialization-mandate.md` (ADR-0049), `adr-0445-charging-dataplane-debt.md`.
+- Adding an ADR: skill `adr-workflow` (`scripts/docs/new_adr.py`); never edit `docs/DECISIONS.md` by hand.
