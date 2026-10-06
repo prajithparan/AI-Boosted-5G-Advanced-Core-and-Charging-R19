@@ -1194,6 +1194,12 @@ void handle_handover_notify(ngap_core::SctpSocket& target_assoc,
     // Notify (Inter NG-RAN node N2 based handover procedure described in TS 23.502 [4] clause
     // 4.9.1.3)". The location is the notification's mandatory UserLocationInformation (the target
     // cell the UE has arrived in). No-op unless LI is enabled and this SUPI is a target.
+    if (LiPoi* poi = li_poi(); poi != nullptr) {
+        // ADR-0461: keep the POI's last-known location current for every UE.
+        if (const auto location = user_location_from_ies(container)) {
+            poi->note_location(ctx->supi, *location);
+        }
+    }
     if (LiPoi* poi = li_poi(); poi != nullptr && poi->is_target(ctx->supi)) {
         if (const auto location = user_location_from_ies(container)) {
             poi->report_location_update(ctx->supi, *location);

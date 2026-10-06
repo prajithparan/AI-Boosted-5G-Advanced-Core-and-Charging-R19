@@ -388,6 +388,39 @@ TEST(Xiri, AmfStartOfInterceptionWithRegisteredUeRoundTrips) {
     EXPECT_FALSE(xiri::encode_xiri_payload(soi).has_value());
 }
 
+// ADR-0461: the two C members the AMF POI now fills -- location and timeOfRegistration.
+TEST(Xiri, AmfStartOfInterceptionCarriesLocationAndUtcTimeOfRegistration) {
+    xiri::AmfStartOfInterceptionWithRegisteredUE soi;
+    soi.supi = xiri::Imsi{"999700000000001"};
+    soi.guti = {"999", "70", 2, 1, 1, 0x01020304};
+    xiri::NrLocation nr;
+    nr.tai = {{"999", "70"}, {0x00, 0x00, 0x01}};
+    nr.ncgi = {{"999", "70"}, 0x2A};
+    soi.location = xiri::Location{xiri::UserLocation{nr, std::nullopt}};
+    soi.time_of_registration = "20261006073000Z";
+
+    const auto bytes = xiri::encode_xiri_payload(soi);
+    ASSERT_TRUE(bytes.has_value()) << bytes.error();
+    const auto decoded = xiri::decode_xiri_payload(*bytes);
+    ASSERT_TRUE(decoded.has_value()) << decoded.error();
+    ASSERT_TRUE(
+        std::holds_alternative<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event));
+    EXPECT_EQ(std::get<xiri::AmfStartOfInterceptionWithRegisteredUE>(decoded->event), soi);
+
+    // Absent members stay absent (the M-only form round-trips unchanged).
+    soi.location.reset();
+    soi.time_of_registration.reset();
+    const auto bare = xiri::encode_xiri_payload(soi);
+    ASSERT_TRUE(bare.has_value()) << bare.error();
+    const auto bare_decoded = xiri::decode_xiri_payload(*bare);
+    ASSERT_TRUE(bare_decoded.has_value());
+    EXPECT_EQ(std::get<xiri::AmfStartOfInterceptionWithRegisteredUE>(bare_decoded->event), soi);
+
+    // 6.2.2.2.5 requires UTC or offset-from-UTC, never local time: a string without 'Z' is refused.
+    soi.time_of_registration = "20261006073000";
+    EXPECT_FALSE(xiri::encode_xiri_payload(soi).has_value());
+}
+
 // TS 33.128 clause 6.2.2.2.4 -- the AMFLocationUpdate xIRI, exercising the Location codec through
 // the NGAP user-location path (Location.locationInfo.userLocation).
 TEST(Xiri, AmfLocationUpdateRoundTripsNrAndEutraUserLocation) {

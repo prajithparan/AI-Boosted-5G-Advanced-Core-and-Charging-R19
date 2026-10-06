@@ -44,6 +44,7 @@ enum class AmfXiriRecord : std::uint8_t {
     IdentifierAssociation,
     IdentifierDeassociation,
     Deregistration,
+    StartOfInterception,
 };
 
 // TS 33.128 clause 6.2.2.2.1, as a pure function:
@@ -146,6 +147,22 @@ public:
     report_identifier_deassociation(const std::string& supi,
                                     const GutiParts& guti,
                                     const std::optional<li_core::xiri::UserLocation>& location);
+
+    // --- Registered-UE state for AMFStartOfInterceptionWithRegisteredUE (ADR-0461) -------------
+    // TS 33.128 6.2.2.2.5 needs the POI to know which UEs are 5GMM-REGISTERED when a warrant is
+    // activated later. The AMF pushes that state in at the points where it already knows it; the
+    // POI keeps it in-process (disclosed: lost on AMF restart, to move to Valkey with the P11 state
+    // externalisation). Every call is a cheap map update, made for ALL UEs (not only targets),
+    // because the target may be provisioned after the UE registered.
+    //
+    // note_registered MUST be called before report_registration/is_target for the same UE, so a
+    // warrant activated concurrently with the registration is caught by at least one of the two
+    // paths (a tiny window can produce both -- an over-report, never a miss; disclosed).
+    void note_registered(const std::string& supi,
+                         const GutiParts& guti,
+                         const std::optional<li_core::xiri::UserLocation>& location);
+    void note_location(const std::string& supi, const li_core::xiri::UserLocation& location);
+    void note_deregistered(const std::string& supi);
 
 private:
     struct Impl;

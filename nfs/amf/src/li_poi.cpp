@@ -9,6 +9,8 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cstring>
 #include <ctime>
 #include <mutex>
@@ -110,6 +112,8 @@ const char* record_name(AmfXiriRecord record) {
             return "AMFIdentifierDeassociation";
         case AmfXiriRecord::Deregistration:
             return "AMFDeregistration";
+        case AmfXiriRecord::StartOfInterception:
+            return "AMFStartOfInterceptionWithRegisteredUE";
     }
     return "AMF xIRI";
 }
@@ -131,6 +135,17 @@ li_core::xiri::Location to_xiri_location(const li_core::xiri::UserLocation& user
     li_core::xiri::Location loc;
     loc.user_location = user_location;
     return loc;
+}
+
+// "YYYYMMDDHHMMSSZ" -- a GeneralizedTime in UTC (TS 33.128 table 6.2.2.2.5-1 timeOfRegistration:
+// "qualified with time zone information, i.e. as UTC or offset from UTC, not as local time").
+std::string utc_generalized_time_now() {
+    const std::time_t now = std::time(nullptr);
+    std::tm tm{};
+    gmtime_r(&now, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d%H%M%SZ", &tm);
+    return buf;
 }
 
 // The xIRI's SUPI: TS 33.128 NOTE 1 of tables 6.2.2.2.7-1/-2 -- "SUPI shall always be provided".
@@ -198,6 +213,9 @@ struct LiPoi::Impl {
             return li_core::x1::ErrorCode::XidAlreadyExists; // table 6.7-3: 2010
         }
         tasks.emplace(details.xid, Task{details.targets, gating_of(details)});
+        // TS 33.128 6.2.2.2.5: a newly activated interception on an already-registered UE.
+        // Queued, not run here: this is the X1 request path, and the X2 send may have to connect.
+        enqueue_start_of_interception(details.xid, details.targets);
         return std::nullopt;
     }
 
@@ -205,10 +223,28 @@ struct LiPoi::Impl {
         if (details.xid.empty() || details.targets.empty()) {
             return li_core::x1::ErrorCode::GenericError;
         }
-        const std::lock_guard<std::mutex> lock(store_mutex);
-        // A ModifyTask carries a full TaskDetails, so it replaces the gating too: adding,
-        // changing or (by omitting the extension) removing IdentifierAssociationExtensions.
-        tasks[details.xid] = Task{details.targets, gating_of(details)};
+        std::vector<li_core::x1::TargetIdentifier> added;
+        {
+            const std::lock_guard<std::mutex> lock(store_mutex);
+            // A target identifier the warrant did not carry before is "a new interception for a
+            // UE" (ADR-0461 decision 2); one it already carried is not.
+            const auto existing = tasks.find(details.xid);
+            for (const auto& target : details.targets) {
+                bool known = false;
+                if (existing != tasks.end()) {
+                    for (const auto& old : existing->second.targets) {
+                        known = known || (old.element == target.element && old.value == target.value);
+                    }
+                }
+                if (!known) {
+                    added.push_back(target);
+                }
+            }
+            // A ModifyTask carries a full TaskDetails, so it replaces the gating too: adding,
+            // changing or (by omitting the extension) removing IdentifierAssociationExtensions.
+            tasks[details.xid] = Task{details.targets, gating_of(details)};
+        }
+        enqueue_start_of_interception(details.xid, added);
         return std::nullopt;
     }
 
@@ -297,6 +333,87 @@ struct LiPoi::Impl {
             "amf-li-poi: delivered {} xIRI for target XID {}", record_name(record), matched.xid);
     }
 
+    // --- registered-UE state + AMFStartOfInterceptionWithRegisteredUE (ADR-0461) ---------------
+    struct RegisteredUe {
+        GutiParts guti;
+        std::optional<li_core::xiri::Location> location;
+        std::string time_of_registration; // UTC GeneralizedTime, REGISTRATION ACCEPT sent
+    };
+    struct Job {
+        std::string xid;
+        std::vector<li_core::x1::TargetIdentifier> targets;
+    };
+
+    void enqueue_start_of_interception(const std::string& xid,
+                                       const std::vector<li_core::x1::TargetIdentifier>& targets) {
+        if (targets.empty()) {
+            return;
+        }
+        {
+            const std::lock_guard<std::mutex> lock(job_mutex);
+            jobs.push_back(Job{xid, targets});
+        }
+        job_cv.notify_one();
+    }
+
+    // One job: for every newly targeted subscriber identity that is 5GMM-REGISTERED right now,
+    // emit one AMFStartOfInterceptionWithRegisteredUE under THIS task's XID only.
+    void process(const Job& job) {
+        for (const auto& target : job.targets) {
+            if (!is_subscriber_kind(target.kind)) {
+                continue;
+            }
+            const std::string bare = bare_identity(target.value);
+            RegisteredUe ue;
+            {
+                const std::lock_guard<std::mutex> lock(registry_mutex);
+                const auto it = registered.find(bare);
+                if (it == registered.end()) {
+                    continue; // not registered: nothing to start with
+                }
+                ue = it->second;
+            }
+            IdentifierAssociationGating gating{};
+            {
+                const std::lock_guard<std::mutex> lock(store_mutex);
+                const auto task = tasks.find(job.xid);
+                if (task == tasks.end()) {
+                    return; // deactivated before the worker got here
+                }
+                gating = task->second.gating;
+            }
+            if (!xiri_record_enabled(gating, AmfXiriRecord::StartOfInterception)) {
+                continue; // IdentifierAssociation-only warrant: "No other record types"
+            }
+            li_core::xiri::AmfStartOfInterceptionWithRegisteredUE soi;
+            // 3GPP access only: this AMF has no N3IWF/TNGF path (disclosed).
+            soi.registration_result = li_core::xiri::AmfRegistrationResult::ThreeGppAccess;
+            soi.supi = xiri_supi(target, bare);
+            soi.guti = to_xiri_guti(ue.guti);
+            soi.location = ue.location;
+            soi.time_of_registration = ue.time_of_registration;
+            emit(Match{job.xid, target, gating},
+                 soi,
+                 li_core::PayloadDirection::NotApplicable, // 6.2.2.2.5: Direction Value 5
+                 AmfXiriRecord::StartOfInterception);
+        }
+    }
+
+    void worker_loop() {
+        std::unique_lock<std::mutex> lock(job_mutex);
+        while (true) {
+            job_cv.wait(lock, [this] { return !running.load() || !jobs.empty(); });
+            if (!running.load()) {
+                return;
+            }
+            Job job = std::move(jobs.front());
+            jobs.pop_front();
+            lock.unlock();
+            process(job);
+            lock.lock();
+        }
+    }
+
     std::uint32_t next_sequence(const std::string& xid) {
         const std::lock_guard<std::mutex> lock(store_mutex);
         return sequence[xid]++;
@@ -343,6 +460,13 @@ struct LiPoi::Impl {
     std::mutex keepalive_mutex;
     std::thread keepalive_thread;
     std::atomic<bool> running{false};
+
+    std::mutex registry_mutex;
+    std::unordered_map<std::string, RegisteredUe> registered; // keyed by bare SUPI digits
+    std::mutex job_mutex;
+    std::condition_variable job_cv;
+    std::deque<Job> jobs;
+    std::thread worker_thread;
 };
 
 LiPoi::LiPoi(Config config) : impl_(std::make_unique<Impl>(std::move(config))) {}
@@ -377,6 +501,7 @@ void LiPoi::start() {
     sbi_core::stop_on_shutdown_signal(impl_->x1_ioc);
 
     impl_->running.store(true);
+    impl_->worker_thread = std::thread([this] { impl_->worker_loop(); });
     impl_->x1_thread = std::thread([this] { impl_->x1_ioc.run(); });
 
     impl_->keepalive_thread = std::thread([this] {
@@ -424,6 +549,13 @@ void LiPoi::stop() {
         return;
     }
     impl_->x1_ioc.stop();
+    {
+        const std::lock_guard<std::mutex> lock(impl_->job_mutex); // pair with the wait predicate
+    }
+    impl_->job_cv.notify_all();
+    if (impl_->worker_thread.joinable()) {
+        impl_->worker_thread.join();
+    }
     if (impl_->x1_thread.joinable()) {
         impl_->x1_thread.join();
     }
@@ -431,6 +563,32 @@ void LiPoi::stop() {
         impl_->keepalive_thread.join();
     }
     impl_->x2_client.disconnect();
+}
+
+void LiPoi::note_registered(const std::string& supi,
+                            const GutiParts& guti,
+                            const std::optional<li_core::xiri::UserLocation>& location) {
+    Impl::RegisteredUe ue;
+    ue.guti = guti;
+    if (location) {
+        ue.location = to_xiri_location(*location);
+    }
+    ue.time_of_registration = utc_generalized_time_now();
+    const std::lock_guard<std::mutex> lock(impl_->registry_mutex);
+    impl_->registered[bare_identity(supi)] = std::move(ue);
+}
+
+void LiPoi::note_location(const std::string& supi, const li_core::xiri::UserLocation& location) {
+    const std::lock_guard<std::mutex> lock(impl_->registry_mutex);
+    const auto it = impl_->registered.find(bare_identity(supi));
+    if (it != impl_->registered.end()) {
+        it->second.location = to_xiri_location(location);
+    }
+}
+
+void LiPoi::note_deregistered(const std::string& supi) {
+    const std::lock_guard<std::mutex> lock(impl_->registry_mutex);
+    impl_->registered.erase(bare_identity(supi));
 }
 
 bool LiPoi::is_target(const std::string& supi) const {

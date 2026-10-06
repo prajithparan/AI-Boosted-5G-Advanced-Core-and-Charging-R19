@@ -92,17 +92,6 @@ struct AmfRegistration {
     bool operator==(const AmfRegistration&) const = default;
 };
 
-// XIRIEvent.startOfInterceptionWithRegisteredUE [4] AMFStartOfInterceptionWithRegisteredUE --
-// TS 33.128 clause 6.2.2.2.5, table 6.2.2.2.5-1. Generated when LI is activated on a UE that is
-// already 5GMM-REGISTERED. Only the M members (registrationResult, sUPI, gUTI) here;
-// registrationType/slice and the rest are C/O, added when the AMF POI is wired to real state.
-struct AmfStartOfInterceptionWithRegisteredUE {
-    AmfRegistrationResult registration_result = AmfRegistrationResult::ThreeGppAccess;
-    Supi supi;
-    FiveGGuti guti;
-    bool operator==(const AmfStartOfInterceptionWithRegisteredUE&) const = default;
-};
-
 // --- TS 33.128 Location, the 5G NGAP user-location path ------------------------------------
 // Location is a SEQUENCE of seven OPTIONAL branches; the AMF POI reports the NGAP-sourced form,
 // Location.locationInfo.userLocation (table 6.2.2.2.4-1 form 1). Only that path is modelled here;
@@ -163,6 +152,22 @@ struct UserLocation {
 struct Location {
     std::optional<UserLocation> user_location;
     bool operator==(const Location&) const = default;
+};
+
+// XIRIEvent.startOfInterceptionWithRegisteredUE [4] AMFStartOfInterceptionWithRegisteredUE --
+// TS 33.128 clause 6.2.2.2.5, table 6.2.2.2.5-1. Generated when LI is activated on a UE that is
+// already 5GMM-REGISTERED. The M members (registrationResult, sUPI, gUTI) plus two C members the
+// AMF POI has real state for (ADR-0461): location (the last known user location) and
+// timeOfRegistration (REGISTRATION ACCEPT sent time, a GeneralizedTime in UTC -- the table requires
+// "time zone information, i.e. as UTC or offset from UTC, not as local time", so the codec accepts
+// only a string ending in 'Z'). registrationType/slice and the rest stay C/O, not modelled.
+struct AmfStartOfInterceptionWithRegisteredUE {
+    AmfRegistrationResult registration_result = AmfRegistrationResult::ThreeGppAccess;
+    Supi supi;
+    FiveGGuti guti;
+    std::optional<Location> location;
+    std::optional<std::string> time_of_registration; // "YYYYMMDDHHMMSSZ", UTC
+    bool operator==(const AmfStartOfInterceptionWithRegisteredUE&) const = default;
 };
 
 // XIRIEvent.deregistration [2] AMFDeregistration -- TS 33.128 clause 6.2.2.2.3, table

@@ -16,14 +16,16 @@
 // Registration
 // + IdentifierAssociation at RegistrationAccept, Deregistration + IdentifierDeassociation at
 // deregistration. A second test drives a real N2 handover (two gNBs, a real UPF) and asserts the
-// AMFLocationUpdate that HandoverNotify triggers (ADR-0460). Not covered here, disclosed:
-// LocationUpdate on N2 PathSwitchRequest, and StartOfInterceptionWithRegisteredUE (not wired).
+// AMFLocationUpdate that HandoverNotify triggers (ADR-0460), and a third registers a UE first and
+// activates warrants afterwards for AMFStartOfInterceptionWithRegisteredUE (ADR-0461). Not covered
+// here, disclosed: LocationUpdate on N2 PathSwitchRequest.
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/multipart.hpp"
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -138,7 +140,19 @@ sbi_core::http2::Client make_client(const char* nf) {
     return sbi_core::http2::Client(std::move(tls));
 }
 
-std::string x1_activate_all() {
+// `gating_xml` is the body of <taskDetailsExtensions>'s IdentifierAssociationExtensions element
+// ("All" / "IdentifierAssociation"), or empty to omit the extension (gating Absent).
+std::string x1_activate(const std::string& xid,
+                        const std::string& transaction_id,
+                        const std::string& gating) {
+    const std::string extension =
+        gating.empty() ? std::string()
+                       : "<tgpp:IdentifierAssociationExtensions "
+                         "xmlns:tgpp=\"urn:3GPP:ns:li:3GPPX1Extensions:r19:v4\">"
+                         "<tgpp:IdentifierAssociationEventsGenerated>" +
+                             gating +
+                             "</tgpp:IdentifierAssociationEventsGenerated>"
+                             "</tgpp:IdentifierAssociationExtensions>";
     return std::string(
                R"(<?xml version="1.0" encoding="UTF-8"?>
 <X1Request xmlns="http://uri.etsi.org/03221/X1/2017/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://uri.etsi.org/03280/common/2017/07">
@@ -148,10 +162,11 @@ std::string x1_activate_all() {
            kNeId + R"(</neIdentifier>
     <messageTimestamp>2026-10-05T00:00:00.000000Z</messageTimestamp>
     <version>v1.23.1</version>
-    <x1TransactionId>00000000-0000-4000-8000-0000000000e1</x1TransactionId>
+    <x1TransactionId>)" +
+           transaction_id + R"(</x1TransactionId>
     <taskDetails>
       <xId>)" +
-           kXid +
+           xid +
            R"(</xId>
       <targetIdentifiers>
         <targetIdentifier><supiimsi>)" +
@@ -161,13 +176,51 @@ std::string x1_activate_all() {
       <listOfDIDs><dId>22222222-2222-4222-8222-222222222222</dId></listOfDIDs>
       <taskDetailsExtensions>
         <Owner>3GPP</Owner>
-        <tgpp:IdentifierAssociationExtensions xmlns:tgpp="urn:3GPP:ns:li:3GPPX1Extensions:r19:v4">
-          <tgpp:IdentifierAssociationEventsGenerated>All</tgpp:IdentifierAssociationEventsGenerated>
-        </tgpp:IdentifierAssociationExtensions>
+        )" +
+           extension + R"(
       </taskDetailsExtensions>
     </taskDetails>
   </x1RequestMessage>
 </X1Request>)";
+}
+
+std::string x1_activate_all() {
+    return x1_activate(kXid, "00000000-0000-4000-8000-0000000000e1", "All");
+}
+
+// POSTs one ActivateTask and returns the response body ("" if the AMF never answered).
+std::string post_x1(sbi_core::http2::Client& admf, const std::string& body) {
+    sbi_core::http2::ClientRequest x1;
+    x1.method = "POST";
+    x1.url = kX1Url;
+    x1.headers.emplace("content-type", "application/xml");
+    x1.body = body;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (auto r = admf.send(x1); r.has_value() && r->status == 200) {
+            return r->body;
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+    return "";
+}
+
+std::array<std::uint8_t, 16> uuid_bytes(const std::string& uuid) {
+    std::array<std::uint8_t, 16> out{};
+    std::size_t n = 0;
+    int high = -1;
+    for (const char c : uuid) {
+        if (c == '-') {
+            continue;
+        }
+        const int v = (c >= 'a') ? (c - 'a' + 10) : (c >= 'A') ? (c - 'A' + 10) : (c - '0');
+        if (high < 0) {
+            high = v;
+        } else {
+            out[n++] = static_cast<std::uint8_t>((high << 4) | v);
+            high = -1;
+        }
+    }
+    return out;
 }
 
 void wait_for_sbi_peers(const std::vector<const char*>& urls) {
@@ -591,6 +644,117 @@ TEST(LiAmfEndToEnd, RealAmfEmitsLocationUpdateXiriOnN2HandoverNotify) {
         }
     }
     EXPECT_EQ(location_updates, 1);
+
+    mdf2_server.stop();
+}
+
+// ADR-0461: AMFStartOfInterceptionWithRegisteredUE (TS 33.128 6.2.2.2.5) through the real AMF. The
+// UE registers FIRST, with no warrant in place; the warrants are activated afterwards over real
+// LI_X1. Covers: the record's real content, per-XID scoping (an additional warrant gets its own
+// record, the first is not repeated), gating, and a UE that has since deregistered.
+TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnARegisteredUe) {
+    constexpr const char* kXidA = "a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1";
+    constexpr const char* kXidB = "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2"; // IdentifierAssociation-only
+    constexpr const char* kXidC = "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3"; // gating absent
+    constexpr const char* kXidD = "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4"; // after deregistration
+
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto amf_config = write_li_enabled_amf_config(mdf2_server.bound_port());
+    ::setenv("AMF_CONFIG_FILE", amf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ::unsetenv("AMF_CONFIG_FILE");
+    ASSERT_GT(amf.pid(), 0);
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+
+    // 1. The UE registers with NO warrant active: nothing may reach the MDF2.
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kRanUeId = 1;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kRanUeId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kRanUeId));
+    const std::uint32_t assigned_tmsi = tmsi_of(ue.guti_value);
+    std::this_thread::sleep_for(500ms);
+    ASSERT_EQ(mdf2.take().size(), 0u) << "no warrant yet -- nothing may be delivered";
+
+    // 2. Warrant A (All) is activated on the already-registered UE: exactly one
+    // AMFStartOfInterceptionWithRegisteredUE, under A's XID, with the UE's real state.
+    auto admf = make_client("amf");
+    const auto a_resp = post_x1(admf, x1_activate(kXidA, "00000000-0000-4000-8000-0000000000a1", "All"));
+    ASSERT_NE(a_resp.find("ActivateTaskResponse"), std::string::npos) << a_resp;
+    ASSERT_TRUE(mdf2.wait_for(1, 10s)) << "no StartOfInterception after activating on a registered UE";
+    std::this_thread::sleep_for(500ms);
+    {
+        const auto pdus = mdf2.take();
+        ASSERT_EQ(pdus.size(), 1u);
+        EXPECT_EQ(pdus[0].xid, uuid_bytes(kXidA));
+        EXPECT_EQ(pdus[0].payload_direction, li_core::PayloadDirection::NotApplicable);
+        const auto decoded = xiri::decode_xiri_payload(pdus[0].payload);
+        ASSERT_TRUE(decoded.has_value()) << decoded.error();
+        const auto* soi =
+            std::get_if<xiri::AmfStartOfInterceptionWithRegisteredUE>(&decoded->event);
+        ASSERT_NE(soi, nullptr) << "expected AMFStartOfInterceptionWithRegisteredUE";
+        EXPECT_EQ(soi->registration_result, xiri::AmfRegistrationResult::ThreeGppAccess);
+        EXPECT_EQ(imsi_digits(soi->supi), kTargetImsiDigits);
+        EXPECT_EQ(soi->guti.mcc, "999");
+        EXPECT_EQ(soi->guti.mnc, "70");
+        EXPECT_EQ(soi->guti.five_g_tmsi, assigned_tmsi)
+            << "gUTI differs from the 5G-GUTI the UE was actually assigned";
+        ASSERT_TRUE(soi->location.has_value());
+        expect_driver_cell(*soi->location);
+        ASSERT_TRUE(soi->time_of_registration.has_value());
+        EXPECT_EQ(soi->time_of_registration->size(), 15u) << *soi->time_of_registration;
+        EXPECT_EQ(soi->time_of_registration->back(), 'Z');
+    }
+
+    // 3. Warrant B is IdentifierAssociation-only: "No other record types" -> nothing.
+    const auto b_resp =
+        post_x1(admf, x1_activate(kXidB, "00000000-0000-4000-8000-0000000000b2", "IdentifierAssociation"));
+    ASSERT_NE(b_resp.find("ActivateTaskResponse"), std::string::npos) << b_resp;
+    std::this_thread::sleep_for(1500ms);
+    EXPECT_EQ(mdf2.take().size(), 1u) << "an IdentifierAssociation-only warrant got a StartOfInterception";
+
+    // 4. Warrant C (gating absent) is an ADDITIONAL warrant: its own record, A's not repeated.
+    const auto c_resp = post_x1(admf, x1_activate(kXidC, "00000000-0000-4000-8000-0000000000c3", ""));
+    ASSERT_NE(c_resp.find("ActivateTaskResponse"), std::string::npos) << c_resp;
+    ASSERT_TRUE(mdf2.wait_for(2, 10s));
+    std::this_thread::sleep_for(500ms);
+    {
+        const auto pdus = mdf2.take();
+        ASSERT_EQ(pdus.size(), 2u);
+        EXPECT_EQ(pdus[0].xid, uuid_bytes(kXidA));
+        EXPECT_EQ(pdus[1].xid, uuid_bytes(kXidC));
+    }
+
+    // 5. The UE deregisters (warrants A, B, C are all live, so Deregistration xIRIs follow).
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_deregistration_request(
+            ue.keys, /*uplink_count=*/3, ue.guti_value, /*switch_off=*/false)));
+    ASSERT_FALSE(gnb.receive_raw().empty()) << "no DeregistrationAccept";
+    ASSERT_FALSE(gnb.receive_raw().empty()) << "no UEContextReleaseCommand";
+    gnb.send_raw(gnb.build_ue_context_release_complete(ue.amf_ue_id, kRanUeId));
+    std::this_thread::sleep_for(2s); // let every Deregistration/Deassociation xIRI land
+    const auto before = mdf2.take().size();
+    ASSERT_GT(before, 2u) << "expected Deregistration xIRIs for the live warrants";
+
+    // 6. Warrant D on a UE that is no longer registered: no StartOfInterception.
+    const auto d_resp = post_x1(admf, x1_activate(kXidD, "00000000-0000-4000-8000-0000000000d4", "All"));
+    ASSERT_NE(d_resp.find("ActivateTaskResponse"), std::string::npos) << d_resp;
+    std::this_thread::sleep_for(1500ms);
+    EXPECT_EQ(mdf2.take().size(), before) << "a deregistered UE must not start an interception";
 
     mdf2_server.stop();
 }

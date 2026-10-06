@@ -1257,6 +1257,12 @@ void handle_path_switch_request(ngap_core::SctpSocket& assoc,
         // inter NG-RAN handover procedure described in TS 23.502 [4] clause 4.9.1.2)". Fired only
         // on the success path (the switch was acknowledged); the location is the request's own
         // mandatory UserLocationInformation, i.e. the target cell.
+        if (g_li_poi != nullptr) {
+            // ADR-0461: keep the POI's last-known location current for every UE.
+            if (const auto location = user_location_from_ies(container)) {
+                g_li_poi->note_location(ctx->supi, *location);
+            }
+        }
         if (g_li_poi != nullptr && g_li_poi->is_target(ctx->supi)) {
             if (const auto location = user_location_from_ies(container)) {
                 g_li_poi->report_location_update(ctx->supi, *location);
@@ -1714,11 +1720,21 @@ void handle_uplink_nas_transport_smc_complete(const PeerEndpoints& peers,
     //    whether the REGISTRATION ACCEPT ... procedure is subsequently successfully completed".
     //    The mandatory location is this UplinkNASTransport's own UserLocationInformation (TS
     //    38.413 makes it mandatory there): the UE's location as of the message the Accept answers.
+    //  - ADR-0461: the POI is told this UE is now 5GMM-REGISTERED (GUTI, location, accept time)
+    //    BEFORE the is_target check below, for every UE: a warrant activated later needs it for
+    //    AMFStartOfInterceptionWithRegisteredUE (6.2.2.2.5), and ordering it first means a warrant
+    //    activated concurrently is caught by at least one of the two paths.
+    const auto registration_location =
+        g_li_poi != nullptr
+            ? user_location_from_ies(msg.value.choice.UplinkNASTransport.protocolIEs)
+            : std::nullopt;
+    if (g_li_poi != nullptr) {
+        g_li_poi->note_registered(auth_state.supi, guti, registration_location);
+    }
     if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {
         g_li_poi->report_registration(auth_state.supi, guti);
-        if (const auto location =
-                user_location_from_ies(msg.value.choice.UplinkNASTransport.protocolIEs)) {
-            g_li_poi->report_identifier_association(auth_state.supi, guti, *location);
+        if (registration_location) {
+            g_li_poi->report_identifier_association(auth_state.supi, guti, *registration_location);
         } else {
             spdlog::warn("amf-li-poi: UplinkNASTransport UserLocationInformation is absent or an "
                          "unmodelled branch -- AMFIdentifierAssociation (location M) not emitted");
@@ -2305,6 +2321,12 @@ void handle_uplink_nas_transport_deregistration(const PeerEndpoints& peers,
     // trip already uses.
     send_ue_context_release_command(
         assoc, static_cast<unsigned long>(auth_state.amf_ue_id), CauseNas_deregister);
+
+    // ADR-0461: no longer 5GMM-REGISTERED -- a warrant activated from here on must not start with
+    // this UE (6.2.2.2.5).
+    if (g_li_poi != nullptr) {
+        g_li_poi->note_deregistered(auth_state.supi);
+    }
 
     // LI IRI-POI hooks. No-op unless LI is enabled and this SUPI is a provisioned target.
     if (g_li_poi != nullptr && g_li_poi->is_target(auth_state.supi)) {

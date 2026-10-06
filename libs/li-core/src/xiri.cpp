@@ -417,7 +417,35 @@ tl::expected<void, std::string> fill(AMFStartOfInterceptionWithRegisteredUE_t& o
     if (auto r = fill_supi(out.sUPI, src.supi); !r) {
         return r;
     }
-    return fill_guti(out.gUTI, src.guti);
+    if (auto r = fill_guti(out.gUTI, src.guti); !r) {
+        return r;
+    }
+    if (src.location) {
+        auto* loc = alloc_optional<Location_t>();
+        if (loc == nullptr) {
+            return tl::unexpected("Location allocation failed");
+        }
+        out.location = loc;
+        if (auto r = fill_location(*loc, *src.location); !r) {
+            return r;
+        }
+    }
+    if (src.time_of_registration) {
+        const std::string& t = *src.time_of_registration;
+        // GeneralizedTime in UTC: 14 digits then 'Z' (optionally with fractional seconds).
+        if (t.size() < 15 || t.back() != 'Z') {
+            return tl::unexpected("timeOfRegistration must be a UTC GeneralizedTime ending in 'Z'");
+        }
+        auto* ts = alloc_optional<Timestamp_t>();
+        if (ts == nullptr) {
+            return tl::unexpected("Timestamp allocation failed");
+        }
+        out.timeOfRegistration = ts;
+        if (OCTET_STRING_fromBuf(ts, t.data(), static_cast<int>(t.size())) != 0) {
+            return tl::unexpected("timeOfRegistration allocation failed");
+        }
+    }
+    return {};
 }
 
 tl::expected<AmfStartOfInterceptionWithRegisteredUE, std::string>
@@ -430,6 +458,13 @@ extract(const AMFStartOfInterceptionWithRegisteredUE_t& src) {
     }
     out.supi = *supi;
     out.guti = extract_guti(src.gUTI);
+    if (src.location != nullptr) {
+        out.location = extract_location(*src.location);
+    }
+    if (src.timeOfRegistration != nullptr) {
+        out.time_of_registration = std::string(
+            reinterpret_cast<const char*>(src.timeOfRegistration->buf), src.timeOfRegistration->size);
+    }
     return out;
 }
 
