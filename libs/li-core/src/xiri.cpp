@@ -25,6 +25,8 @@ extern "C" {
 #include <BIT_STRING.h>
 #include <ECGI.h>
 #include <EUTRALocation.h>
+#include <FTEID.h>
+#include <GPSI.h>
 #include <Location.h>
 #include <LocationInfo.h>
 #include <NCGI.h>
@@ -32,9 +34,17 @@ extern "C" {
 #include <NumericString.h>
 #include <OBJECT_IDENTIFIER.h>
 #include <OCTET_STRING.h>
+#include <PEI.h>
 #include <PLMNID.h>
 #include <RELATIVE-OID.h>
+#include <SMFPDUSessionEstablishment.h>
+#include <SMFPDUSessionModification.h>
+#include <SMFPDUSessionRelease.h>
+#include <SMFStartOfInterceptionWithEstablishedPDUSession.h>
+#include <SMFUnsuccessfulProcedure.h>
+#include <SNSSAI.h>
 #include <TAI.h>
+#include <UEEndpointAddress.h>
 #include <UserLocation.h>
 #include <XIRIPayload.h>
 #include <asn_codecs.h>
@@ -548,6 +558,598 @@ extract(const AMFIdentifierDeassociation_t& src) {
     return out;
 }
 
+// ---- SMF xIRI records (ADR-0463)
+// ------------------------------------------------------------------
+
+template <std::size_t N>
+int set_octets(OCTET_STRING_t& dst, const std::array<std::uint8_t, N>& bytes) {
+    return OCTET_STRING_fromBuf(
+        &dst, reinterpret_cast<const char*>(bytes.data()), static_cast<int>(N));
+}
+
+template <std::size_t N> std::array<std::uint8_t, N> to_array(const OCTET_STRING_t& src) {
+    std::array<std::uint8_t, N> out{};
+    for (std::size_t i = 0; i < N && i < static_cast<std::size_t>(src.size); ++i) {
+        out[i] = src.buf[i];
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill_fteid(FTEID_t& out, const Fteid& f) {
+    out.tEID = f.teid;
+    if (f.ipv4) {
+        auto* a = alloc_optional<IPv4Address_t>();
+        if (a == nullptr) {
+            return tl::unexpected("F-TEID IPv4 allocation failed");
+        }
+        out.iPv4Address = a;
+        if (set_octets(*a, *f.ipv4) != 0) {
+            return tl::unexpected("F-TEID IPv4 allocation failed");
+        }
+    }
+    if (f.ipv6) {
+        auto* a = alloc_optional<IPv6Address_t>();
+        if (a == nullptr) {
+            return tl::unexpected("F-TEID IPv6 allocation failed");
+        }
+        out.iPv6Address = a;
+        if (set_octets(*a, *f.ipv6) != 0) {
+            return tl::unexpected("F-TEID IPv6 allocation failed");
+        }
+    }
+    return {};
+}
+
+Fteid extract_fteid(const FTEID_t& src) {
+    Fteid f;
+    f.teid = static_cast<std::uint32_t>(src.tEID);
+    if (src.iPv4Address != nullptr) {
+        f.ipv4 = to_array<4>(*src.iPv4Address);
+    }
+    if (src.iPv6Address != nullptr) {
+        f.ipv6 = to_array<16>(*src.iPv6Address);
+    }
+    return f;
+}
+
+tl::expected<void, std::string> fill_snssai(SNSSAI_t& out, const Snssai& v) {
+    out.sliceServiceType = v.sst;
+    if (v.sd) {
+        auto* sd = alloc_optional<OCTET_STRING_t>();
+        if (sd == nullptr) {
+            return tl::unexpected("S-NSSAI SD allocation failed");
+        }
+        out.sliceDifferentiator = sd;
+        if (set_octets(*sd, *v.sd) != 0) {
+            return tl::unexpected("S-NSSAI SD allocation failed");
+        }
+    }
+    return {};
+}
+
+Snssai extract_snssai(const SNSSAI_t& src) {
+    Snssai v;
+    v.sst = static_cast<std::uint8_t>(src.sliceServiceType);
+    if (src.sliceDifferentiator != nullptr) {
+        v.sd = to_array<3>(*src.sliceDifferentiator);
+    }
+    return v;
+}
+
+tl::expected<void, std::string> fill_ue_endpoint(UEEndpointAddress_t& out, const UeEndpoint& e) {
+    int rc = 0;
+    if (const auto* v4 = std::get_if<std::array<std::uint8_t, 4>>(&e)) {
+        out.present = UEEndpointAddress_PR_iPv4Address;
+        rc = set_octets(out.choice.iPv4Address, *v4);
+    } else if (const auto* v6 = std::get_if<std::array<std::uint8_t, 16>>(&e)) {
+        out.present = UEEndpointAddress_PR_iPv6Address;
+        rc = set_octets(out.choice.iPv6Address, *v6);
+    } else {
+        out.present = UEEndpointAddress_PR_ethernetAddress;
+        rc = set_octets(out.choice.ethernetAddress, std::get<std::array<std::uint8_t, 6>>(e));
+    }
+    return rc == 0 ? tl::expected<void, std::string>{}
+                   : tl::unexpected("UE endpoint allocation failed");
+}
+
+tl::expected<UeEndpoint, std::string> extract_ue_endpoint(const UEEndpointAddress_t& src) {
+    switch (src.present) {
+        case UEEndpointAddress_PR_iPv4Address:
+            return UeEndpoint{to_array<4>(src.choice.iPv4Address)};
+        case UEEndpointAddress_PR_iPv6Address:
+            return UeEndpoint{to_array<16>(src.choice.iPv6Address)};
+        case UEEndpointAddress_PR_ethernetAddress:
+            return UeEndpoint{to_array<6>(src.choice.ethernetAddress)};
+        default:
+            return tl::unexpected("UEEndpointAddress CHOICE has no alternative");
+    }
+}
+
+// A SEQUENCE OF UEEndpointAddress (asn1c: a struct holding A_SEQUENCE_OF list).
+template <typename ListOwner>
+tl::expected<void, std::string> fill_endpoint_list(ListOwner& owner,
+                                                   const std::vector<UeEndpoint>& endpoints) {
+    for (const auto& e : endpoints) {
+        auto* a = alloc_optional<UEEndpointAddress_t>();
+        if (a == nullptr) {
+            return tl::unexpected("UE endpoint allocation failed");
+        }
+        if (ASN_SEQUENCE_ADD(&owner.list, a) != 0) {
+            ASN_STRUCT_FREE(asn_DEF_UEEndpointAddress, a);
+            return tl::unexpected("UE endpoint list allocation failed");
+        }
+        if (auto r = fill_ue_endpoint(*a, e); !r) {
+            return r;
+        }
+    }
+    return {};
+}
+
+template <typename ListOwner>
+tl::expected<std::vector<UeEndpoint>, std::string> extract_endpoint_list(const ListOwner& owner) {
+    std::vector<UeEndpoint> out;
+    for (int i = 0; i < owner.list.count; ++i) {
+        auto e = extract_ue_endpoint(*owner.list.array[i]);
+        if (!e) {
+            return tl::unexpected(e.error());
+        }
+        out.push_back(*e);
+    }
+    return out;
+}
+
+tl::expected<void, std::string> fill_pei(PEI_t& out, const Pei& pei) {
+    if (const auto* imei = std::get_if<Imei>(&pei)) {
+        if (imei->digits.size() != 14) {
+            return tl::unexpected("IMEI must be 14 digits (IMEI ::= NumericString (SIZE(14)))");
+        }
+        out.present = PEI_PR_iMEI;
+        return set_numeric_string(out.choice.iMEI, imei->digits) == 0
+                   ? tl::expected<void, std::string>{}
+                   : tl::unexpected("IMEI allocation failed");
+    }
+    const auto& sv = std::get<Imeisv>(pei);
+    if (sv.digits.size() != 16) {
+        return tl::unexpected("IMEISV must be 16 digits (IMEISV ::= NumericString (SIZE(16)))");
+    }
+    out.present = PEI_PR_iMEISV;
+    return set_numeric_string(out.choice.iMEISV, sv.digits) == 0
+               ? tl::expected<void, std::string>{}
+               : tl::unexpected("IMEISV allocation failed");
+}
+
+tl::expected<Pei, std::string> extract_pei(const PEI_t& src) {
+    switch (src.present) {
+        case PEI_PR_iMEI:
+            return Pei{Imei{octet_string_to_std(src.choice.iMEI)}};
+        case PEI_PR_iMEISV:
+            return Pei{Imeisv{octet_string_to_std(src.choice.iMEISV)}};
+        default:
+            return tl::unexpected("PEI alternative is not modelled (only IMEI / IMEISV)");
+    }
+}
+
+tl::expected<void, std::string> fill_gpsi(GPSI_t& out, const Gpsi& g) {
+    if (const auto* m = std::get_if<Msisdn>(&g)) {
+        if (m->digits.empty() || m->digits.size() > 15) {
+            return tl::unexpected(
+                "MSISDN must be 1..15 digits (MSISDN ::= NumericString (SIZE(1..15)))");
+        }
+        out.present = GPSI_PR_mSISDN;
+        return set_numeric_string(out.choice.mSISDN, m->digits) == 0
+                   ? tl::expected<void, std::string>{}
+                   : tl::unexpected("MSISDN allocation failed");
+    }
+    const auto& nai = std::get<Nai>(g);
+    out.present = GPSI_PR_nAI;
+    return OCTET_STRING_fromBuf(
+               &out.choice.nAI, nai.value.data(), static_cast<int>(nai.value.size())) == 0
+               ? tl::expected<void, std::string>{}
+               : tl::unexpected("GPSI NAI allocation failed");
+}
+
+tl::expected<Gpsi, std::string> extract_gpsi(const GPSI_t& src) {
+    switch (src.present) {
+        case GPSI_PR_mSISDN:
+            return Gpsi{Msisdn{octet_string_to_std(src.choice.mSISDN)}};
+        case GPSI_PR_nAI:
+            return Gpsi{Nai{octet_string_to_std(src.choice.nAI)}};
+        default:
+            return tl::unexpected("GPSI CHOICE has no alternative");
+    }
+}
+
+// sUPI / pEI / gPSI of the records that carry sUPI as an OPTIONAL pointer.
+template <typename Rec>
+tl::expected<void, std::string> fill_ids(Rec& out, const SmIdentities& ids) {
+    if (ids.supi) {
+        out.sUPI = alloc_optional<SUPI_t>();
+        if (out.sUPI == nullptr) {
+            return tl::unexpected("SUPI allocation failed");
+        }
+        if (auto r = fill_supi(*out.sUPI, *ids.supi); !r) {
+            return r;
+        }
+    }
+    if (ids.pei) {
+        out.pEI = alloc_optional<PEI_t>();
+        if (out.pEI == nullptr) {
+            return tl::unexpected("PEI allocation failed");
+        }
+        if (auto r = fill_pei(*out.pEI, *ids.pei); !r) {
+            return r;
+        }
+    }
+    if (ids.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        if (auto r = fill_gpsi(*out.gPSI, *ids.gpsi); !r) {
+            return r;
+        }
+    }
+    return {};
+}
+
+template <typename Rec> tl::expected<SmIdentities, std::string> extract_ids(const Rec& src) {
+    SmIdentities ids;
+    if (src.sUPI != nullptr) {
+        auto v = extract_supi(*src.sUPI);
+        if (!v) {
+            return tl::unexpected(v.error());
+        }
+        ids.supi = *v;
+    }
+    if (src.pEI != nullptr) {
+        auto v = extract_pei(*src.pEI);
+        if (!v) {
+            return tl::unexpected(v.error());
+        }
+        ids.pei = *v;
+    }
+    if (src.gPSI != nullptr) {
+        auto v = extract_gpsi(*src.gPSI);
+        if (!v) {
+            return tl::unexpected(v.error());
+        }
+        ids.gpsi = *v;
+    }
+    return ids;
+}
+
+tl::expected<void, std::string> fill_dnn(DNN_t& out, const std::string& dnn) {
+    if (dnn.empty()) {
+        return tl::unexpected("DNN must not be empty");
+    }
+    return OCTET_STRING_fromBuf(&out, dnn.data(), static_cast<int>(dnn.size())) == 0
+               ? tl::expected<void, std::string>{}
+               : tl::unexpected("DNN allocation failed");
+}
+
+template <typename Rec>
+tl::expected<void, std::string> fill_optional_location(Rec& out,
+                                                       const std::optional<Location>& loc) {
+    if (!loc) {
+        return {};
+    }
+    out.location = alloc_optional<Location_t>();
+    if (out.location == nullptr) {
+        return tl::unexpected("Location allocation failed");
+    }
+    return fill_location(*out.location, *loc);
+}
+
+template <typename Rec>
+tl::expected<void, std::string> fill_optional_access(Rec& out, const std::optional<AccessType>& a) {
+    if (!a) {
+        return {};
+    }
+    out.accessType = alloc_optional<AccessType_t>();
+    if (out.accessType == nullptr) {
+        return tl::unexpected("AccessType allocation failed");
+    }
+    *out.accessType = static_cast<long>(*a);
+    return {};
+}
+
+template <typename Rec>
+tl::expected<void, std::string> fill_optional_snssai(Rec& out, const std::optional<Snssai>& v) {
+    if (!v) {
+        return {};
+    }
+    out.sNSSAI = alloc_optional<SNSSAI_t>();
+    if (out.sNSSAI == nullptr) {
+        return tl::unexpected("S-NSSAI allocation failed");
+    }
+    return fill_snssai(*out.sNSSAI, *v);
+}
+
+#define LI_TRY(expr)                                                                               \
+    do {                                                                                           \
+        if (auto r_ = (expr); !r_) {                                                               \
+            return r_;                                                                             \
+        }                                                                                          \
+    } while (false)
+
+tl::expected<void, std::string> fill(SMFPDUSessionEstablishment_t& out,
+                                     const SmfPduSessionEstablishment& e) {
+    LI_TRY(fill_ids(out, e.ids));
+    out.pDUSessionID = e.pdu_session_id;
+    LI_TRY(fill_fteid(out.gTPTunnelID, e.gtp_tunnel));
+    out.pDUSessionType = static_cast<long>(e.pdu_session_type);
+    LI_TRY(fill_optional_snssai(out, e.snssai));
+    if (!e.ue_endpoints.empty()) {
+        out.uEEndpoint = alloc_optional<std::remove_pointer_t<decltype(out.uEEndpoint)>>();
+        if (out.uEEndpoint == nullptr) {
+            return tl::unexpected("UE endpoint list allocation failed");
+        }
+        LI_TRY(fill_endpoint_list(*out.uEEndpoint, e.ue_endpoints));
+    }
+    LI_TRY(fill_optional_location(out, e.location));
+    LI_TRY(fill_dnn(out.dNN, e.dnn));
+    out.requestType = static_cast<long>(e.request_type);
+    LI_TRY(fill_optional_access(out, e.access_type));
+    return {};
+}
+
+tl::expected<SmfPduSessionEstablishment, std::string>
+extract(const SMFPDUSessionEstablishment_t& src) {
+    SmfPduSessionEstablishment e;
+    auto ids = extract_ids(src);
+    if (!ids) {
+        return tl::unexpected(ids.error());
+    }
+    e.ids = *ids;
+    e.pdu_session_id = static_cast<std::uint8_t>(src.pDUSessionID);
+    e.gtp_tunnel = extract_fteid(src.gTPTunnelID);
+    e.pdu_session_type = static_cast<PduSessionType>(src.pDUSessionType);
+    if (src.sNSSAI != nullptr) {
+        e.snssai = extract_snssai(*src.sNSSAI);
+    }
+    if (src.uEEndpoint != nullptr) {
+        auto list = extract_endpoint_list(*src.uEEndpoint);
+        if (!list) {
+            return tl::unexpected(list.error());
+        }
+        e.ue_endpoints = *list;
+    }
+    if (src.location != nullptr) {
+        e.location = extract_location(*src.location);
+    }
+    e.dnn = octet_string_to_std(src.dNN);
+    e.request_type = static_cast<SmRequestType>(src.requestType);
+    if (src.accessType != nullptr) {
+        e.access_type = static_cast<AccessType>(*src.accessType);
+    }
+    return e;
+}
+
+tl::expected<void, std::string> fill(SMFStartOfInterceptionWithEstablishedPDUSession_t& out,
+                                     const SmfStartOfInterceptionWithEstablishedPduSession& e) {
+    LI_TRY(fill_ids(out, e.ids));
+    out.pDUSessionID = e.pdu_session_id;
+    LI_TRY(fill_fteid(out.gTPTunnelID, e.gtp_tunnel));
+    out.pDUSessionType = static_cast<long>(e.pdu_session_type);
+    LI_TRY(fill_optional_snssai(out, e.snssai));
+    LI_TRY(fill_endpoint_list(out.uEEndpoint, e.ue_endpoints)); // mandatory here, possibly empty
+    LI_TRY(fill_optional_location(out, e.location));
+    LI_TRY(fill_dnn(out.dNN, e.dnn));
+    out.requestType = static_cast<long>(e.request_type);
+    LI_TRY(fill_optional_access(out, e.access_type));
+    return {};
+}
+
+tl::expected<SmfStartOfInterceptionWithEstablishedPduSession, std::string>
+extract(const SMFStartOfInterceptionWithEstablishedPDUSession_t& src) {
+    SmfStartOfInterceptionWithEstablishedPduSession e;
+    auto ids = extract_ids(src);
+    if (!ids) {
+        return tl::unexpected(ids.error());
+    }
+    e.ids = *ids;
+    e.pdu_session_id = static_cast<std::uint8_t>(src.pDUSessionID);
+    e.gtp_tunnel = extract_fteid(src.gTPTunnelID);
+    e.pdu_session_type = static_cast<PduSessionType>(src.pDUSessionType);
+    if (src.sNSSAI != nullptr) {
+        e.snssai = extract_snssai(*src.sNSSAI);
+    }
+    auto list = extract_endpoint_list(src.uEEndpoint);
+    if (!list) {
+        return tl::unexpected(list.error());
+    }
+    e.ue_endpoints = *list;
+    if (src.location != nullptr) {
+        e.location = extract_location(*src.location);
+    }
+    e.dnn = octet_string_to_std(src.dNN);
+    e.request_type = static_cast<SmRequestType>(src.requestType);
+    if (src.accessType != nullptr) {
+        e.access_type = static_cast<AccessType>(*src.accessType);
+    }
+    return e;
+}
+
+tl::expected<void, std::string> fill(SMFPDUSessionModification_t& out,
+                                     const SmfPduSessionModification& m) {
+    LI_TRY(fill_ids(out, m.ids));
+    LI_TRY(fill_optional_snssai(out, m.snssai));
+    LI_TRY(fill_optional_location(out, m.location));
+    out.requestType = static_cast<long>(m.request_type);
+    LI_TRY(fill_optional_access(out, m.access_type));
+    if (m.pdu_session_id) {
+        out.pDUSessionID = alloc_optional<PDUSessionID_t>();
+        if (out.pDUSessionID == nullptr) {
+            return tl::unexpected("PDU session id allocation failed");
+        }
+        *out.pDUSessionID = *m.pdu_session_id;
+    }
+    if (m.ue_endpoint) {
+        out.uEEndpoint = alloc_optional<UEEndpointAddress_t>();
+        if (out.uEEndpoint == nullptr) {
+            return tl::unexpected("UE endpoint allocation failed");
+        }
+        LI_TRY(fill_ue_endpoint(*out.uEEndpoint, *m.ue_endpoint));
+    }
+    return {};
+}
+
+tl::expected<SmfPduSessionModification, std::string>
+extract(const SMFPDUSessionModification_t& src) {
+    SmfPduSessionModification m;
+    auto ids = extract_ids(src);
+    if (!ids) {
+        return tl::unexpected(ids.error());
+    }
+    m.ids = *ids;
+    if (src.sNSSAI != nullptr) {
+        m.snssai = extract_snssai(*src.sNSSAI);
+    }
+    if (src.location != nullptr) {
+        m.location = extract_location(*src.location);
+    }
+    m.request_type = static_cast<SmRequestType>(src.requestType);
+    if (src.accessType != nullptr) {
+        m.access_type = static_cast<AccessType>(*src.accessType);
+    }
+    if (src.pDUSessionID != nullptr) {
+        m.pdu_session_id = static_cast<std::uint8_t>(*src.pDUSessionID);
+    }
+    if (src.uEEndpoint != nullptr) {
+        auto e = extract_ue_endpoint(*src.uEEndpoint);
+        if (!e) {
+            return tl::unexpected(e.error());
+        }
+        m.ue_endpoint = *e;
+    }
+    return m;
+}
+
+tl::expected<void, std::string> fill(SMFPDUSessionRelease_t& out, const SmfPduSessionRelease& r) {
+    LI_TRY(fill_supi(out.sUPI, r.supi)); // sUPI is MANDATORY on a release
+    if (r.pei) {
+        out.pEI = alloc_optional<PEI_t>();
+        if (out.pEI == nullptr) {
+            return tl::unexpected("PEI allocation failed");
+        }
+        LI_TRY(fill_pei(*out.pEI, *r.pei));
+    }
+    if (r.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        LI_TRY(fill_gpsi(*out.gPSI, *r.gpsi));
+    }
+    out.pDUSessionID = r.pdu_session_id;
+    LI_TRY(fill_optional_location(out, r.location));
+    return {};
+}
+
+tl::expected<SmfPduSessionRelease, std::string> extract(const SMFPDUSessionRelease_t& src) {
+    SmfPduSessionRelease r;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    r.supi = *supi;
+    if (src.pEI != nullptr) {
+        auto v = extract_pei(*src.pEI);
+        if (!v) {
+            return tl::unexpected(v.error());
+        }
+        r.pei = *v;
+    }
+    if (src.gPSI != nullptr) {
+        auto v = extract_gpsi(*src.gPSI);
+        if (!v) {
+            return tl::unexpected(v.error());
+        }
+        r.gpsi = *v;
+    }
+    r.pdu_session_id = static_cast<std::uint8_t>(src.pDUSessionID);
+    if (src.location != nullptr) {
+        r.location = extract_location(*src.location);
+    }
+    return r;
+}
+
+tl::expected<void, std::string> fill(SMFUnsuccessfulProcedure_t& out,
+                                     const SmfUnsuccessfulProcedure& u) {
+    out.failedProcedureType = static_cast<long>(u.failed_procedure);
+    out.failureCause = u.failure_cause;
+    out.initiator = static_cast<long>(u.initiator);
+    LI_TRY(fill_ids(out, u.ids));
+    if (u.pdu_session_id) {
+        out.pDUSessionID = alloc_optional<PDUSessionID_t>();
+        if (out.pDUSessionID == nullptr) {
+            return tl::unexpected("PDU session id allocation failed");
+        }
+        *out.pDUSessionID = *u.pdu_session_id;
+    }
+    if (!u.ue_endpoints.empty()) {
+        out.uEEndpoint = alloc_optional<std::remove_pointer_t<decltype(out.uEEndpoint)>>();
+        if (out.uEEndpoint == nullptr) {
+            return tl::unexpected("UE endpoint list allocation failed");
+        }
+        LI_TRY(fill_endpoint_list(*out.uEEndpoint, u.ue_endpoints));
+    }
+    if (u.dnn) {
+        out.dNN = alloc_optional<DNN_t>();
+        if (out.dNN == nullptr) {
+            return tl::unexpected("DNN allocation failed");
+        }
+        LI_TRY(fill_dnn(*out.dNN, *u.dnn));
+    }
+    if (u.request_type) {
+        out.requestType = alloc_optional<FiveGSMRequestType_t>();
+        if (out.requestType == nullptr) {
+            return tl::unexpected("request type allocation failed");
+        }
+        *out.requestType = static_cast<long>(*u.request_type);
+    }
+    LI_TRY(fill_optional_access(out, u.access_type));
+    LI_TRY(fill_optional_location(out, u.location));
+    return {};
+}
+
+tl::expected<SmfUnsuccessfulProcedure, std::string> extract(const SMFUnsuccessfulProcedure_t& src) {
+    SmfUnsuccessfulProcedure u;
+    u.failed_procedure = static_cast<SmFailedProcedure>(src.failedProcedureType);
+    u.failure_cause = static_cast<std::uint8_t>(src.failureCause);
+    u.initiator = static_cast<SmInitiator>(src.initiator);
+    auto ids = extract_ids(src);
+    if (!ids) {
+        return tl::unexpected(ids.error());
+    }
+    u.ids = *ids;
+    if (src.pDUSessionID != nullptr) {
+        u.pdu_session_id = static_cast<std::uint8_t>(*src.pDUSessionID);
+    }
+    if (src.uEEndpoint != nullptr) {
+        auto list = extract_endpoint_list(*src.uEEndpoint);
+        if (!list) {
+            return tl::unexpected(list.error());
+        }
+        u.ue_endpoints = *list;
+    }
+    if (src.dNN != nullptr) {
+        u.dnn = octet_string_to_std(*src.dNN);
+    }
+    if (src.requestType != nullptr) {
+        u.request_type = static_cast<SmRequestType>(*src.requestType);
+    }
+    if (src.accessType != nullptr) {
+        u.access_type = static_cast<AccessType>(*src.accessType);
+    }
+    if (src.location != nullptr) {
+        u.location = extract_location(*src.location);
+    }
+    return u;
+}
+
+#undef LI_TRY
+
 } // namespace
 
 tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const Event& event) {
@@ -582,6 +1184,23 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, AmfIdentifierDeassociation>) {
                 payload->event.present = XIRIEvent_PR_aMFIdentifierDeassociation;
                 return fill(payload->event.choice.aMFIdentifierDeassociation, variant_event);
+            } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
+                payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
+                return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
+            } else if constexpr (std::is_same_v<T, SmfPduSessionModification>) {
+                payload->event.present = XIRIEvent_PR_pDUSessionModification;
+                return fill(payload->event.choice.pDUSessionModification, variant_event);
+            } else if constexpr (std::is_same_v<T, SmfPduSessionRelease>) {
+                payload->event.present = XIRIEvent_PR_pDUSessionRelease;
+                return fill(payload->event.choice.pDUSessionRelease, variant_event);
+            } else if constexpr (std::is_same_v<T,
+                                                SmfStartOfInterceptionWithEstablishedPduSession>) {
+                payload->event.present = XIRIEvent_PR_startOfInterceptionWithEstablishedPDUSession;
+                return fill(payload->event.choice.startOfInterceptionWithEstablishedPDUSession,
+                            variant_event);
+            } else if constexpr (std::is_same_v<T, SmfUnsuccessfulProcedure>) {
+                payload->event.present = XIRIEvent_PR_unsuccessfulSMProcedure;
+                return fill(payload->event.choice.unsuccessfulSMProcedure, variant_event);
             }
         },
         event);
@@ -677,6 +1296,46 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(deassoc.error());
             }
             out.event = *deassoc;
+            return out;
+        }
+        case XIRIEvent_PR_pDUSessionEstablishment: {
+            auto smf = extract(payload->event.choice.pDUSessionEstablishment);
+            if (!smf) {
+                return tl::unexpected(smf.error());
+            }
+            out.event = *smf;
+            return out;
+        }
+        case XIRIEvent_PR_pDUSessionModification: {
+            auto smf = extract(payload->event.choice.pDUSessionModification);
+            if (!smf) {
+                return tl::unexpected(smf.error());
+            }
+            out.event = *smf;
+            return out;
+        }
+        case XIRIEvent_PR_pDUSessionRelease: {
+            auto smf = extract(payload->event.choice.pDUSessionRelease);
+            if (!smf) {
+                return tl::unexpected(smf.error());
+            }
+            out.event = *smf;
+            return out;
+        }
+        case XIRIEvent_PR_startOfInterceptionWithEstablishedPDUSession: {
+            auto smf = extract(payload->event.choice.startOfInterceptionWithEstablishedPDUSession);
+            if (!smf) {
+                return tl::unexpected(smf.error());
+            }
+            out.event = *smf;
+            return out;
+        }
+        case XIRIEvent_PR_unsuccessfulSMProcedure: {
+            auto smf = extract(payload->event.choice.unsuccessfulSMProcedure);
+            if (!smf) {
+                return tl::unexpected(smf.error());
+            }
+            out.event = *smf;
             return out;
         }
         default:

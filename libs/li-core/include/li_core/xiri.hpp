@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -219,12 +220,170 @@ struct AmfIdentifierDeassociation {
     bool operator==(const AmfIdentifierDeassociation&) const = default;
 };
 
+// --- SMF xIRI records, TS 33.128 clause 6.2.3.2 (ADR-0463) ---------------------------------------
+// The facade models the mandatory members of each record plus the optional ones an SMF POI has real
+// state for (identities, slice, UE address, location, access type). MA PDU sessions, ProSe, EPS
+// interworking, PCC rules and the other C/O members are not modelled (disclosed).
+
+// PDUSessionType ::= ENUMERATED { iPv4(1), iPv6(2), iPv4v6(3), unstructured(4), ethernet(5) }
+enum class PduSessionType : std::uint8_t {
+    IPv4 = 1,
+    IPv6 = 2,
+    IPv4v6 = 3,
+    Unstructured = 4,
+    Ethernet = 5
+};
+
+// FiveGSMRequestType ::= ENUMERATED (reserved(6) is not modelled)
+enum class SmRequestType : std::uint8_t {
+    InitialRequest = 1,
+    ExistingPduSession = 2,
+    InitialEmergencyRequest = 3,
+    ExistingEmergencyPduSession = 4,
+    ModificationRequest = 5,
+    MaPduRequest = 7,
+};
+
+// Initiator ::= ENUMERATED { uE(1), network(2), unknown(3) }
+enum class SmInitiator : std::uint8_t { Ue = 1, Network = 2, Unknown = 3 };
+
+// SMFFailedProcedureType ::= ENUMERATED { pDUSessionEstablishment(1), ...Modification(2),
+// ...Release(3) }
+enum class SmFailedProcedure : std::uint8_t {
+    PduSessionEstablishment = 1,
+    PduSessionModification = 2,
+    PduSessionRelease = 3
+};
+
+// FTEID ::= SEQUENCE { tEID, iPv4Address OPTIONAL, iPv6Address OPTIONAL }
+struct Fteid {
+    std::uint32_t teid = 0;
+    std::optional<std::array<std::uint8_t, 4>> ipv4;
+    std::optional<std::array<std::uint8_t, 16>> ipv6;
+    bool operator==(const Fteid&) const = default;
+};
+
+// SNSSAI ::= SEQUENCE { sliceServiceType, sliceDifferentiator OPTIONAL, mapped... } -- the home
+// mapped values are not modelled.
+struct Snssai {
+    std::uint8_t sst = 0;
+    std::optional<std::array<std::uint8_t, 3>> sd;
+    bool operator==(const Snssai&) const = default;
+};
+
+// UEEndpointAddress ::= CHOICE { iPv4Address, iPv6Address, ethernetAddress (MAC) }
+using UeEndpoint = std::
+    variant<std::array<std::uint8_t, 4>, std::array<std::uint8_t, 16>, std::array<std::uint8_t, 6>>;
+
+// PEI ::= CHOICE { iMEI, iMEISV, mACAddress, eUI64 } -- IMEI (14 digits) and IMEISV (16 digits)
+// only.
+struct Imei {
+    std::string digits;
+    bool operator==(const Imei&) const = default;
+};
+struct Imeisv {
+    std::string digits;
+    bool operator==(const Imeisv&) const = default;
+};
+using Pei = std::variant<Imei, Imeisv>;
+
+// GPSI ::= CHOICE { mSISDN, nAI }
+struct Msisdn {
+    std::string digits;
+    bool operator==(const Msisdn&) const = default;
+};
+using Gpsi = std::variant<Msisdn, Nai>;
+
+// The identities an SMF xIRI may carry; SUPI, PEI and GPSI are independent (TS 33.127 6.2.3.2).
+struct SmIdentities {
+    std::optional<Supi> supi;
+    std::optional<Pei> pei;
+    std::optional<Gpsi> gpsi;
+    bool operator==(const SmIdentities&) const = default;
+};
+
+// XIRIEvent.pDUSessionEstablishment [6] SMFPDUSessionEstablishment, table 6.2.3.2.2-1. M:
+// pDUSessionID, gTPTunnelID, pDUSessionType, dNN, requestType.
+struct SmfPduSessionEstablishment {
+    SmIdentities ids;
+    std::uint8_t pdu_session_id = 0;
+    Fteid gtp_tunnel; // the UPF N3 uplink F-TEID the session was established on
+    PduSessionType pdu_session_type = PduSessionType::IPv4;
+    std::optional<Snssai> snssai;
+    std::vector<UeEndpoint> ue_endpoints;
+    std::optional<Location> location;
+    std::string dnn;
+    SmRequestType request_type = SmRequestType::InitialRequest;
+    std::optional<AccessType> access_type;
+    bool operator==(const SmfPduSessionEstablishment&) const = default;
+};
+
+// XIRIEvent.pDUSessionModification [7] SMFPDUSessionModification, table 6.2.3.2.3-1. M:
+// requestType.
+struct SmfPduSessionModification {
+    SmIdentities ids;
+    std::optional<Snssai> snssai;
+    std::optional<Location> location;
+    SmRequestType request_type = SmRequestType::ModificationRequest;
+    std::optional<AccessType> access_type;
+    std::optional<std::uint8_t> pdu_session_id;
+    std::optional<UeEndpoint> ue_endpoint;
+    bool operator==(const SmfPduSessionModification&) const = default;
+};
+
+// XIRIEvent.pDUSessionRelease [8] SMFPDUSessionRelease, table 6.2.3.2.4-1. M: sUPI, pDUSessionID.
+struct SmfPduSessionRelease {
+    Supi supi;
+    std::optional<Pei> pei;
+    std::optional<Gpsi> gpsi;
+    std::uint8_t pdu_session_id = 0;
+    std::optional<Location> location;
+    bool operator==(const SmfPduSessionRelease&) const = default;
+};
+
+// XIRIEvent.startOfInterceptionWithEstablishedPDUSession [9], table 6.2.3.2.5-1. M: pDUSessionID,
+// gTPTunnelID, pDUSessionType, uEEndpoint, dNN, requestType.
+struct SmfStartOfInterceptionWithEstablishedPduSession {
+    SmIdentities ids;
+    std::uint8_t pdu_session_id = 0;
+    Fteid gtp_tunnel;
+    PduSessionType pdu_session_type = PduSessionType::IPv4;
+    std::optional<Snssai> snssai;
+    std::vector<UeEndpoint> ue_endpoints;
+    std::optional<Location> location;
+    std::string dnn;
+    SmRequestType request_type = SmRequestType::InitialRequest;
+    std::optional<AccessType> access_type;
+    bool operator==(const SmfStartOfInterceptionWithEstablishedPduSession&) const = default;
+};
+
+// XIRIEvent.unsuccessfulSMProcedure [10] SMFUnsuccessfulProcedure, table 6.2.3.2.6-1. M:
+// failedProcedureType, failureCause (a 5GSM cause, TS 24.501 9.11.4.2), initiator.
+struct SmfUnsuccessfulProcedure {
+    SmFailedProcedure failed_procedure = SmFailedProcedure::PduSessionEstablishment;
+    std::uint8_t failure_cause = 0;
+    SmInitiator initiator = SmInitiator::Unknown;
+    SmIdentities ids;
+    std::optional<std::uint8_t> pdu_session_id;
+    std::vector<UeEndpoint> ue_endpoints;
+    std::optional<std::string> dnn;
+    std::optional<SmRequestType> request_type;
+    std::optional<AccessType> access_type;
+    std::optional<Location> location;
+    bool operator==(const SmfUnsuccessfulProcedure&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
                            AmfLocationUpdate,
                            AmfIdentifierAssociation,
-                           AmfIdentifierDeassociation>;
+                           AmfIdentifierDeassociation,
+                           SmfPduSessionEstablishment,
+                           SmfPduSessionModification,
+                           SmfPduSessionRelease,
+                           SmfStartOfInterceptionWithEstablishedPduSession,
+                           SmfUnsuccessfulProcedure>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

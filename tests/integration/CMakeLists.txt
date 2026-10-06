@@ -218,6 +218,14 @@ target_compile_definitions(li_admf_integration_tests PRIVATE
 add_dependencies(li_admf_integration_tests li-admf)
 gtest_discover_tests(li_admf_integration_tests PROPERTIES TIMEOUT 120)
 
+# ADR-0463: the shared POI runtime (libs/li-poi) on its own -- real LI_X1 over mTLS in, real LI_X2 out, no NF.
+add_executable(li_poi_runtime_integration_tests test_li_poi_runtime.cpp)
+target_link_libraries(li_poi_runtime_integration_tests PRIVATE
+    li_poi li_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+target_compile_definitions(li_poi_runtime_integration_tests PRIVATE
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(li_poi_runtime_integration_tests)
+
 # ADR-0377: the AMF IRI-POI's own logic (X1 provisioning -> target store -> xIRI -> X2 emit),
 # compiling nfs/amf/src/li_poi.cpp directly against a loopback MDF2 (li_core::X2X3Server) and a
 # fake ADMF (sbi_core HTTP/2 client). No NF processes; the POI has no standalone binary. Uses a
@@ -226,7 +234,7 @@ add_executable(li_amf_poi_integration_tests
     test_li_amf_poi.cpp ${CMAKE_SOURCE_DIR}/nfs/amf/src/li_poi.cpp)
 target_include_directories(li_amf_poi_integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/amf/src)
 target_link_libraries(li_amf_poi_integration_tests PRIVATE
-    li_core sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
+    li_core li_poi sbi_core OpenSSL::SSL OpenSSL::Crypto GTest::gtest GTest::gtest_main)
 target_compile_definitions(li_amf_poi_integration_tests PRIVATE
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
 gtest_discover_tests(li_amf_poi_integration_tests)

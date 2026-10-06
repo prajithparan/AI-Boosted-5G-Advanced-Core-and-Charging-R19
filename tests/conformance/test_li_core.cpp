@@ -421,6 +421,138 @@ TEST(Xiri, AmfStartOfInterceptionCarriesLocationAndUtcTimeOfRegistration) {
     EXPECT_FALSE(xiri::encode_xiri_payload(soi).has_value());
 }
 
+// ---- SMF xIRI records, TS 33.128 clause 6.2.3.2 (ADR-0463)
+// ------------------------------------------
+
+namespace {
+
+xiri::SmIdentities smf_ids() {
+    xiri::SmIdentities ids;
+    ids.supi = xiri::Imsi{"999700000000001"};
+    ids.pei = xiri::Pei{xiri::Imei{"49015420323751"}};
+    ids.gpsi = xiri::Gpsi{xiri::Msisdn{"447700900123"}};
+    return ids;
+}
+
+xiri::Location smf_location() {
+    xiri::NrLocation nr;
+    nr.tai = {{"999", "70"}, {0x00, 0x00, 0x01}};
+    nr.ncgi = {{"999", "70"}, 0x2A};
+    return xiri::Location{xiri::UserLocation{nr, std::nullopt}};
+}
+
+template <typename Event> Event round_trip(const Event& in) {
+    const auto bytes = xiri::encode_xiri_payload(in);
+    EXPECT_TRUE(bytes.has_value()) << bytes.error();
+    const auto decoded = xiri::decode_xiri_payload(*bytes);
+    EXPECT_TRUE(decoded.has_value()) << decoded.error();
+    EXPECT_TRUE(std::holds_alternative<Event>(decoded->event));
+    return std::get<Event>(decoded->event);
+}
+
+} // namespace
+
+TEST(XiriSmf, PduSessionEstablishmentRoundTripsEveryModelledMember) {
+    xiri::SmfPduSessionEstablishment e;
+    e.ids = smf_ids();
+    e.pdu_session_id = 5;
+    e.gtp_tunnel = {0xDEADBEEF, std::array<std::uint8_t, 4>{10, 0, 0, 7}, std::nullopt};
+    e.pdu_session_type = xiri::PduSessionType::IPv4v6;
+    e.snssai = xiri::Snssai{1, std::array<std::uint8_t, 3>{0x00, 0x00, 0x01}};
+    e.ue_endpoints = {xiri::UeEndpoint{std::array<std::uint8_t, 4>{10, 45, 0, 2}},
+                      xiri::UeEndpoint{std::array<std::uint8_t, 16>{
+                          0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}}};
+    e.location = smf_location();
+    e.dnn = "internet";
+    e.request_type = xiri::SmRequestType::InitialRequest;
+    e.access_type = xiri::AccessType::ThreeGppAccess;
+    EXPECT_EQ(round_trip(e), e);
+}
+
+TEST(XiriSmf, PduSessionEstablishmentMinimalFormCarriesOnlyTheMandatoryMembers) {
+    xiri::SmfPduSessionEstablishment e;
+    e.pdu_session_id = 1;
+    e.gtp_tunnel = {1, std::nullopt, std::nullopt}; // a TEID alone is a valid FTEID
+    e.dnn = "ims";
+    const auto back = round_trip(e);
+    EXPECT_EQ(back, e);
+    EXPECT_FALSE(back.ids.supi.has_value());
+    EXPECT_TRUE(back.ue_endpoints.empty());
+}
+
+TEST(XiriSmf, PduSessionModificationAndReleaseRoundTrip) {
+    xiri::SmfPduSessionModification m;
+    m.ids = smf_ids();
+    m.snssai = xiri::Snssai{2, std::nullopt};
+    m.location = smf_location();
+    m.request_type = xiri::SmRequestType::ModificationRequest;
+    m.access_type = xiri::AccessType::ThreeGppAccess;
+    m.pdu_session_id = 5;
+    m.ue_endpoint = xiri::UeEndpoint{std::array<std::uint8_t, 4>{10, 45, 0, 2}};
+    EXPECT_EQ(round_trip(m), m);
+
+    xiri::SmfPduSessionRelease r;
+    r.supi = xiri::Nai{"user@operator.example"};
+    r.pei = xiri::Pei{xiri::Imeisv{"4901542032375123"}};
+    r.gpsi = xiri::Gpsi{xiri::Nai{"gpsi@operator.example"}};
+    r.pdu_session_id = 5;
+    r.location = smf_location();
+    EXPECT_EQ(round_trip(r), r);
+}
+
+TEST(XiriSmf, StartOfInterceptionWithEstablishedSessionRoundTripsWithItsMandatoryEndpoint) {
+    xiri::SmfStartOfInterceptionWithEstablishedPduSession s;
+    s.ids = smf_ids();
+    s.pdu_session_id = 9;
+    s.gtp_tunnel = {7, std::array<std::uint8_t, 4>{192, 0, 2, 1}, std::nullopt};
+    s.pdu_session_type = xiri::PduSessionType::IPv4;
+    s.ue_endpoints = {xiri::UeEndpoint{std::array<std::uint8_t, 4>{10, 45, 0, 9}}};
+    s.dnn = "internet";
+    s.request_type = xiri::SmRequestType::ExistingPduSession;
+    EXPECT_EQ(round_trip(s), s);
+}
+
+TEST(XiriSmf, UnsuccessfulProcedureRoundTrips) {
+    xiri::SmfUnsuccessfulProcedure u;
+    u.failed_procedure = xiri::SmFailedProcedure::PduSessionEstablishment;
+    u.failure_cause = 27; // 5GSM #27: missing or unknown DNN
+    u.initiator = xiri::SmInitiator::Ue;
+    u.ids = smf_ids();
+    u.pdu_session_id = 5;
+    u.ue_endpoints = {xiri::UeEndpoint{std::array<std::uint8_t, 6>{0x02, 0, 0, 0, 0, 1}}};
+    u.dnn = "unknown-dnn";
+    u.request_type = xiri::SmRequestType::InitialRequest;
+    u.access_type = xiri::AccessType::ThreeGppAccess;
+    u.location = smf_location();
+    EXPECT_EQ(round_trip(u), u);
+
+    xiri::SmfUnsuccessfulProcedure minimal;
+    minimal.failure_cause = 38;
+    minimal.initiator = xiri::SmInitiator::Network;
+    EXPECT_EQ(round_trip(minimal), minimal);
+}
+
+TEST(XiriSmf, TheAsn1ConstraintsAreEnforcedOnEncode) {
+    xiri::SmfPduSessionEstablishment e;
+    e.pdu_session_id = 1;
+    e.gtp_tunnel = {1, std::nullopt, std::nullopt};
+    e.dnn = "internet";
+    e.ids.pei = xiri::Pei{xiri::Imei{"123"}}; // IMEI ::= NumericString (SIZE(14))
+    EXPECT_FALSE(xiri::encode_xiri_payload(e).has_value());
+    e.ids.pei.reset();
+    e.ids.gpsi = xiri::Gpsi{xiri::Msisdn{""}}; // MSISDN ::= NumericString (SIZE(1..15))
+    EXPECT_FALSE(xiri::encode_xiri_payload(e).has_value());
+    e.ids.gpsi.reset();
+    e.dnn.clear(); // DNN is mandatory and a DNN is never empty
+    EXPECT_FALSE(xiri::encode_xiri_payload(e).has_value());
+    e.dnn = "internet";
+    EXPECT_TRUE(xiri::encode_xiri_payload(e).has_value());
+
+    xiri::SmfPduSessionRelease r;
+    r.supi = xiri::Imsi{"123"}; // IMSI ::= NumericString (SIZE(6..15))
+    EXPECT_FALSE(xiri::encode_xiri_payload(r).has_value());
+}
+
 // TS 33.128 clause 6.2.2.2.4 -- the AMFLocationUpdate xIRI, exercising the Location codec through
 // the NGAP user-location path (Location.locationInfo.userLocation).
 TEST(Xiri, AmfLocationUpdateRoundTripsNrAndEutraUserLocation) {
