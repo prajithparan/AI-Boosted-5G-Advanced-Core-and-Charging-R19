@@ -33621,6 +33621,22 @@ per-interval `/proc/<pid>/stat` tick deltas and re-run as run B; run A's CPU fig
 - All Debug-build figures (same as ADR-0446). Not a Release figure, not a free5GC comparison,
   single host over loopback, single SUPI/bucket. Gy/Release/multi-SUPI not measured (above).
 
+**Full pipeline run (2026-10-05 12:38 -> 22:16 IST, host Release binaries, 4 CHFs).** 1,240,000
+sessions over 100,000 subscribers requested; 1,240,000 created and released, `failed=0`, 0 release
+replays; 2,480,000 usage-bearing CDRs; 991,341 Consumer / 248,659 Enterprise sessions; 34,720 s at
+35.7 sessions/s. `chf_cdr.cdr` = exactly 5,000,000 rows (the 5M target). All four CHFs: 0 error/
+critical log lines. `chf_features.subscriber_features` (2026-10-05) = 99,999 rows.
+**The 99,999 is not an extract bug.** The SUPI index 99395 (`imsi-999700000099395`) has no row in
+`chf_cdr.cdr` at all and never appears in any CHF log: the generator draws subscribers from
+`uniform_int_distribution(0, subscribers-1)`, so with ~12.4 sessions per subscriber on average the
+chance that some subscriber is never drawn is about 1 - exp(-100000 * e^-12.4) ~ 33%. It was simply
+never drawn. Disclosed consequence: the corpus has 99,999 subscribers, not 100,000, and one
+funded bucket was never used. Not claimed as a CHF correctness result beyond "no failures".
+Consistency (the 2026-09-20 rule): `COUNT(DISTINCT charging_data_ref)` = 1,250,000 = 1,240,000
+released + 10,000 warm-up sessions (`WARMUP_SESSIONS`), x 4 rows (Create + 2 Updates + Release) =
+5,000,000 rows. Reconciles exactly. Not measured: the feature table was not checked against the raw
+CDRs beyond row counts and distinct-subscriber counts.
+
 ## ADR-0456: three red CI tests, root-caused -- and one open TSan finding
 
 **Date:** 2026-10-05. **Status:** two fixed, one worked around in the test with the underlying hang
