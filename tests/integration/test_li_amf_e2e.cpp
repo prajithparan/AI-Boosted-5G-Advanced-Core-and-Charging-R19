@@ -15,10 +15,12 @@
 // Gating is "All" (TS 33.128 table 6.2.2.1.1-2), so every wired AMF record is generated:
 // Registration
 // + IdentifierAssociation at RegistrationAccept, Deregistration + IdentifierDeassociation at
-// deregistration. Not covered here, disclosed: LocationUpdate (fires on N2 PathSwitchRequest/
-// HandoverNotify, not driven by this flow) and StartOfInterceptionWithRegisteredUE (not wired).
+// deregistration. A second test drives a real N2 handover (two gNBs, a real UPF) and asserts the
+// AMFLocationUpdate that HandoverNotify triggers (ADR-0460). Not covered here, disclosed:
+// LocationUpdate on N2 PathSwitchRequest, and StartOfInterceptionWithRegisteredUE (not wired).
 
 #include "sbi_core/http2_client.hpp"
+#include "sbi_core/multipart.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -51,6 +53,10 @@ namespace xiri = li_core::xiri;
 constexpr const char* kAmfNgapAddress = "127.0.0.5";
 constexpr std::uint16_t kAmfNgapPort = 38412;
 constexpr std::uint32_t kGnbId = 0x000044; // clear of the other NGAP tests' gNB IDs
+constexpr std::uint32_t kSourceGnbId = 0x000045;
+constexpr std::uint32_t kTargetGnbId = 0x000046;
+constexpr std::uint32_t kTargetRanUeId = 7777;
+constexpr std::uint64_t kTargetCellId = 0x2A; // not the driver's default cell 1: provably the target's
 constexpr const char* kDnn = "internet";
 constexpr std::uint8_t kSst = 1;
 constexpr std::uint32_t kSd = 0x000001;
@@ -265,6 +271,92 @@ std::string imsi_digits(const xiri::Supi& supi) {
     return std::holds_alternative<xiri::Imsi>(supi) ? std::get<xiri::Imsi>(supi).digits : "";
 }
 
+using nlohmann::json;
+
+std::string fetch_smf_token(sbi_core::http2::Client& client) {
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = "https://127.0.0.1:7777/oauth2/token";
+    req.headers.emplace("content-type", "application/x-www-form-urlencoded");
+    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmf-pdusession&"
+               "targetNfType=SMF";
+    auto resp = client.send(req);
+    if (!resp.has_value() || resp->status != 200) {
+        return "";
+    }
+    return json::parse(resp->body).at("access_token").get<std::string>();
+}
+
+// Same minimal CreateSmContext body test_amf_ngap_handover.cpp builds (duplicated per this
+// suite's per-TU convention).
+sbi_core::multipart::Encoded encode_create_sm_context_body(const std::string& supi,
+                                                           std::int64_t pdu_session_id) {
+    sbi_core::multipart::Part part;
+    part.content_type = "application/json";
+    part.body = json{
+        {"servingNfId", "00000000-0000-4000-8000-0000000000aa"},
+        {"servingNetwork", json{{"mcc", "999"}, {"mnc", "70"}}},
+        {"anType", "3GPP_ACCESS"},
+        {"smContextStatusUri", "https://example.com/sm-status"},
+        {"supi", supi},
+        {"pduSessionId", pdu_session_id},
+        {"dnn", kDnn},
+        {"sNssai", json{{"sst", kSst}}},
+    }.dump();
+    return sbi_core::multipart::encode({part});
+}
+
+// Blocks until SMF holds a real UPF N3 tunnel, i.e. can answer HANDOVER_REQUIRED with a real
+// transfer (ADR-0267's trap: a PDU session created before the PFCP association carries no tunnel
+// forever). Must run BEFORE the UE's own PDU session. See test_amf_ngap_handover.cpp for the
+// full rationale; this is the same gate on the real thing, not a guessed sleep.
+void wait_for_upf_sx_association(int max_attempts = 40) {
+    auto client = make_client("hello-nf");
+    // NRF is not among wait_for_sbi_peers' probes, so its token endpoint may not be up yet.
+    std::string token;
+    for (int attempt = 0; attempt < 100 && token.empty(); ++attempt) {
+        token = fetch_smf_token(client);
+        if (token.empty()) {
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+    ASSERT_FALSE(token.empty()) << "failed to obtain an OAuth2 token from NRF for SMF";
+    const std::string supi = "imsi-999700000000042"; // not the UE's own SUPI
+    std::string last_failure = "never attempted";
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        const auto encoded = encode_create_sm_context_body(supi, 100 + attempt);
+        sbi_core::http2::ClientRequest create_req;
+        create_req.method = "POST";
+        create_req.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts";
+        create_req.headers.emplace("content-type", encoded.content_type_header);
+        create_req.headers.emplace("authorization", "Bearer " + token);
+        create_req.body = encoded.body;
+        auto create_resp = client.send(create_req);
+        ASSERT_TRUE(create_resp.has_value()) << "SMF stopped answering CreateSmContext entirely";
+        ASSERT_EQ(create_resp->status, 201) << create_resp->body;
+        const auto location = create_resp->headers.find("location");
+        ASSERT_NE(location, create_resp->headers.end());
+        const std::string ref = location->second.substr(location->second.rfind('/') + 1);
+
+        sbi_core::http2::ClientRequest ho_req;
+        ho_req.method = "POST";
+        ho_req.url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + ref + "/modify";
+        ho_req.headers.emplace("content-type", "application/json");
+        ho_req.headers.emplace("authorization", "Bearer " + token);
+        ho_req.body = json{{"n2SmInfoType", "HANDOVER_REQUIRED"}}.dump();
+        auto resp = client.send(ho_req);
+        ASSERT_TRUE(resp.has_value());
+        if (resp->status == 200) {
+            return;
+        }
+        last_failure = std::to_string(resp->status) + " " + resp->body;
+        std::this_thread::sleep_for(250ms);
+    }
+    FAIL() << "SMF never answered HANDOVER_REQUIRED with a real transfer. Last answer: "
+           << last_failure;
+}
+
+
 } // namespace
 
 TEST(LiAmfEndToEnd, RealAmfEmitsRegistrationAndDeregistrationXirisForATarget) {
@@ -383,6 +475,122 @@ TEST(LiAmfEndToEnd, RealAmfEmitsRegistrationAndDeregistrationXirisForATarget) {
     EXPECT_EQ(assoc, 1);
     EXPECT_EQ(dereg, 1);
     EXPECT_EQ(deassoc, 1);
+
+    mdf2_server.stop();
+}
+
+// ADR-0460: AMFLocationUpdate through the real AMF on a real N2 handover (TS 33.128 6.2.2.2.4:
+// "the N2 Handover Notify"). Two gNBs on two real SCTP associations, a real UPF (without one SMF
+// has no N3 tunnel and the relay ends in HandoverPreparationFailure), the same "All" warrant.
+// The target reports a distinctive NR cell (kTargetCellId, not the driver's default 1), so the
+// assertion is that the xIRI's location is the one the AMF parsed out of THAT HandoverNotify --
+// not the Registration's cell carried over.
+TEST(LiAmfEndToEnd, RealAmfEmitsLocationUpdateXiriOnN2HandoverNotify) {
+    Collector mdf2;
+    li_core::X2X3Server mdf2_server(fake_mdf2_config(), std::ref(mdf2));
+    ASSERT_TRUE(mdf2_server.start().has_value());
+
+    const auto amf_config = write_li_enabled_amf_config(mdf2_server.bound_port());
+    ::setenv("AMF_CONFIG_FILE", amf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess upf{UPF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ::unsetenv("AMF_CONFIG_FILE");
+    ASSERT_GT(amf.pid(), 0);
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    ASSERT_NO_FATAL_FAILURE(wait_for_upf_sx_association());
+
+    auto admf = make_client("amf");
+    sbi_core::http2::ClientRequest x1;
+    x1.method = "POST";
+    x1.url = kX1Url;
+    x1.headers.emplace("content-type", "application/xml");
+    x1.body = x1_activate_all();
+    sbi_core::http2::ClientResponse activate;
+    bool answered = false;
+    for (int attempt = 0; attempt < 100 && !answered; ++attempt) {
+        if (auto r = admf.send(x1); r.has_value()) {
+            activate = *r;
+            answered = true;
+        } else {
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+    ASSERT_TRUE(answered) << "the AMF's LI_X1 listener never answered -- li_poi not enabled?";
+    ASSERT_EQ(activate.status, 200) << activate.body;
+
+    NgapTestGnb source;
+    ASSERT_TRUE(source.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(source.ng_setup(kSourceGnbId));
+    NgapTestGnb target;
+    ASSERT_TRUE(target.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(target.ng_setup(kTargetGnbId));
+
+    constexpr std::uint32_t kUeRanId = 1;
+    constexpr std::uint8_t kPduSessionId = 5;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(source, kUeRanId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(source, ue, kUeRanId));
+    ASSERT_TRUE(mdf2.wait_for(2, 10s)) << "expected Registration + IdentifierAssociation first";
+
+    // The target admits the handover on its own thread (AMF blocks for the answer inside the one
+    // HandoverRequired call).
+    std::string target_failure;
+    std::thread target_thread([&] {
+        const auto request = target.receive_raw();
+        NgapTestGnb::HandoverRequestInfo info;
+        if (request.empty() || !NgapTestGnb::parse_handover_request(request, info)) {
+            target_failure = "no decodable HandoverRequest reached the target gNB";
+            return;
+        }
+        const auto ack = target.build_handover_request_acknowledge(
+            info.amf_ue_id, kTargetRanUeId, info.pdu_session_ids);
+        if (ack.empty()) {
+            target_failure = "could not build a HandoverRequestAcknowledge";
+            return;
+        }
+        target.send_raw(ack);
+    });
+    const auto required =
+        source.build_handover_required(ue.amf_ue_id, kUeRanId, kTargetGnbId, kPduSessionId);
+    ASSERT_FALSE(required.empty());
+    source.send_raw(required);
+    const auto command = source.receive_raw();
+    target_thread.join();
+    ASSERT_TRUE(target_failure.empty()) << target_failure;
+    ASSERT_FALSE(command.empty()) << "no HandoverCommand -- the relay did not complete";
+    ASSERT_EQ(NgapTestGnb::summarize(command).outcome, NgapTestGnb::Outcome::Successful);
+
+    // Execution: the UE has arrived in the target's cell.
+    target.send_raw(target.build_handover_notify(ue.amf_ue_id, kTargetRanUeId, kTargetCellId));
+    ASSERT_TRUE(mdf2.wait_for(3, 10s)) << "no AMFLocationUpdate after HandoverNotify";
+    std::this_thread::sleep_for(500ms);
+
+    const auto pdus = mdf2.take();
+    ASSERT_EQ(pdus.size(), 3u) << "Registration + IdentifierAssociation + exactly one LocationUpdate";
+    int location_updates = 0;
+    for (const auto& pdu : pdus) {
+        const auto decoded = xiri::decode_xiri_payload(pdu.payload);
+        ASSERT_TRUE(decoded.has_value()) << decoded.error();
+        if (const auto* l = std::get_if<xiri::AmfLocationUpdate>(&decoded->event)) {
+            ++location_updates;
+            EXPECT_EQ(imsi_digits(l->supi), kTargetImsiDigits);
+            ASSERT_TRUE(l->location.user_location.has_value());
+            ASSERT_TRUE(l->location.user_location->nr.has_value());
+            const auto& nr = *l->location.user_location->nr;
+            EXPECT_EQ(nr.ncgi.nr_cell_id, kTargetCellId)
+                << "the location is not the target cell from the HandoverNotify";
+            EXPECT_EQ(nr.tai.plmn.mcc, "999");
+            EXPECT_EQ(nr.tai.plmn.mnc, "70");
+        }
+    }
+    EXPECT_EQ(location_updates, 1);
 
     mdf2_server.stop();
 }

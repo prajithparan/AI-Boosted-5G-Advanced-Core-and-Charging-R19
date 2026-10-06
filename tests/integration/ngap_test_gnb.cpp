@@ -561,14 +561,14 @@ namespace {
 
 // Mandatory on both InitialUEMessage and UplinkNASTransport. A real, structurally-valid NR CGI +
 // TAI in this lab's own PLMN -- AMF logs it and does not act on it, so a fixed cell is honest.
-void fill_user_location(UserLocationInformation_t& uli) {
+void fill_user_location(UserLocationInformation_t& uli, std::uint64_t nr_cell_id = 1) {
     uli.present = UserLocationInformation_PR_userLocationInformationNR;
     auto* nr = static_cast<UserLocationInformationNR_t*>(
         std::calloc(1, sizeof(UserLocationInformationNR_t)));
     std::uint8_t plmn[3];
     encode_plmn_identity(kMcc, kMnc, plmn);
     nr->nR_CGI.pLMNIdentity = make_octet_string(plmn, 3);
-    nr->nR_CGI.nRCellIdentity = make_bit_string_from_uint(1, 36);
+    nr->nR_CGI.nRCellIdentity = make_bit_string_from_uint(nr_cell_id, 36);
     nr->tAI.pLMNIdentity = make_octet_string(plmn, 3);
     const std::uint8_t tac[3] = {0x00, 0x00, 0x01};
     nr->tAI.tAC = make_octet_string(tac, 3);
@@ -713,7 +713,8 @@ bool NgapTestGnb::parse_ue_context_release_command_nas_cause(
 }
 
 std::vector<std::uint8_t> NgapTestGnb::build_handover_notify(std::uint64_t amf_ue_id,
-                                                             std::uint32_t ran_ue_id) {
+                                                             std::uint32_t ran_ue_id,
+                                                             std::uint64_t nr_cell_id) {
     HandoverNotify_t notify{};
 
     AMF_UE_NGAP_ID_t amf_id{};
@@ -731,7 +732,7 @@ std::vector<std::uint8_t> NgapTestGnb::build_handover_notify(std::uint64_t amf_u
             85 /* id-RAN-UE-NGAP-ID */, Criticality_reject, &asn_DEF_RAN_UE_NGAP_ID, &ran_id));
 
     UserLocationInformation_t uli{};
-    fill_user_location(uli);
+    fill_user_location(uli, nr_cell_id);
     ::ngap::add_ie(notify.protocolIEs,
                    ::ngap::make_ie(121 /* id-UserLocationInformation */,
                                    Criticality_ignore,

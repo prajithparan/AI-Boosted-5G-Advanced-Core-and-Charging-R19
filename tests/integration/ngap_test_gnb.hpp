@@ -122,8 +122,11 @@ public:
     // set per HandoverNotifyIEs: AMF-UE-NGAP-ID(10), RAN-UE-NGAP-ID(85),
     // UserLocationInformation(121). `ran_ue_id` is the target's own, the one it allocated in its
     // HandoverRequestAcknowledge.
+    // `nr_cell_id` is the NR cell the UE arrived in (the UserLocationInformation's NCGI); default 1
+    // is the same fixed cell every other message from this driver reports.
     std::vector<std::uint8_t> build_handover_notify(std::uint64_t amf_ue_id,
-                                                    std::uint32_t ran_ue_id);
+                                                    std::uint32_t ran_ue_id,
+                                                    std::uint64_t nr_cell_id = 1);
 
     // --- UE-associated signalling (ADR-0265), for procedures that need a registered UE. ---
 

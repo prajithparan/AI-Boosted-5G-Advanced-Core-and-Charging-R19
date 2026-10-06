@@ -227,13 +227,14 @@ add_executable(li_amf_e2e_integration_tests
 target_link_libraries(li_amf_e2e_integration_tests PRIVATE
     li_core sbi_core ngap_core ngap_generated aka_crypto OpenSSL::SSL OpenSSL::Crypto
     GTest::gtest GTest::gtest_main)
-add_dependencies(li_amf_e2e_integration_tests nrf udr udm ausf pcf smf amf)
+add_dependencies(li_amf_e2e_integration_tests nrf udr udm ausf pcf upf smf amf)
 target_compile_definitions(li_amf_e2e_integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     UDR_PATH="$<TARGET_FILE:udr>"
     UDM_PATH="$<TARGET_FILE:udm>"
     AUSF_PATH="$<TARGET_FILE:ausf>"
     PCF_PATH="$<TARGET_FILE:pcf>"
+    UPF_PATH="$<TARGET_FILE:upf>"
     SMF_PATH="$<TARGET_FILE:smf>"
     AMF_PATH="$<TARGET_FILE:amf>"
     AMF_CONFIG_TEMPLATE="${CMAKE_SOURCE_DIR}/config/amf.json"
