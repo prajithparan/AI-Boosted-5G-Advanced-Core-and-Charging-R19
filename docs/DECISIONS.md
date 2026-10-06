@@ -34040,3 +34040,25 @@ not resurrected; informational reports change nothing; stray / non-task xid -> 2
 real mTLS (accepted, 2020, 1060, 403 for a foreign certificate). `li_admf_integration_tests` = 42.
 **Disclosed.** GetTaskDetails (a reconciliation audit of what the NEs actually hold) is built on the client side but the AMF POI and
 MDF2 still answer it 1080, so the ADMF's view of provisioning is its own record plus the NEs' reports, not a cross-check.
+
+**ADR-0462, step 6 (2026-10-06): the whole chain, end to end, and the deployment artifacts.**
+`LiAdmfEndToEnd.AWarrantServedOverHi1InterceptsARealUeAndStopsWhenCancelled` (in `li_amf_e2e_integration_tests`) spawns the real
+NRF/UDR/UDM/AUSF/PCF/SMF/AMF fleet (the AMF with its IRI-POI enabled), the real `li-mdf` and the real `li-admf`, plus a loopback LEMF,
+and drives it as the actors would: the LEA serves a warrant over HI1 (New Authorisation: an Authorisation, an LITask on the test UE's
+IMSI delivering to the LEMF, a Document); the task goes Active on the REAL POI and MDF2 through the ADMF's own X1 client (the LEA reads
+`Active` back over HI1); a real UE registers over real NGAP/NAS; the LEMF receives the HI2 record carrying the LEA's own LIID and the
+target IMSI; the LEA cancels the authorisation over HI1; the task goes Cancelled; the same UE's PDU session and deregistration then
+produce NO further record; and the LEA's Notification objects (>= 2: activation, cancellation) are listable over HI1.
+**Negative control run:** with the cancellation not sent, the post-cancel assertion fails (4 records at the LEMF vs the 2 expected).
+It needs PostgreSQL and Valkey and skips without them (CI provides both; `postgres-li` was added to both CI service blocks, and
+`LI_ADMF_DATABASE_URL`/`li-admf` to the CI env / PKI list). **Deployment (DoD items 7/9, compose + Helm):** `deploy/docker/li-admf.Dockerfile`
+(derived from li-mdf's, which documents the li_core/ETSI-schema/config additions), a `li-admf` + `postgres-li` compose service pair with
+the mandatory `../../config:/build/config:ro` bind mount and a compose-only overlay (`deploy/docker/li-admf.compose.json`, selected by
+`LI-ADMF_CONFIG_FILE`, container-network NE addresses only), `deploy/helm/li-admf` (lab-grade like the others, exactly one replica), and
+the README LI row. **Disclosed, not verified here:** the new Dockerfile was NOT built (the host's Docker/vcpkg path has defeated image
+builds before, ADR-0442) and the Helm chart is unlinted (no `helm` on this host); the compose file passes `docker compose config`.
+Also unfixed: the lifecycle reconcile loop has no leader election, so the ADMF must run as ONE replica.
+**CI lessons recorded.** (1) Two earlier CI "failures" of this increment were this session's own local test runs colliding with the
+runner's Test step on the same loopback ports (the CI log shows `nrf: bind: Address already in use` at the minute a local run started) --
+not defects; (2) `clang-format-18 --dry-run --Werror` over libs/nfs/tests is a CI gate (the `lint` job): format every touched file before
+pushing (`clang-format-18 -i $(git diff --name-only <base> | grep -E '\.(cpp|hpp)$')`).

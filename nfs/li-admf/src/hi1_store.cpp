@@ -1,6 +1,7 @@
 #include "hi1_store.hpp"
 
 #include <nlohmann/json.hpp>
+
 #include <pqxx/pqxx>
 
 namespace li_admf {
@@ -12,14 +13,13 @@ constexpr const char* kSelectColumns =
     "authorisation_id, status, xml, lea, last_txn, "
     "to_char(last_changed AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')";
 
-// pqxx 8 hands out proxy types (field_ref / row_ref), so these are templates, not pqxx::field / row.
-template <typename Field>
-std::string text_or_empty(const Field& f) {
+// pqxx 8 hands out proxy types (field_ref / row_ref), so these are templates, not pqxx::field /
+// row.
+template <typename Field> std::string text_or_empty(const Field& f) {
     return f.template as<std::optional<std::string>>().value_or(std::string());
 }
 
-template <typename Row>
-StoredObject from_row(const Row& row) {
+template <typename Row> StoredObject from_row(const Row& row) {
     StoredObject o;
     o.object_id = row[0].template as<std::string>();
     o.object_type = row[1].template as<std::string>();
@@ -72,21 +72,22 @@ CREATE TABLE IF NOT EXISTS hi1_audit (
 bool Hi1Store::insert(const StoredObject& o) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec(
-        "INSERT INTO hi1_object (object_id, object_type, owner_identifier, country_code, generation, "
-        "external_id, authorisation_id, status, xml, lea, last_txn) "
-        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (object_id) DO NOTHING",
-        pqxx::params{o.object_id,
-                     o.object_type,
-                     opt(o.owner_identifier),
-                     opt(o.country_code),
-                     o.generation,
-                     opt(o.external_id),
-                     opt(o.authorisation_id),
-                     opt(o.status),
-                     o.xml,
-                     opt(o.lea),
-                     opt(o.last_txn)});
+    const auto result =
+        txn.exec("INSERT INTO hi1_object (object_id, object_type, owner_identifier, country_code, "
+                 "generation, "
+                 "external_id, authorisation_id, status, xml, lea, last_txn) "
+                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (object_id) DO NOTHING",
+                 pqxx::params{o.object_id,
+                              o.object_type,
+                              opt(o.owner_identifier),
+                              opt(o.country_code),
+                              o.generation,
+                              opt(o.external_id),
+                              opt(o.authorisation_id),
+                              opt(o.status),
+                              o.xml,
+                              opt(o.lea),
+                              opt(o.last_txn)});
     txn.commit();
     return result.affected_rows() == 1;
 }
@@ -98,23 +99,42 @@ bool Hi1Store::apply(const std::vector<StoreOp>& ops) {
         const auto& o = op.object;
         if (op.kind == StoreOp::Kind::Insert) {
             const auto r = txn.exec(
-                "INSERT INTO hi1_object (object_id, object_type, owner_identifier, country_code, generation, "
+                "INSERT INTO hi1_object (object_id, object_type, owner_identifier, country_code, "
+                "generation, "
                 "external_id, authorisation_id, status, xml, lea, last_txn) "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (object_id) DO NOTHING",
-                pqxx::params{o.object_id, o.object_type, opt(o.owner_identifier), opt(o.country_code),
-                             o.generation, opt(o.external_id), opt(o.authorisation_id), opt(o.status), o.xml,
-                             opt(o.lea), opt(o.last_txn)});
+                pqxx::params{o.object_id,
+                             o.object_type,
+                             opt(o.owner_identifier),
+                             opt(o.country_code),
+                             o.generation,
+                             opt(o.external_id),
+                             opt(o.authorisation_id),
+                             opt(o.status),
+                             o.xml,
+                             opt(o.lea),
+                             opt(o.last_txn)});
             if (r.affected_rows() != 1) {
                 return false; // the transaction rolls back when `txn` goes out of scope uncommitted
             }
         } else {
             const auto r = txn.exec(
-                "UPDATE hi1_object SET object_type=$2, owner_identifier=$3, country_code=$4, generation=$5, "
+                "UPDATE hi1_object SET object_type=$2, owner_identifier=$3, country_code=$4, "
+                "generation=$5, "
                 "external_id=$6, authorisation_id=$7, status=$8, xml=$9, lea=$10, last_txn=$11, "
                 "last_changed=now() WHERE object_id=$1 AND generation=$12",
-                pqxx::params{o.object_id, o.object_type, opt(o.owner_identifier), opt(o.country_code),
-                             o.generation, opt(o.external_id), opt(o.authorisation_id), opt(o.status), o.xml,
-                             opt(o.lea), opt(o.last_txn), op.expected_generation});
+                pqxx::params{o.object_id,
+                             o.object_type,
+                             opt(o.owner_identifier),
+                             opt(o.country_code),
+                             o.generation,
+                             opt(o.external_id),
+                             opt(o.authorisation_id),
+                             opt(o.status),
+                             o.xml,
+                             opt(o.lea),
+                             opt(o.last_txn),
+                             op.expected_generation});
             if (r.affected_rows() != 1) {
                 return false;
             }
@@ -127,9 +147,9 @@ bool Hi1Store::apply(const std::vector<StoreOp>& ops) {
 std::optional<StoredObject> Hi1Store::get(const std::string& object_id) {
     auto lease = pool_.acquire();
     pqxx::nontransaction txn(lease.conn());
-    const auto rows = txn.exec(std::string("SELECT ") + kSelectColumns +
-                                   " FROM hi1_object WHERE object_id = $1",
-                               pqxx::params{object_id});
+    const auto rows =
+        txn.exec(std::string("SELECT ") + kSelectColumns + " FROM hi1_object WHERE object_id = $1",
+                 pqxx::params{object_id});
     if (rows.empty()) {
         return std::nullopt;
     }
@@ -139,22 +159,23 @@ std::optional<StoredObject> Hi1Store::get(const std::string& object_id) {
 bool Hi1Store::replace(const StoredObject& o, std::uint64_t expected_generation) {
     auto lease = pool_.acquire();
     pqxx::work txn(lease.conn());
-    const auto result = txn.exec(
-        "UPDATE hi1_object SET object_type=$2, owner_identifier=$3, country_code=$4, generation=$5, "
-        "external_id=$6, authorisation_id=$7, status=$8, xml=$9, lea=$10, last_txn=$11, "
-        "last_changed=now() WHERE object_id=$1 AND generation=$12",
-        pqxx::params{o.object_id,
-                     o.object_type,
-                     opt(o.owner_identifier),
-                     opt(o.country_code),
-                     o.generation,
-                     opt(o.external_id),
-                     opt(o.authorisation_id),
-                     opt(o.status),
-                     o.xml,
-                     opt(o.lea),
-                     opt(o.last_txn),
-                     expected_generation});
+    const auto result =
+        txn.exec("UPDATE hi1_object SET object_type=$2, owner_identifier=$3, country_code=$4, "
+                 "generation=$5, "
+                 "external_id=$6, authorisation_id=$7, status=$8, xml=$9, lea=$10, last_txn=$11, "
+                 "last_changed=now() WHERE object_id=$1 AND generation=$12",
+                 pqxx::params{o.object_id,
+                              o.object_type,
+                              opt(o.owner_identifier),
+                              opt(o.country_code),
+                              o.generation,
+                              opt(o.external_id),
+                              opt(o.authorisation_id),
+                              opt(o.status),
+                              o.xml,
+                              opt(o.lea),
+                              opt(o.last_txn),
+                              expected_generation});
     txn.commit();
     return result.affected_rows() == 1;
 }
@@ -205,7 +226,8 @@ std::optional<LipfTaskState> Hi1Store::lipf_state(const std::string& object_id) 
     LipfTaskState st;
     st.object_id = rows[0][0].template as<std::string>();
     st.provisioned_generation = rows[0][1].template as<std::uint64_t>();
-    const auto parsed = nlohmann::json::parse(rows[0][2].template as<std::string>(), nullptr, false);
+    const auto parsed =
+        nlohmann::json::parse(rows[0][2].template as<std::string>(), nullptr, false);
     if (parsed.is_array()) {
         for (const auto& a : parsed) {
             st.destinations.push_back(a.get<std::string>());
@@ -222,7 +244,10 @@ void Hi1Store::set_lipf_state(const LipfTaskState& st) {
     txn.exec("INSERT INTO lipf_task (object_id, provisioned_generation, destinations, state) "
              "VALUES ($1,$2,$3,$4) ON CONFLICT (object_id) DO UPDATE SET "
              "provisioned_generation=$2, destinations=$3, state=$4, updated_at=now()",
-             pqxx::params{st.object_id, st.provisioned_generation, nlohmann::json(st.destinations).dump(), st.state});
+             pqxx::params{st.object_id,
+                          st.provisioned_generation,
+                          nlohmann::json(st.destinations).dump(),
+                          st.state});
     txn.commit();
 }
 
@@ -231,7 +256,13 @@ void Hi1Store::audit(const AuditEntry& e) {
     pqxx::work txn(lease.conn());
     txn.exec("INSERT INTO hi1_audit (peer, path, transaction_id, sender, actions, outcome, detail) "
              "VALUES ($1,$2,$3,$4,$5,$6,$7)",
-             pqxx::params{e.peer, e.path, opt(e.transaction_id), opt(e.sender), e.actions, e.outcome, opt(e.detail)});
+             pqxx::params{e.peer,
+                          e.path,
+                          opt(e.transaction_id),
+                          opt(e.sender),
+                          e.actions,
+                          e.outcome,
+                          opt(e.detail)});
     txn.commit();
 }
 

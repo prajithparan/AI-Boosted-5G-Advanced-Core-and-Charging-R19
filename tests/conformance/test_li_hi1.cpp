@@ -57,7 +57,8 @@ TEST(LiHi1, EveryEtsiExampleRequestAndResponseParses) {
         if (name.rfind("request", 0) == 0) {
             const auto r = parse_request(xml);
             if (kNeedsForeignSchema.count(name) != 0) {
-                EXPECT_FALSE(r.has_value()) << name << ": its extension content needs ETSI's example-only Foo schema";
+                EXPECT_FALSE(r.has_value())
+                    << name << ": its extension content needs ETSI's example-only Foo schema";
                 continue;
             }
             EXPECT_TRUE(r.has_value()) << name << ": " << (r ? "" : r.error().detail);
@@ -109,11 +110,16 @@ TEST(LiHi1, TheLiLifecycleExampleReadsBackTheValuesEtsiPrinted) {
     EXPECT_EQ(tv.destinations[0].address_kind, "IPv4Address");
     EXPECT_EQ(tv.destinations[0].address, "192.0.2.0");
     ASSERT_EQ(tv.associated.size(), 1U);
-    EXPECT_EQ(tv.associated[0], "7dbbc880-8750-4d3c-abe7-ea4a17646045"); // belongs to the Authorisation
+    EXPECT_EQ(tv.associated[0],
+              "7dbbc880-8750-4d3c-abe7-ea4a17646045"); // belongs to the Authorisation
 }
 
 TEST(LiHi1, EtsiExamplesRoundTripThroughTheWriter) {
-    for (const char* name : {"request1.xml", "request2.xml", "request3.xml", "request6.xml", "request8_LPTaskObject.xml"}) {
+    for (const char* name : {"request1.xml",
+                             "request2.xml",
+                             "request3.xml",
+                             "request6.xml",
+                             "request8_LPTaskObject.xml"}) {
         const auto first = parse_request(slurp(examples() / name));
         ASSERT_TRUE(first.has_value()) << name << ": " << first.error().detail;
         const auto xml = serialise_request(*first); // validated against the schema inside
@@ -136,7 +142,8 @@ TEST(LiHi1, EtsiExamplesRoundTripThroughTheWriter) {
 }
 
 TEST(LiHi1, EtsiResponsesRoundTripIncludingTheCspConfig) {
-    for (const char* name : {"response1.xml", "response2.xml", "response3.xml", "response_config.xml"}) {
+    for (const char* name :
+         {"response1.xml", "response2.xml", "response3.xml", "response_config.xml"}) {
         const auto first = parse_response(slurp(examples() / name));
         ASSERT_TRUE(first.has_value()) << name << ": " << first.error().detail;
         const auto xml = serialise_response(*first);
@@ -156,7 +163,8 @@ TEST(LiHi1, EtsiResponsesRoundTripIncludingTheCspConfig) {
     EXPECT_EQ(config->config.targeting[0].format_name, "InternationalE164");
     ASSERT_EQ(config->config.li_endpoints.size(), 1U);
     EXPECT_EQ(config->config.li_endpoints[0].endpoint.value, "NewAuthorisation");
-    EXPECT_EQ(config->config.li_endpoints[0].url, "https://ts103120.example.com/li/authorisation/new");
+    EXPECT_EQ(config->config.li_endpoints[0].url,
+              "https://ts103120.example.com/li/authorisation/new");
     ASSERT_TRUE(config->config.target_formats.has_value());
     EXPECT_EQ(config->config.target_formats->entries[0].format_name, "ProprietaryIdentifier");
 }
@@ -170,8 +178,12 @@ TEST(LiHi1, ObjectEditsLandAtTheirSchemaPositionAndTheMessageStillValidates) {
     Object auth = parsed_authorisation();
     // AuthorisationStatus belongs between Reference and Timespan; DesiredStatus right after it;
     // Generation is a base member that precedes every derived one.
-    ASSERT_TRUE(auth.set_entry("AuthorisationDesiredStatus", {"ETSI", "AuthorisationDesiredStatus", "Approved"}).has_value());
-    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "AwaitingApproval"}).has_value());
+    ASSERT_TRUE(auth.set_entry("AuthorisationDesiredStatus",
+                               {"ETSI", "AuthorisationDesiredStatus", "Approved"})
+                    .has_value());
+    ASSERT_TRUE(
+        auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "AwaitingApproval"})
+            .has_value());
     ASSERT_TRUE(auth.set_text("Generation", "3").has_value());
     ASSERT_TRUE(auth.set_text("LastChanged", "2026-10-06T12:00:00Z").has_value());
     ASSERT_TRUE(auth.set_text("AuthorisationServedTimestamp", "2026-10-06T12:00:01Z").has_value());
@@ -183,7 +195,8 @@ TEST(LiHi1, ObjectEditsLandAtTheirSchemaPositionAndTheMessageStillValidates) {
     ASSERT_TRUE(xml.has_value()) << xml.error();
 
     // Replace in place (no duplicate), and read back.
-    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Approved"}).has_value());
+    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Approved"})
+                    .has_value());
     const auto view = view_authorisation(auth);
     ASSERT_TRUE(view.status.has_value());
     EXPECT_EQ(view.status->value, "Approved");
@@ -202,10 +215,13 @@ TEST(LiHi1, ObjectEditsLandAtTheirSchemaPositionAndTheMessageStillValidates) {
 
 TEST(LiHi1, MergeFollowsTheUpdateSemanticsOfClause647) {
     Object stored = parsed_authorisation(); // Reference W000001, Timespan 2015-09-01 .. 2015-12-01
-    ASSERT_TRUE(stored.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Approved"}).has_value());
+    ASSERT_TRUE(stored.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Approved"})
+                    .has_value());
 
-    // The update names only the Timespan (new end date) and a manual note; everything else is absent.
-    const auto update = Object::from_xml(R"(<HI1Object xmlns="http://uri.etsi.org/03120/common/2019/10/Core"
+    // The update names only the Timespan (new end date) and a manual note; everything else is
+    // absent.
+    const auto update =
+        Object::from_xml(R"(<HI1Object xmlns="http://uri.etsi.org/03120/common/2019/10/Core"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:auth="http://uri.etsi.org/03120/common/2020/09/Authorisation"
       xsi:type="auth:AuthorisationObject"><ObjectIdentifier>7dbbc880-8750-4d3c-abe7-ea4a17646045</ObjectIdentifier>
       <auth:AuthorisationTimespan><auth:EndTime>2016-03-01T12:00:00Z</auth:EndTime></auth:AuthorisationTimespan>
@@ -215,9 +231,10 @@ TEST(LiHi1, MergeFollowsTheUpdateSemanticsOfClause647) {
 
     const auto view = view_authorisation(stored);
     EXPECT_EQ(view.end_time, "2016-03-01T12:00:00Z");
-    EXPECT_FALSE(view.start_time.has_value()) << "a single-valued structure present in the update replaces the stored one wholesale";
-    EXPECT_EQ(view.reference, "W000001");             // absent in the update: unchanged
-    EXPECT_EQ(view.status->value, "Approved");         // absent in the update: unchanged
+    EXPECT_FALSE(view.start_time.has_value())
+        << "a single-valued structure present in the update replaces the stored one wholesale";
+    EXPECT_EQ(view.reference, "W000001");      // absent in the update: unchanged
+    EXPECT_EQ(view.status->value, "Approved"); // absent in the update: unchanged
     EXPECT_EQ(stored.text("AuthorisationManualInformation"), "extended");
 
     // The merged object is still schema-valid, with every member at its schema position.
@@ -227,7 +244,9 @@ TEST(LiHi1, MergeFollowsTheUpdateSemanticsOfClause647) {
     EXPECT_TRUE(serialise_response(resp).has_value());
 
     // A different object type cannot be merged in.
-    const auto task = std::get<CreateAction>(parse_request(slurp(examples() / "request1.xml"))->actions[1].body).object;
+    const auto task =
+        std::get<CreateAction>(parse_request(slurp(examples() / "request1.xml"))->actions[1].body)
+            .object;
     EXPECT_FALSE(stored.merge(task).has_value());
 
     const auto names = stored.members();
@@ -236,18 +255,22 @@ TEST(LiHi1, MergeFollowsTheUpdateSemanticsOfClause647) {
 
 TEST(LiHi1, AnInvalidReasonIsPlacedAndValidates) {
     Object auth = parsed_authorisation();
-    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Rejected"}).has_value());
-    ASSERT_TRUE(auth.set_failure("AuthorisationInvalidReason", 3001, "no CC-POI <deployed>").has_value());
+    ASSERT_TRUE(auth.set_entry("AuthorisationStatus", {"ETSI", "AuthorisationStatus", "Rejected"})
+                    .has_value());
+    ASSERT_TRUE(
+        auth.set_failure("AuthorisationInvalidReason", 3001, "no CC-POI <deployed>").has_value());
     Response resp;
     resp.header = sample_header();
     resp.payload = std::vector<ActionResult>{{0, GetResult{auth}}};
     EXPECT_TRUE(serialise_response(resp).has_value());
-    EXPECT_FALSE(auth.set_failure("Status", 1, "x").has_value()); // an LITask member, not an Authorisation one
+    EXPECT_FALSE(auth.set_failure("Status", 1, "x")
+                     .has_value()); // an LITask member, not an Authorisation one
 }
 
 TEST(LiHi1, TextValuesAreEscapedNotInterpreted) {
     Object auth = parsed_authorisation();
-    ASSERT_TRUE(auth.set_text("AuthorisationManualInformation", "a < b && c > \"d\" </x>").has_value());
+    ASSERT_TRUE(
+        auth.set_text("AuthorisationManualInformation", "a < b && c > \"d\" </x>").has_value());
     EXPECT_EQ(auth.text("AuthorisationManualInformation"), "a < b && c > \"d\" </x>");
 }
 
@@ -267,7 +290,9 @@ TEST(LiHi1, ResponsesOfEveryKindValidateAndParseBack) {
         {2, GetResult{auth}},
         {3, ListResult{{rec}}},
         {4, DeliverResult{auth.identifier()}},
-        {5, Failure{static_cast<std::uint32_t>(ErrorCode::UpdateObjectDoesNotExist), "no such object"}},
+        {5,
+         Failure{static_cast<std::uint32_t>(ErrorCode::UpdateObjectDoesNotExist),
+                 "no such object"}},
     };
     const auto xml = serialise_response(resp);
     ASSERT_TRUE(xml.has_value()) << xml.error();
@@ -352,7 +377,8 @@ TEST(LiHi1, BadMessagesAreRejectedWithTheDetailAndTheHeader) {
     // Schema-invalid: delete the mandatory ObjectIdentifier of the first object.
     std::string xml = slurp(examples() / "request1.xml");
     const auto start = xml.find("<ObjectIdentifier>");
-    const auto end = xml.find("</ObjectIdentifier>", start) + std::string("</ObjectIdentifier>").size();
+    const auto end =
+        xml.find("</ObjectIdentifier>", start) + std::string("</ObjectIdentifier>").size();
     xml.erase(start, end - start);
     const auto invalid = parse_request(xml);
     ASSERT_FALSE(invalid.has_value());

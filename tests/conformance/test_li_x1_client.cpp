@@ -25,7 +25,9 @@ MessageHeader header(const std::string& txn = "2b1e4f6a-0000-4000-8000-000000000
     return h;
 }
 
-Request make(MessageType type, RequestBody body, const std::string& txn = "2b1e4f6a-0000-4000-8000-0000000000a1") {
+Request make(MessageType type,
+             RequestBody body,
+             const std::string& txn = "2b1e4f6a-0000-4000-8000-0000000000a1") {
     Request r;
     r.header = header(txn);
     r.type = type;
@@ -52,7 +54,8 @@ TaskDetails full_task() {
 }
 
 TEST(LiX1Client, ActivateTaskRoundTripsEveryModelledMember) {
-    const auto xml = serialise_request({make(MessageType::ActivateTask, ActivateTask{full_task()})});
+    const auto xml =
+        serialise_request({make(MessageType::ActivateTask, ActivateTask{full_task()})});
     ASSERT_TRUE(xml.has_value()) << xml.error();
 
     const auto parsed = parse_request(*xml);
@@ -113,8 +116,7 @@ TEST(LiX1Client, EveryOtherBuildableRequestTypeIsSchemaValidAndParsesBack) {
     uri.address = {DeliveryAddress::Kind::Uri, "https://lemf.example/deliver"};
 
     const std::vector<Request> all{
-        make(MessageType::DeactivateTask,
-             DeactivateTask{"3fa85f64-5717-4562-b3fc-2c963f66afa6"}),
+        make(MessageType::DeactivateTask, DeactivateTask{"3fa85f64-5717-4562-b3fc-2c963f66afa6"}),
         make(MessageType::DeactivateAllTasks, DeactivateAllTasks{}),
         make(MessageType::GetTaskDetails, GetTaskDetails{"3fa85f64-5717-4562-b3fc-2c963f66afa6"}),
         make(MessageType::CreateDestination, CreateDestination{v4}),
@@ -289,8 +291,9 @@ TEST(LiX1Client, ParsesTheNeToAdmfReportRequests) {
 
     // The ADMF's own OK answer to a Report* is a schema-valid ReportNEIssueResponse /
     // ReportTaskIssueResponse, built by the same serialiser.
-    const auto answer = serialise_response({OkResponse{header(), MessageType::ReportNEIssue, true},
-                                            OkResponse{header(), MessageType::ReportTaskIssue, true}});
+    const auto answer =
+        serialise_response({OkResponse{header(), MessageType::ReportNEIssue, true},
+                            OkResponse{header(), MessageType::ReportTaskIssue, true}});
     ASSERT_TRUE(answer.has_value()) << answer.error();
     const auto back = parse_response(*answer);
     ASSERT_TRUE(back.has_value()) << back.error().detail;
@@ -300,10 +303,9 @@ TEST(LiX1Client, ParsesTheNeToAdmfReportRequests) {
     // An NE (this library's server side) that is sent a Report* answers 1080, not silence.
     TaskStoreCallbacks cb;
     cb.ne_identifier = "amf-1";
-    const std::string reply = handle_request(
-        report_envelope("ReportNEIssueRequest", R"(
+    const std::string reply = handle_request(report_envelope("ReportNEIssueRequest", R"(
     <typeOfNeIssueMessage>Warning</typeOfNeIssueMessage><description>x</description>)"),
-        cb);
+                                             cb);
     EXPECT_NE(reply.find("1080"), std::string::npos) << reply;
 }
 
@@ -314,7 +316,9 @@ TEST(LiX1Client, AnAdmfServerHandlesReportsThroughItsCallbacksAndAnNeAnswers1080
     admf.ne_identifier = "admf-1";
     admf.report_task_issue = [&](const ReportTaskIssue& r) -> std::optional<ErrorCode> {
         ++task_reports;
-        return r.xid == "3fa85f64-5717-4562-b3fc-2c963f66afa6" ? std::nullopt : std::optional(ErrorCode::XidDoesNotExist);
+        return r.xid == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                   ? std::nullopt
+                   : std::optional(ErrorCode::XidDoesNotExist);
     };
     admf.report_ne_issue = [&](const ReportNEIssue&) -> std::optional<ErrorCode> {
         ++ne_reports;
@@ -325,7 +329,8 @@ TEST(LiX1Client, AnAdmfServerHandlesReportsThroughItsCallbacksAndAnNeAnswers1080
     const std::string unknown = report_envelope("ReportTaskIssueRequest", R"(
     <xId>11111111-1111-4111-8111-111111111111</xId><taskReportType>Warning</taskReportType>)");
     EXPECT_EQ(handle_request(known, admf).find("ErrorResponse"), std::string::npos);
-    EXPECT_NE(handle_request(unknown, admf).find("2020"), std::string::npos); // refused with the callback's code
+    EXPECT_NE(handle_request(unknown, admf).find("2020"),
+              std::string::npos); // refused with the callback's code
     const std::string ne_issue = report_envelope("ReportNEIssueRequest", R"(
     <typeOfNeIssueMessage>FaultReport</typeOfNeIssueMessage><description>x</description>)");
     EXPECT_NE(handle_request(ne_issue, admf).find("ReportNEIssueResponse"), std::string::npos);

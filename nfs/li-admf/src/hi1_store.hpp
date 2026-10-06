@@ -20,10 +20,11 @@ struct StoredObject {
     std::string country_code;
     std::uint64_t generation = 0;
     std::string external_id;
-    std::string authorisation_id; // the Authorisation a task/document/notification belongs to ("" if none)
-    std::string status;           // dictionary Value of the object's status ("" if none)
-    std::string lea;              // "<CountryCode>/<UniqueIdentifier>" of the owning LEA
-    std::string last_txn;         // TransactionIdentifier of the request that last changed it
+    std::string
+        authorisation_id; // the Authorisation a task/document/notification belongs to ("" if none)
+    std::string status;   // dictionary Value of the object's status ("" if none)
+    std::string lea;      // "<CountryCode>/<UniqueIdentifier>" of the owning LEA
+    std::string last_txn; // TransactionIdentifier of the request that last changed it
     std::string xml;
     std::string last_changed; // QualifiedDateTime (UTC), filled by the database on read
 };
@@ -75,11 +76,12 @@ public:
     // false if an object with this id already exists (the caller maps that to error 3010).
     bool insert(const StoredObject& object);
     // Every op in ONE transaction: all apply or none do (a request that cannot be applied in full
-    // must change nothing, TS 103 120 H.5.2.2.3). false on any conflict (duplicate id, stale generation).
+    // must change nothing, TS 103 120 H.5.2.2.3). false on any conflict (duplicate id, stale
+    // generation).
     bool apply(const std::vector<StoreOp>& ops);
     [[nodiscard]] std::optional<StoredObject> get(const std::string& object_id);
-    // Optimistic concurrency: replaces only if the stored generation is still `expected_generation`.
-    // false if the object is gone or was changed by someone else meanwhile.
+    // Optimistic concurrency: replaces only if the stored generation is still
+    // `expected_generation`. false if the object is gone or was changed by someone else meanwhile.
     bool replace(const StoredObject& object, std::uint64_t expected_generation);
     [[nodiscard]] std::vector<StoredObject> list(const ListFilter& filter);
 

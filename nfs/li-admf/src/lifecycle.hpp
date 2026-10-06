@@ -43,8 +43,8 @@ std::optional<Workflow> workflow_for_path(std::string_view path);
 
 struct LifecycleConfig {
     li_core::hi1::EndpointId self; // the CSP: owner of the NotificationObjects it issues
-    // Document ContentTypes beyond H.5.2.3.4's list (pdf, docx, png, jpeg, text/plain) that this CSP
-    // has agreed with its LEAs.
+    // Document ContentTypes beyond H.5.2.3.4's list (pdf, docx, png, jpeg, text/plain) that this
+    // CSP has agreed with its LEAs.
     std::vector<std::string> extra_document_content_types;
     std::chrono::seconds reconcile_interval{5};
     // An Error task (an NE refused or was unreachable) is retried this often.
@@ -85,9 +85,11 @@ public:
     void keepalive_once();
 
     // What an NE reports about a task (ReportTaskIssue, 6.5.2) and about itself (ReportNEIssue,
-    // 6.5.4). The error code is the X1 answer: XidDoesNotExist for a task this ADMF never provisioned.
+    // 6.5.4). The error code is the X1 answer: XidDoesNotExist for a task this ADMF never
+    // provisioned.
     std::optional<li_core::x1::ErrorCode> task_issue(const li_core::x1::ReportTaskIssue& report);
-    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne_identifier, const li_core::x1::ReportNEIssue& report);
+    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne_identifier,
+                                                   const li_core::x1::ReportNEIssue& report);
 
     // One review / provisioning / expiry / notification pass. Public so tests drive it
     // deterministically; the worker calls it on its interval and on wake().

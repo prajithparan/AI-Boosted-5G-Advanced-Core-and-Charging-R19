@@ -37,10 +37,14 @@
 #include <variant>
 #include <vector>
 
+#include "hi1_test_objects.hpp"
+#include "li_core/hi1.hpp"
+#include "li_core/hi2.hpp"
 #include "li_core/x1.hpp"
 #include "li_core/x2x3_pdu.hpp"
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
+#include "loopback_lemf.hpp"
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"
 #include "ue_nas_driver.hpp"
@@ -59,7 +63,8 @@ constexpr std::uint32_t kGnbId = 0x000044; // clear of the other NGAP tests' gNB
 constexpr std::uint32_t kSourceGnbId = 0x000045;
 constexpr std::uint32_t kTargetGnbId = 0x000046;
 constexpr std::uint32_t kTargetRanUeId = 7777;
-constexpr std::uint64_t kTargetCellId = 0x2A; // not the driver's default cell 1: provably the target's
+constexpr std::uint64_t kTargetCellId =
+    0x2A; // not the driver's default cell 1: provably the target's
 constexpr const char* kDnn = "internet";
 constexpr std::uint8_t kSst = 1;
 constexpr std::uint32_t kSd = 0x000001;
@@ -144,9 +149,8 @@ sbi_core::http2::Client make_client(const char* nf) {
 // An ActivateTask built by li_core's X1 client codec (ADR-0462) -- the same code the ADMF's LIPF
 // uses -- so these tests also prove the real AMF POI accepts what that codec emits. `gating` is
 // "All" / "IdentifierAssociation", or empty to omit IdentifierAssociationExtensions (Absent).
-std::string x1_activate(const std::string& xid,
-                        const std::string& transaction_id,
-                        const std::string& gating) {
+std::string
+x1_activate(const std::string& xid, const std::string& transaction_id, const std::string& gating) {
     namespace x1 = li_core::x1;
     x1::TaskDetails task;
     task.xid = xid;
@@ -329,16 +333,18 @@ sbi_core::multipart::Encoded encode_create_sm_context_body(const std::string& su
                                                            std::int64_t pdu_session_id) {
     sbi_core::multipart::Part part;
     part.content_type = "application/json";
-    part.body = json{
-        {"servingNfId", "00000000-0000-4000-8000-0000000000aa"},
-        {"servingNetwork", json{{"mcc", "999"}, {"mnc", "70"}}},
-        {"anType", "3GPP_ACCESS"},
-        {"smContextStatusUri", "https://example.com/sm-status"},
-        {"supi", supi},
-        {"pduSessionId", pdu_session_id},
-        {"dnn", kDnn},
-        {"sNssai", json{{"sst", kSst}}},
-    }.dump();
+    part.body =
+        json{
+            {"servingNfId", "00000000-0000-4000-8000-0000000000aa"},
+            {"servingNetwork", json{{"mcc", "999"}, {"mnc", "70"}}},
+            {"anType", "3GPP_ACCESS"},
+            {"smContextStatusUri", "https://example.com/sm-status"},
+            {"supi", supi},
+            {"pduSessionId", pdu_session_id},
+            {"dnn", kDnn},
+            {"sNssai", json{{"sst", kSst}}},
+        }
+            .dump();
     return sbi_core::multipart::encode({part});
 }
 
@@ -391,7 +397,6 @@ void wait_for_upf_sx_association(int max_attempts = 40) {
     FAIL() << "SMF never answered HANDOVER_REQUIRED with a real transfer. Last answer: "
            << last_failure;
 }
-
 
 } // namespace
 
@@ -609,7 +614,8 @@ TEST(LiAmfEndToEnd, RealAmfEmitsLocationUpdateXiriOnN2HandoverNotify) {
     std::this_thread::sleep_for(500ms);
 
     const auto pdus = mdf2.take();
-    ASSERT_EQ(pdus.size(), 3u) << "Registration + IdentifierAssociation + exactly one LocationUpdate";
+    ASSERT_EQ(pdus.size(), 3u)
+        << "Registration + IdentifierAssociation + exactly one LocationUpdate";
     int location_updates = 0;
     for (const auto& pdu : pdus) {
         const auto decoded = xiri::decode_xiri_payload(pdu.payload);
@@ -637,7 +643,8 @@ TEST(LiAmfEndToEnd, RealAmfEmitsLocationUpdateXiriOnN2HandoverNotify) {
 // record, the first is not repeated), gating, and a UE that has since deregistered.
 TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnARegisteredUe) {
     constexpr const char* kXidA = "a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1";
-    constexpr const char* kXidB = "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2"; // IdentifierAssociation-only
+    constexpr const char* kXidB =
+        "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2"; // IdentifierAssociation-only
     constexpr const char* kXidC = "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3"; // gating absent
     constexpr const char* kXidD = "d4d4d4d4-d4d4-44d4-84d4-d4d4d4d4d4d4"; // after deregistration
 
@@ -674,7 +681,8 @@ TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnAReg
     // 2. Warrant A (All) is activated on the already-registered UE: exactly one
     // AMFStartOfInterceptionWithRegisteredUE, under A's XID, with the UE's real state.
     auto admf = make_client("amf");
-    const auto a_resp = post_x1(admf, x1_activate(kXidA, "00000000-0000-4000-8000-0000000000a1", "All"));
+    const auto a_resp =
+        post_x1(admf, x1_activate(kXidA, "00000000-0000-4000-8000-0000000000a1", "All"));
     {
         const auto responses = li_core::x1::parse_response(a_resp);
         ASSERT_TRUE(responses.has_value()) << responses.error().detail << "\n" << a_resp;
@@ -684,7 +692,8 @@ TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnAReg
         EXPECT_EQ(ok->type, li_core::x1::MessageType::ActivateTask);
         EXPECT_TRUE(ok->acknowledged_and_completed);
     }
-    ASSERT_TRUE(mdf2.wait_for(1, 10s)) << "no StartOfInterception after activating on a registered UE";
+    ASSERT_TRUE(mdf2.wait_for(1, 10s))
+        << "no StartOfInterception after activating on a registered UE";
     std::this_thread::sleep_for(500ms);
     {
         const auto pdus = mdf2.take();
@@ -710,14 +719,16 @@ TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnAReg
     }
 
     // 3. Warrant B is IdentifierAssociation-only: "No other record types" -> nothing.
-    const auto b_resp =
-        post_x1(admf, x1_activate(kXidB, "00000000-0000-4000-8000-0000000000b2", "IdentifierAssociation"));
+    const auto b_resp = post_x1(
+        admf, x1_activate(kXidB, "00000000-0000-4000-8000-0000000000b2", "IdentifierAssociation"));
     ASSERT_NE(b_resp.find("ActivateTaskResponse"), std::string::npos) << b_resp;
     std::this_thread::sleep_for(1500ms);
-    EXPECT_EQ(mdf2.take().size(), 1u) << "an IdentifierAssociation-only warrant got a StartOfInterception";
+    EXPECT_EQ(mdf2.take().size(), 1u)
+        << "an IdentifierAssociation-only warrant got a StartOfInterception";
 
     // 4. Warrant C (gating absent) is an ADDITIONAL warrant: its own record, A's not repeated.
-    const auto c_resp = post_x1(admf, x1_activate(kXidC, "00000000-0000-4000-8000-0000000000c3", ""));
+    const auto c_resp =
+        post_x1(admf, x1_activate(kXidC, "00000000-0000-4000-8000-0000000000c3", ""));
     ASSERT_NE(c_resp.find("ActivateTaskResponse"), std::string::npos) << c_resp;
     ASSERT_TRUE(mdf2.wait_for(2, 10s));
     std::this_thread::sleep_for(500ms);
@@ -742,10 +753,302 @@ TEST(LiAmfEndToEnd, RealAmfEmitsStartOfInterceptionWhenAWarrantIsActivatedOnAReg
     ASSERT_GT(before, 2u) << "expected Deregistration xIRIs for the live warrants";
 
     // 6. Warrant D on a UE that is no longer registered: no StartOfInterception.
-    const auto d_resp = post_x1(admf, x1_activate(kXidD, "00000000-0000-4000-8000-0000000000d4", "All"));
+    const auto d_resp =
+        post_x1(admf, x1_activate(kXidD, "00000000-0000-4000-8000-0000000000d4", "All"));
     ASSERT_NE(d_resp.find("ActivateTaskResponse"), std::string::npos) << d_resp;
     std::this_thread::sleep_for(1500ms);
     EXPECT_EQ(mdf2.take().size(), before) << "a deregistered UE must not start an interception";
 
     mdf2_server.stop();
+}
+
+// ADR-0462 step 6: the whole lawful-interception chain, every hop a real process or real wire.
+//
+//   LEA --HI1 (TS 103 120, mTLS)--> li-admf --LI_X1--> real AMF IRI-POI  and  real li-mdf (MDF2)
+//   a real UE registers on the real AMF --LI_X2--> li-mdf --LI_HI2 (TS 102 232-1)--> loopback LEMF
+//
+// What it proves that nothing smaller can: the ADMF's mapping of an HI1 LITask onto X1 is accepted
+// by the REAL POI and MDF2 (not an in-memory model of them), the LIID the LEA put in the warrant
+// comes out on the LEMF's record, and cancelling the warrant over HI1 really stops the
+// interception. Needs PostgreSQL (the ADMF's warrant store) and Valkey (the MDF2's); skips without
+// them.
+namespace admf_e2e {
+
+constexpr std::uint16_t kHi1Port = 19809;
+constexpr const char* kHi1Url = "https://127.0.0.1:19809";
+constexpr const char* kLiid = "LIID-E2E-0001";
+
+std::string database_url() {
+    const char* env = std::getenv("LI_ADMF_DATABASE_URL");
+    return env != nullptr ? env : "postgresql://li_admf:li_admf@127.0.0.1:5439/li_admf";
+}
+
+bool tcp_up(std::uint16_t port) {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+    const bool up = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) == 0;
+    ::close(fd);
+    return up;
+}
+
+std::uint16_t valkey_port() {
+    const char* url = std::getenv("LI_MDF_REDIS_URL");
+    if (url == nullptr) {
+        return 6379;
+    }
+    const std::string text(url);
+    const auto port = std::strtoul(text.c_str() + text.rfind(':') + 1, nullptr, 10);
+    return port > 0 && port <= 65535 ? static_cast<std::uint16_t>(port) : 6379;
+}
+
+bool postgres_up() {
+    // The database_url's port; default local lab mapping 5439, CI's 15439.
+    const std::string url = database_url();
+    const auto colon = url.rfind(':');
+    const auto slash = url.find('/', colon);
+    const auto port = std::strtoul(url.substr(colon + 1, slash - colon - 1).c_str(), nullptr, 10);
+    return tcp_up(static_cast<std::uint16_t>(port));
+}
+
+std::string write_admf_config(std::uint16_t mdf_x1_port, const std::string& mdf_ne_identifier) {
+    std::ifstream in(LI_ADMF_CONFIG_TEMPLATE);
+    nlohmann::json cfg = nlohmann::json::parse(in);
+    cfg["hi1_port"] = kHi1Port;
+    cfg["metrics_bind_address"] = "127.0.0.1:19493";
+    cfg["public_base_url"] = kHi1Url;
+    cfg["reconcile_interval_seconds"] = 1;
+    cfg["keepalive_interval_seconds"] = 5;
+    cfg["lea_bindings"] = nlohmann::json::array({{{"peer_cert_cn", "hello-nf"},
+                                                  {"country_code", "GB"},
+                                                  {"unique_identifier", "LEA-E2E-01"}}});
+    cfg["network_elements"] = nlohmann::json::array(
+        {{{"name", "amf-poi"},
+          {"role", "poi"},
+          {"ne_identifier", kNeId},
+          {"x1_url", std::string("https://127.0.0.1:") + std::to_string(kX1Port) + "/X1/NE"},
+          {"peer_cert_cn", "amf"}},
+         {{"name", "mdf2"},
+          {"role", "mdf2"},
+          {"ne_identifier", mdf_ne_identifier},
+          {"x1_url", "https://127.0.0.1:" + std::to_string(mdf_x1_port) + "/X1/NE"},
+          {"peer_cert_cn", "li-mdf"}}});
+    const std::string path = std::string(::testing::TempDir()) + "li_admf_e2e.json";
+    std::ofstream(path) << cfg.dump(2);
+    return path;
+}
+
+// An HI1 request to the ADMF as the onboarded LEA, parsed with the same schema-validated codec.
+std::optional<li_core::hi1::Response>
+hi1_exchange(sbi_core::http2::Client& lea,
+             const std::string& path,
+             const std::vector<li_core::hi1::Action>& actions) {
+    namespace hi1 = li_core::hi1;
+    static int txn = 0;
+    hi1::Request req;
+    req.header.sender = {"GB", "LEA-E2E-01"};
+    req.header.receiver = {"GB", "CSP-5GC-R19"};
+    char id[40];
+    std::snprintf(id, sizeof(id), "e2e00000-0000-4000-8000-%012d", ++txn);
+    req.header.transaction_id = id;
+    req.header.timestamp = "2026-10-06T12:00:00.000000Z";
+    req.header.version = {"V1.23.1", "XX", "v1.0"};
+    req.actions = actions;
+    const auto xml = hi1::serialise_request(req);
+    if (!xml) {
+        ADD_FAILURE() << xml.error();
+        return std::nullopt;
+    }
+    sbi_core::http2::ClientRequest http;
+    http.method = "POST";
+    http.url = std::string(kHi1Url) + path;
+    http.headers.emplace("content-type", "text/xml");
+    http.body = *xml;
+    const auto reply = lea.send(http);
+    if (!reply.has_value() || reply->status != 200) {
+        return std::nullopt;
+    }
+    auto parsed = hi1::parse_response(reply->body);
+    if (!parsed) {
+        ADD_FAILURE() << parsed.error().detail << "\n" << reply->body;
+        return std::nullopt;
+    }
+    return *parsed;
+}
+
+// The task's Status as the LEA reads it back over HI1 (a GET at the API base URL).
+std::string
+task_status(sbi_core::http2::Client& lea, const std::string& id, std::string* reason = nullptr) {
+    namespace hi1 = li_core::hi1;
+    const auto r = hi1_exchange(lea, "/", {{0, hi1::GetAction{id}}});
+    if (!r) {
+        return "(no answer)";
+    }
+    const auto* results = std::get_if<std::vector<hi1::ActionResult>>(&r->payload);
+    if (results == nullptr || results->empty()) {
+        return "(error)";
+    }
+    const auto* got = std::get_if<hi1::GetResult>(&(*results)[0].outcome);
+    if (got == nullptr) {
+        return "(not found)";
+    }
+    if (reason != nullptr) {
+        *reason = got->object.text_at({"InvalidReason", "ErrorDescription"}).value_or("");
+    }
+    return got->object.entry("Status").value_or(hi1::DictionaryEntry{}).value;
+}
+
+bool wait_for_status(sbi_core::http2::Client& lea,
+                     const std::string& id,
+                     const std::string& want,
+                     std::chrono::seconds limit,
+                     std::string* last = nullptr,
+                     std::string* reason = nullptr) {
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    std::string status;
+    while (std::chrono::steady_clock::now() < deadline) {
+        status = task_status(lea, id, reason);
+        if (status == want) {
+            return true;
+        }
+        std::this_thread::sleep_for(500ms);
+    }
+    if (last != nullptr) {
+        *last = status;
+    }
+    return false;
+}
+
+} // namespace admf_e2e
+
+TEST(LiAdmfEndToEnd, AWarrantServedOverHi1InterceptsARealUeAndStopsWhenCancelled) {
+    namespace hi1 = li_core::hi1;
+    using namespace admf_e2e;
+    using namespace nf_test::hi1obj;
+
+    std::ifstream mdf_in(LI_MDF_CONFIG_TEMPLATE);
+    const nlohmann::json mdf_cfg = nlohmann::json::parse(mdf_in);
+    const auto mdf_x1_port = mdf_cfg.at("x1_port").get<std::uint16_t>();
+    const auto mdf_x2_port = mdf_cfg.at("x2x3_port").get<std::uint16_t>();
+    if (!postgres_up() || !tcp_up(valkey_port())) {
+        GTEST_SKIP() << "needs PostgreSQL (the ADMF's warrant store) and Valkey (the MDF2's)";
+    }
+
+    nf_test::LoopbackLemf lemf;
+
+    // The AMF with its IRI-POI enabled and pointed at the real MDF2's X2 port.
+    const auto amf_config = write_li_enabled_amf_config(mdf_x2_port);
+    ::setenv("AMF_CONFIG_FILE", amf_config.c_str(), 1);
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    nf_test::SpawnedProcess amf{AMF_PATH};
+    ::unsetenv("AMF_CONFIG_FILE");
+    nf_test::SpawnedProcess mdf{LI_MDF_PATH};
+    const auto admf_config =
+        write_admf_config(mdf_x1_port, mdf_cfg.at("ne_identifier").get<std::string>());
+    ::setenv("LI-ADMF_CONFIG_FILE", admf_config.c_str(), 1);
+    nf_test::SpawnedProcess admf{LI_ADMF_PATH};
+    ::unsetenv("LI-ADMF_CONFIG_FILE");
+    ASSERT_GT(admf.pid(), 0);
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+
+    // 1. The LEA serves a warrant over HI1: one authorisation, one task on the test UE's IMSI whose
+    // product goes to the LEMF, one supporting document. IRI only: no CC-POI exists.
+    auto lea = make_client("hello-nf");
+    const std::string auth_id = uuid(7000 + static_cast<int>(::getpid() % 1000));
+    const std::string task_id = uuid(8000 + static_cast<int>(::getpid() % 1000));
+    const std::string doc_id = uuid(9000 + static_cast<int>(::getpid() % 1000));
+    TaskOpts opts;
+    opts.imsi = kTargetImsiDigits;
+    opts.address = "127.0.0.1:" + std::to_string(lemf.port());
+    std::optional<hi1::Response> served;
+    for (int attempt = 0; attempt < 100 && !served.has_value(); ++attempt) {
+        served = hi1_exchange(lea,
+                              "/li/authorisation/new",
+                              {create(0, authorisation(auth_id)),
+                               create(1, task(task_id, auth_id, kLiid, opts)),
+                               create(2, document(doc_id, auth_id, "application/pdf"))});
+        if (!served.has_value()) {
+            std::this_thread::sleep_for(100ms);
+        }
+    }
+    ASSERT_TRUE(served.has_value()) << "li-admf never answered";
+    const auto* acks = std::get_if<std::vector<hi1::ActionResult>>(&served->payload);
+    ASSERT_NE(acks, nullptr) << "the whole request was refused: "
+                             << std::get<hi1::Failure>(served->payload).description;
+    ASSERT_EQ(acks->size(), 3U);
+    for (const auto& r : *acks) {
+        ASSERT_TRUE(std::holds_alternative<hi1::CreateResult>(r.outcome))
+            << std::get<hi1::Failure>(r.outcome).description;
+    }
+
+    // 2. Acknowledged first, actioned after (H.5.2.2): wait for the task to go Active on the real
+    // network elements.
+    std::string last;
+    std::string reason;
+    ASSERT_TRUE(wait_for_status(lea, task_id, "Active", 40s, &last, &reason))
+        << "the task is '" << last << "' " << reason;
+
+    // 3. A real UE registers on the real AMF; the LEMF receives its IRI under the warrant's LIID.
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kRanUeId = 1;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kRanUeId, ue));
+    ASSERT_TRUE(lemf.wait_for_iri(30s)) << "no LI_HI2 record reached the LEMF";
+    {
+        const auto records = lemf.iri();
+        const auto message = li_core::hi2::decode_iri_message(records[0]);
+        ASSERT_TRUE(message.has_value()) << (message ? "" : message.error());
+        EXPECT_EQ(message->header.liid, kLiid)
+            << "the LIID the LEA put in the LITask must come out on the record";
+        const std::string payload(message->iri_payload.begin(), message->iri_payload.end());
+        EXPECT_NE(payload.find(kTargetImsiDigits), std::string::npos);
+    }
+
+    // 4. The LEA cancels the authorisation over HI1; every task under it stops.
+    const auto cancelled = hi1_exchange(
+        lea,
+        "/li/authorisation/cancellation",
+        {update(0, authorisation_desired(auth_id, "Cancelled")),
+         create(1, document(uuid(9500 + static_cast<int>(::getpid() % 400)), auth_id))});
+    ASSERT_TRUE(cancelled.has_value());
+    ASSERT_NE(std::get_if<std::vector<hi1::ActionResult>>(&cancelled->payload), nullptr);
+    ASSERT_TRUE(wait_for_status(lea, task_id, "Cancelled", 40s, &last, &reason))
+        << "the task is '" << last << "' " << reason;
+
+    // 5. ...and the interception really stopped: the same UE's PDU session and deregistration, now
+    // that the POI no longer holds the target, reach the LEMF nowhere.
+    std::this_thread::sleep_for(1s);
+    const std::size_t before = lemf.iri().size();
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kRanUeId));
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_deregistration_request(
+            ue.keys, /*uplink_count=*/3, ue.guti_value, /*switch_off=*/false)));
+    ASSERT_FALSE(gnb.receive_raw().empty()) << "no DeregistrationAccept";
+    std::this_thread::sleep_for(3s);
+    EXPECT_EQ(lemf.iri().size(), before)
+        << "the LEMF still received records after the warrant was cancelled";
+
+    // 6. The LEA was notified of the changes, readable over HI1 (LIST of its Notification objects).
+    hi1::ListAction list;
+    list.object_type = hi1::DictionaryEntry{"ETSI", "ObjectType", "Notification"};
+    const auto notes = hi1_exchange(lea, "/", {{0, list}});
+    ASSERT_TRUE(notes.has_value());
+    const auto& note_results = std::get<std::vector<hi1::ActionResult>>(notes->payload);
+    EXPECT_GE(std::get<hi1::ListResult>(note_results.at(0).outcome).records.size(), 2U)
+        << "one notification for the approval/activation, one for the cancellation";
 }

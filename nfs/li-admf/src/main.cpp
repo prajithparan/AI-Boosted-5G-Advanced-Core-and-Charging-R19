@@ -1,8 +1,8 @@
-// ADMF -- the Administration Function of TS 33.127 clause 5.3.5 (ADR-0462). This process is the LI_HI1
-// receiver (ETSI TS 103 120, XML over HTTPS + mTLS) and, from the build's step 4 on, the X1 client
-// that provisions the POIs and the MDF2. Like li-mdf it is deliberately NOT an SBI NF: it does not
-// register with the NRF and exposes no 3GPP service API (TS 33.127 keeps the LI architecture off the
-// service-based plane).
+// ADMF -- the Administration Function of TS 33.127 clause 5.3.5 (ADR-0462). This process is the
+// LI_HI1 receiver (ETSI TS 103 120, XML over HTTPS + mTLS) and, from the build's step 4 on, the X1
+// client that provisions the POIs and the MDF2. Like li-mdf it is deliberately NOT an SBI NF: it
+// does not register with the NRF and exposes no 3GPP service API (TS 33.127 keeps the LI
+// architecture off the service-based plane).
 //
 // Warrant state lives in its own PostgreSQL (schema.sql), not in this process, so a second replica
 // sees the same warrants (ADR-0359).
@@ -23,8 +23,8 @@
 
 #include "hi1_service.hpp"
 #include "hi1_store.hpp"
-#include "lifecycle.hpp"
 #include "li_core/x1_server.hpp"
+#include "lifecycle.hpp"
 #include "lipf.hpp"
 #include "nf_config/nf_config.hpp"
 #include "nf_config/pg_pool.hpp"
@@ -52,7 +52,8 @@ int main() {
         config, "metrics_bind_address", "LI_ADMF_METRICS_BIND_ADDRESS");
     const auto database_url =
         nf_config::require<std::string>(config, "database_url", "LI_ADMF_DATABASE_URL");
-    const auto pool_size = nf_config::require<std::size_t>(config, "db_pool_size", "LI_ADMF_DB_POOL_SIZE");
+    const auto pool_size =
+        nf_config::require<std::size_t>(config, "db_pool_size", "LI_ADMF_DB_POOL_SIZE");
     const auto public_base_url =
         nf_config::require<std::string>(config, "public_base_url", "LI_ADMF_PUBLIC_BASE_URL");
 
@@ -61,7 +62,8 @@ int main() {
                 config.at("endpoint_id").at("unique_identifier").get<std::string>()};
     hi1.national_profile_owner = config.at("national_profile").at("owner").get<std::string>();
     hi1.national_profile_version = config.at("national_profile").at("version").get<std::string>();
-    hi1.supported_etsi_versions = config.at("supported_etsi_versions").get<std::vector<std::string>>();
+    hi1.supported_etsi_versions =
+        config.at("supported_etsi_versions").get<std::vector<std::string>>();
     hi1.public_base_url = public_base_url;
     for (const auto& lea : config.at("lea_bindings")) {
         hi1.leas.push_back({lea.at("peer_cert_cn").get<std::string>(),
@@ -71,11 +73,13 @@ int main() {
     if (hi1.leas.empty()) {
         // Fail closed and say so: with no onboarded LEA every request is refused, which is correct
         // but is also never what an operator who started this process meant.
-        spdlog::warn("li-admf: config lists no lea_bindings -- every HI1 request will be refused (403)");
+        spdlog::warn(
+            "li-admf: config lists no lea_bindings -- every HI1 request will be refused (403)");
     }
 
     sbi_core::init_metrics(metrics_bind_address);
-    spdlog::info("li-admf: starting, endpoint {}/{}", hi1.self.country_code, hi1.self.unique_identifier);
+    spdlog::info(
+        "li-admf: starting, endpoint {}/{}", hi1.self.country_code, hi1.self.unique_identifier);
 
     nf_config::PgPool pool(database_url, pool_size);
     li_admf::Hi1Store store(pool);
@@ -86,12 +90,16 @@ int main() {
     lipf_config.admf_identifier = config.at("x1_admf_identifier").get<std::string>();
     lipf_config.x1_version = config.at("x1_version").get<std::string>();
     lipf_config.cc_capable = config.at("cc_capable").get<bool>();
-    if (const auto ia = config.at("poi_identifier_association_events").get<std::string>(); ia == "All") {
-        lipf_config.poi_identifier_association = li_core::x1::IdentifierAssociationEventsGenerated::All;
+    if (const auto ia = config.at("poi_identifier_association_events").get<std::string>();
+        ia == "All") {
+        lipf_config.poi_identifier_association =
+            li_core::x1::IdentifierAssociationEventsGenerated::All;
     } else if (ia == "IdentifierAssociation") {
-        lipf_config.poi_identifier_association = li_core::x1::IdentifierAssociationEventsGenerated::IdentifierAssociation;
+        lipf_config.poi_identifier_association =
+            li_core::x1::IdentifierAssociationEventsGenerated::IdentifierAssociation;
     } else if (ia != "Absent") {
-        nf_config::fatal("poi_identifier_association_events must be All, IdentifierAssociation or Absent");
+        nf_config::fatal(
+            "poi_identifier_association_events must be All, IdentifierAssociation or Absent");
     }
     std::vector<li_admf::NetworkElement> elements;
     for (const auto& ne : config.at("network_elements")) {
@@ -111,9 +119,12 @@ int main() {
 
     li_admf::LifecycleConfig lifecycle_config;
     lifecycle_config.self = hi1.self;
-    lifecycle_config.reconcile_interval = std::chrono::seconds(config.at("reconcile_interval_seconds").get<int>());
-    lifecycle_config.retry_interval = std::chrono::seconds(config.at("retry_interval_seconds").get<int>());
-    lifecycle_config.keepalive_interval = std::chrono::seconds(config.at("keepalive_interval_seconds").get<int>());
+    lifecycle_config.reconcile_interval =
+        std::chrono::seconds(config.at("reconcile_interval_seconds").get<int>());
+    lifecycle_config.retry_interval =
+        std::chrono::seconds(config.at("retry_interval_seconds").get<int>());
+    lifecycle_config.keepalive_interval =
+        std::chrono::seconds(config.at("keepalive_interval_seconds").get<int>());
     lifecycle_config.maximum_list_records = config.at("maximum_list_records").get<std::uint64_t>();
     lifecycle_config.extra_document_content_types =
         config.at("extra_document_content_types").get<std::vector<std::string>>();
@@ -122,7 +133,8 @@ int main() {
     li_admf::Hi1Service service(std::move(hi1), &lifecycle);
 
     auto meter = sbi_core::get_meter("li-admf");
-    auto requests = meter->CreateUInt64Counter("li_admf_hi1_requests_total", "HI1 requests received");
+    auto requests =
+        meter->CreateUInt64Counter("li_admf_hi1_requests_total", "HI1 requests received");
     auto rejected = meter->CreateUInt64Counter(
         "li_admf_hi1_rejected_total", "HI1 requests refused (unbound peer or top-level error)");
 
@@ -140,7 +152,8 @@ int main() {
             if (const auto it = request.headers.find("content-type"); it != request.headers.end()) {
                 content_type = it->second;
             }
-            const auto reply = service.handle(request.peer_cert_cn, path, content_type, request.body);
+            const auto reply =
+                service.handle(request.peer_cert_cn, path, content_type, request.body);
             if (reply.outcome != "ok") {
                 rejected->Add(1);
             }
@@ -153,7 +166,8 @@ int main() {
                              reply.outcome,
                              reply.detail});
             } catch (const std::exception& e) {
-                // An unauditable action must not be performed (TS 33.127): refuse rather than serve.
+                // An unauditable action must not be performed (TS 33.127): refuse rather than
+                // serve.
                 spdlog::error("li-admf: audit write failed, refusing the request: {}", e.what());
                 sbi_core::http2::Response unavailable;
                 unavailable.status = 503;
@@ -180,13 +194,15 @@ int main() {
         }
         sbi_core::http2::Response response;
         if (ne == nullptr) {
-            spdlog::warn("li-admf: X1 report from unbound mTLS peer '{}' refused", request.peer_cert_cn);
+            spdlog::warn("li-admf: X1 report from unbound mTLS peer '{}' refused",
+                         request.peer_cert_cn);
             response.status = 403;
             return response;
         }
         li_core::x1::TaskStoreCallbacks cb;
         cb.ne_identifier = lipf_config.admf_identifier; // this side's own identifier
-        cb.check_identity = [&](const li_core::x1::MessageHeader& h) -> std::optional<li_core::x1::ErrorCode> {
+        cb.check_identity =
+            [&](const li_core::x1::MessageHeader& h) -> std::optional<li_core::x1::ErrorCode> {
             if (h.admf_identifier != lipf_config.admf_identifier) {
                 return li_core::x1::ErrorCode::UnexpectedAdmfIdentifier;
             }
@@ -195,8 +211,12 @@ int main() {
             }
             return std::nullopt;
         };
-        cb.report_task_issue = [&](const li_core::x1::ReportTaskIssue& r) { return lifecycle.task_issue(r); };
-        cb.report_ne_issue = [&](const li_core::x1::ReportNEIssue& r) { return lifecycle.ne_issue(ne->ne_identifier, r); };
+        cb.report_task_issue = [&](const li_core::x1::ReportTaskIssue& r) {
+            return lifecycle.task_issue(r);
+        };
+        cb.report_ne_issue = [&](const li_core::x1::ReportNEIssue& r) {
+            return lifecycle.ne_issue(ne->ne_identifier, r);
+        };
         response.status = 200; // X1 errors ride in the body
         response.headers.emplace("content-type", "application/xml");
         response.body = li_core::x1::handle_request(request.body, cb);

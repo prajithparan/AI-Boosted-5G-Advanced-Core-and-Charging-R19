@@ -5461,3 +5461,11 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 | Provision/deprovision POI + MDF2 over X1, all-or-nothing | TS 33.127 5.3.5.3, TS 103 221-1 6.2, 6.3, Annex C.2.2 | `nfs/li-admf/src/lipf.cpp` | `test_li_admf_lipf.cpp` LiAdmfLipf.* |
 | Expiry, future start, NE failure and recovery, LEA isolation | 7.2.7, 8.2.5, 6.4.8 | `lifecycle.cpp` | AnExpiredAuthorisation..., AFutureStart..., ANeFailure..., AnLeaSeesOnlyItsOwnObjects |
 
+### LI increment 5 -- ADMF keepalive, NE reports and the full chain (ADR-0462, steps 5-6)
+
+| Procedure | TS clause | Source | Test |
+|---|---|---|---|
+| ADMF sends X1 Keepalive to every NE so they do not deactivate their tasks | TS 103 221-1 6.6.2 | `nfs/li-admf/src/lipf.cpp` `keepalive_all`; `lifecycle.cpp` worker | `test_li_admf_lipf.cpp` Keepalives..., `test_li_admf_lifecycle.cpp` AnNeIssueIsAccepted... |
+| ADMF receives ReportTaskIssue / ReportNEIssue (`/X1/ADMF`), peer certificate bound to its NE | TS 103 221-1 6.5.2, 6.5.4, 7.2.2.2 | `nfs/li-admf/src/main.cpp`, `lifecycle.cpp` `task_issue/ne_issue`; `libs/li-core x1_server.cpp` | LiX1Client.AnAdmfServerHandlesReports..., LiAdmfLifecycle.ATerminatingFault..., LiAdmfProcess.TheNesReportToTheAdmf... |
+| Warrant served over HI1 -> POI + MDF2 provisioned over X1 -> real UE intercepted -> LIID on the HI2 record -> cancellation stops it | TS 33.127 5.3.5, TS 103 120 H.5.3/H.5.5, TS 103 221-1 6.2, TS 102 232-1 | `nfs/li-admf`, `nfs/li-mdf`, `nfs/amf/src/li_poi.cpp` | `test_li_amf_e2e.cpp` LiAdmfEndToEnd.AWarrantServedOverHi1InterceptsARealUeAndStopsWhenCancelled |
+

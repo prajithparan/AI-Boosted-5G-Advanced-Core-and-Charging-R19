@@ -74,7 +74,8 @@ hi1::Header response_header(const Hi1Config& cfg, const hi1::Header& request) {
     h.receiver = request.sender;
     h.transaction_id = request.transaction_id;
     h.timestamp = now_microsecond_timestamp();
-    h.version = {request.version.etsi_version, cfg.national_profile_owner, cfg.national_profile_version};
+    h.version = {
+        request.version.etsi_version, cfg.national_profile_owner, cfg.national_profile_version};
     return h;
 }
 
@@ -86,13 +87,15 @@ hi1::Header fallback_header(const Hi1Config& cfg, const hi1::EndpointId& receive
     h.receiver = receiver;
     h.transaction_id = new_uuid();
     h.timestamp = now_microsecond_timestamp();
-    h.version = {cfg.supported_etsi_versions.empty() ? "V1.0.0" : cfg.supported_etsi_versions.front(),
+    h.version = {cfg.supported_etsi_versions.empty() ? "V1.0.0"
+                                                     : cfg.supported_etsi_versions.front(),
                  cfg.national_profile_owner,
                  cfg.national_profile_version};
     return h;
 }
 
-std::string top_level_failure(const hi1::Header& header, hi1::ErrorCode code, const std::string& why) {
+std::string
+top_level_failure(const hi1::Header& header, hi1::ErrorCode code, const std::string& why) {
     hi1::Response r;
     r.header = header;
     r.payload = hi1::Failure{static_cast<std::uint32_t>(code), why};
@@ -107,7 +110,8 @@ std::string top_level_failure(const hi1::Header& header, hi1::ErrorCode code, co
 }
 
 // A top-level rejection: the body plus the audit fields.
-Hi1Reply rejection(Hi1Reply reply, const hi1::Header& header, hi1::ErrorCode code, const std::string& why) {
+Hi1Reply
+rejection(Hi1Reply reply, const hi1::Header& header, hi1::ErrorCode code, const std::string& why) {
     reply.body = top_level_failure(header, code, why);
     reply.outcome = "rejected";
     reply.detail = std::to_string(static_cast<std::uint32_t>(code)) + ": " + why;
@@ -131,8 +135,12 @@ struct WorkflowPath {
     const char* guidance;
 };
 constexpr WorkflowPath kLiWorkflows[] = {
-    {"NewAuthorisation", "/li/authorisation/new", "Serve a new LI authorisation with its tasks and documents"},
-    {"AuthorisationExtension", "/li/authorisation/extension", "Extend the end date of an authorisation"},
+    {"NewAuthorisation",
+     "/li/authorisation/new",
+     "Serve a new LI authorisation with its tasks and documents"},
+    {"AuthorisationExtension",
+     "/li/authorisation/extension",
+     "Extend the end date of an authorisation"},
     {"AuthorisationCancellation", "/li/authorisation/cancellation", "Cancel an authorisation"},
     {"TaskAddition", "/li/task/addition", "Add LI tasks to an existing authorisation"},
     {"TaskCancellation", "/li/task/cancellation", "Cancel LI tasks"},
@@ -142,13 +150,14 @@ constexpr WorkflowPath kLiWorkflows[] = {
 hi1::CspConfig build_csp_config(const Hi1Config& cfg, const std::string& last_changed) {
     hi1::CspConfig c;
     c.last_changed = last_changed;
-    // Only formats ETSI itself defines (Annex C); the target identifiers this CSP can action are the
-    // subscriber identities the POIs match on (AMF POI: SUPI/IMSI/NAI kinds).
+    // Only formats ETSI itself defines (Annex C); the target identifiers this CSP can action are
+    // the subscriber identities the POIs match on (AMF POI: SUPI/IMSI/NAI kinds).
     for (const char* format : {"SUPIIMSI", "SUPINAI", "IMSI", "NAI"}) {
         c.targeting.push_back({format, "ETSI", std::nullopt, {}});
     }
     for (const auto& w : kLiWorkflows) {
-        c.li_endpoints.push_back({{"ETSI", "LIWorkflowEndpoint", w.value}, w.guidance, cfg.public_base_url + w.path});
+        c.li_endpoints.push_back(
+            {{"ETSI", "LIWorkflowEndpoint", w.value}, w.guidance, cfg.public_base_url + w.path});
     }
     return c;
 }
@@ -197,7 +206,8 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
 
     // 6.2.3 / D.1 code 3021: "The application shall deliver the supported versions".
     const auto& versions = config_.supported_etsi_versions;
-    if (std::find(versions.begin(), versions.end(), req.header.version.etsi_version) == versions.end()) {
+    if (std::find(versions.begin(), versions.end(), req.header.version.etsi_version) ==
+        versions.end()) {
         std::string list;
         for (const auto& v : versions) {
             list += (list.empty() ? "" : ", ") + v;
@@ -213,14 +223,17 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
     // this mTLS peer is onboarded as. Annex D has no code for either; 3007 ("Improper value:
     // semantic value does not fit context") is the closest and is cited in the description.
     if (!(req.header.receiver == config_.self)) {
-        return rejection(
-            reply, answer, hi1::ErrorCode::ImproperValue, "ReceiverIdentifier is not this endpoint");
-    }
-    if (!(req.header.sender == lea->endpoint)) {
         return rejection(reply,
                          answer,
                          hi1::ErrorCode::ImproperValue,
-                         "SenderIdentifier does not match the endpoint this client is onboarded as");
+                         "ReceiverIdentifier is not this endpoint");
+    }
+    if (!(req.header.sender == lea->endpoint)) {
+        return rejection(
+            reply,
+            answer,
+            hi1::ErrorCode::ImproperValue,
+            "SenderIdentifier does not match the endpoint this client is onboarded as");
     }
 
     // 6.4.4: Action Identifiers start at zero and increase by one; anything else is rejected with a
@@ -244,13 +257,19 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
 
     const auto workflow = workflow_for_path(path);
     if (!workflow) {
-        return rejection(reply, answer, hi1::ErrorCode::ImproperValue, "no HI1 workflow endpoint at " + std::string(path));
+        return rejection(reply,
+                         answer,
+                         hi1::ErrorCode::ImproperValue,
+                         "no HI1 workflow endpoint at " + std::string(path));
     }
-    const bool has_config = std::any_of(req.actions.begin(), req.actions.end(), [](const hi1::Action& a) {
-        return std::holds_alternative<hi1::GetCspConfigAction>(a.body);
-    });
+    const bool has_config =
+        std::any_of(req.actions.begin(), req.actions.end(), [](const hi1::Action& a) {
+            return std::holds_alternative<hi1::GetCspConfigAction>(a.body);
+        });
     if (has_config && *workflow != Workflow::None) {
-        return rejection(reply, answer, hi1::ErrorCode::ImproperValue,
+        return rejection(reply,
+                         answer,
+                         hi1::ErrorCode::ImproperValue,
                          "GETCSPCONFIG is taken at the API base URL, not at a workflow endpoint");
     }
 
@@ -265,8 +284,9 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
             if (std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
                 r.outcome = hi1::ConfigResult{build_csp_config(config_, config_last_changed_)};
             } else {
-                r.outcome = hi1::Failure{static_cast<std::uint32_t>(hi1::ErrorCode::FeatureNotSupported),
-                                         "this action is not implemented (no lifecycle engine)"};
+                r.outcome =
+                    hi1::Failure{static_cast<std::uint32_t>(hi1::ErrorCode::FeatureNotSupported),
+                                 "this action is not implemented (no lifecycle engine)"};
             }
             results.push_back(std::move(r));
         }
@@ -282,7 +302,10 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
             outcome = lifecycle_->handle(*workflow, lea->endpoint, req.header, for_lifecycle);
         }
         if (outcome.rejected) {
-            return rejection(reply, answer, static_cast<hi1::ErrorCode>(outcome.rejected->code), outcome.rejected->description);
+            return rejection(reply,
+                             answer,
+                             static_cast<hi1::ErrorCode>(outcome.rejected->code),
+                             outcome.rejected->description);
         }
         std::map<std::uint64_t, hi1::ActionResult> by_id;
         for (auto& r : outcome.results) {
@@ -290,7 +313,9 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
         }
         for (const auto& action : req.actions) {
             if (std::holds_alternative<hi1::GetCspConfigAction>(action.body)) {
-                results.push_back({action.id, hi1::ConfigResult{build_csp_config(config_, config_last_changed_)}});
+                results.push_back(
+                    {action.id,
+                     hi1::ConfigResult{build_csp_config(config_, config_last_changed_)}});
             } else {
                 results.push_back(std::move(by_id.at(action.id)));
             }
@@ -300,8 +325,10 @@ Hi1Reply Hi1Service::handle(std::string_view peer_cert_cn,
     auto xml = hi1::serialise_response(resp);
     if (!xml) {
         spdlog::error("li-admf: could not build an HI1 response: {}", xml.error());
-        Hi1Reply failed = rejection(
-            reply, answer, hi1::ErrorCode::TransientTechnicalError, "the response could not be built");
+        Hi1Reply failed = rejection(reply,
+                                    answer,
+                                    hi1::ErrorCode::TransientTechnicalError,
+                                    "the response could not be built");
         failed.outcome = "error";
         return failed;
     }

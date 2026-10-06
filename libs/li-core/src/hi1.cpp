@@ -269,10 +269,20 @@ struct TypeInfo {
     std::size_t order_size;
 };
 const TypeInfo kTypes[] = {
-    {"AuthorisationObject", kAuthNs, "auth", ObjectType::Authorisation, kAuthOrder.data(), kAuthOrder.size()},
+    {"AuthorisationObject",
+     kAuthNs,
+     "auth",
+     ObjectType::Authorisation,
+     kAuthOrder.data(),
+     kAuthOrder.size()},
     {"LITaskObject", kTaskNs, "task", ObjectType::LITask, kTaskOrder.data(), kTaskOrder.size()},
     {"DocumentObject", kDocNs, "doc", ObjectType::Document, kDocOrder.data(), kDocOrder.size()},
-    {"NotificationObject", kNotifNs, "notif", ObjectType::Notification, kNotifOrder.data(), kNotifOrder.size()},
+    {"NotificationObject",
+     kNotifNs,
+     "notif",
+     ObjectType::Notification,
+     kNotifOrder.data(),
+     kNotifOrder.size()},
 };
 
 const TypeInfo* type_info_for(ObjectType t) {
@@ -309,7 +319,8 @@ xmlNsPtr ensure_ns(xmlDocPtr doc, xmlNodePtr root, const char* uri, const char* 
 }
 
 // Resolve an xsi:type QName on `node` to {namespace uri, local name}.
-std::optional<std::pair<std::string, std::string>> resolve_xsi_type(xmlDocPtr doc, xmlNodePtr node) {
+std::optional<std::pair<std::string, std::string>> resolve_xsi_type(xmlDocPtr doc,
+                                                                    xmlNodePtr node) {
     xmlChar* t = xmlGetNsProp(node, X("type"), X(kXsiNs));
     if (t == nullptr) {
         return std::nullopt;
@@ -323,7 +334,8 @@ std::optional<std::pair<std::string, std::string>> resolve_xsi_type(xmlDocPtr do
         local = v.substr(colon + 1);
     }
     xmlNsPtr ns = xmlSearchNs(doc, node, prefix.empty() ? nullptr : X(prefix.c_str()));
-    return std::make_pair(ns != nullptr && ns->href != nullptr ? std::string(C(ns->href)) : "", local);
+    return std::make_pair(ns != nullptr && ns->href != nullptr ? std::string(C(ns->href)) : "",
+                          local);
 }
 
 // ---- Object -------------------------------------------------------------------------------------
@@ -461,7 +473,8 @@ void place_member(ObjectType type, xmlNodePtr root, xmlNodePtr fresh, std::size_
 tl::expected<void, std::string> Object::set_text(std::string_view field, const std::string& value) {
     const auto slot = slot_of(type_, field);
     if (!slot) {
-        return tl::make_unexpected("object type " + type_name_ + " has no member " + std::string(field));
+        return tl::make_unexpected("object type " + type_name_ + " has no member " +
+                                   std::string(field));
     }
     Doc doc = parse_xml(xml_);
     if (!doc) {
@@ -481,10 +494,12 @@ tl::expected<void, std::string> Object::set_text(std::string_view field, const s
     return {};
 }
 
-tl::expected<void, std::string> Object::set_entry(std::string_view field, const DictionaryEntry& e) {
+tl::expected<void, std::string> Object::set_entry(std::string_view field,
+                                                  const DictionaryEntry& e) {
     const auto slot = slot_of(type_, field);
     if (!slot) {
-        return tl::make_unexpected("object type " + type_name_ + " has no member " + std::string(field));
+        return tl::make_unexpected("object type " + type_name_ + " has no member " +
+                                   std::string(field));
     }
     Doc doc = parse_xml(xml_);
     if (!doc) {
@@ -509,12 +524,12 @@ tl::expected<void, std::string> Object::set_entry(std::string_view field, const 
     return {};
 }
 
-tl::expected<void, std::string> Object::set_failure(std::string_view field,
-                                                    std::uint32_t code,
-                                                    const std::string& description) {
+tl::expected<void, std::string>
+Object::set_failure(std::string_view field, std::uint32_t code, const std::string& description) {
     const auto slot = slot_of(type_, field);
     if (!slot) {
-        return tl::make_unexpected("object type " + type_name_ + " has no member " + std::string(field));
+        return tl::make_unexpected("object type " + type_name_ + " has no member " +
+                                   std::string(field));
     }
     Doc doc = parse_xml(xml_);
     if (!doc) {
@@ -538,7 +553,8 @@ tl::expected<void, std::string> Object::set_failure(std::string_view field,
     return {};
 }
 
-tl::expected<void, std::string> Object::set_associated_objects(const std::vector<std::string>& ids) {
+tl::expected<void, std::string>
+Object::set_associated_objects(const std::vector<std::string>& ids) {
     Doc doc = parse_xml(xml_);
     if (!doc) {
         return tl::make_unexpected(std::string("stored object is not well-formed"));
@@ -590,7 +606,8 @@ std::vector<std::string> Object::members() const {
 
 tl::expected<void, std::string> Object::merge(const Object& update) {
     if (update.type_ != type_ || update.type_name_ != type_name_) {
-        return tl::make_unexpected("an UPDATE must carry the same object type (" + type_name_ + ")");
+        return tl::make_unexpected("an UPDATE must carry the same object type (" + type_name_ +
+                                   ")");
     }
     Doc doc = parse_xml(xml_);
     Doc src = parse_xml(update.xml_);
@@ -604,7 +621,8 @@ tl::expected<void, std::string> Object::merge(const Object& update) {
         }
         const auto slot = slot_of(type_, C(n->name));
         if (!slot) {
-            return tl::make_unexpected("object type " + type_name_ + " has no member " + C(n->name));
+            return tl::make_unexpected("object type " + type_name_ + " has no member " +
+                                       C(n->name));
         }
         xmlNodePtr copy = xmlDocCopyNode(n, doc.d, 1);
         if (copy == nullptr) {
@@ -735,17 +753,19 @@ tl::expected<Object, std::string> make_notification(const NotificationParams& p)
     if (p.identifier.empty()) {
         return tl::make_unexpected(std::string("a NotificationObject needs an identifier"));
     }
-    const auto entry_xml = [](const char* element, const char* ns_prefix, const DictionaryEntry& e) {
+    const auto entry_xml = [](const char* element,
+                              const char* ns_prefix,
+                              const DictionaryEntry& e) {
         return std::string("<") + ns_prefix + ":" + element + "><common:Owner>" + escape(e.owner) +
                "</common:Owner><common:Name>" + escape(e.name) + "</common:Name><common:Value>" +
                escape(e.value) + "</common:Value></" + ns_prefix + ":" + element + ">";
     };
-    std::string xml =
-        std::string("<HI1Object xmlns=\"") + kCoreNs + "\" xmlns:xsi=\"" + kXsiNs +
-        "\" xmlns:common=\"" + kCommonNs + "\" xmlns:notif=\"" + kNotifNs +
-        "\" xsi:type=\"notif:NotificationObject\"><ObjectIdentifier>" + escape(p.identifier) +
-        "</ObjectIdentifier><CountryCode>" + escape(p.country_code) +
-        "</CountryCode><OwnerIdentifier>" + escape(p.owner_identifier) + "</OwnerIdentifier>";
+    std::string xml = std::string("<HI1Object xmlns=\"") + kCoreNs + "\" xmlns:xsi=\"" + kXsiNs +
+                      "\" xmlns:common=\"" + kCommonNs + "\" xmlns:notif=\"" + kNotifNs +
+                      "\" xsi:type=\"notif:NotificationObject\"><ObjectIdentifier>" +
+                      escape(p.identifier) + "</ObjectIdentifier><CountryCode>" +
+                      escape(p.country_code) + "</CountryCode><OwnerIdentifier>" +
+                      escape(p.owner_identifier) + "</OwnerIdentifier>";
     if (!p.associated.empty()) {
         xml += "<AssociatedObjects>";
         for (const auto& a : p.associated) {
@@ -817,7 +837,8 @@ Header read_header(xmlNodePtr h) {
 // the prefixes inside xsi:type VALUES are QNames it cannot see, so those are collected first and
 // re-declared explicitly.
 tl::expected<Object, std::string> extract_object(xmlDocPtr src, xmlNodePtr node) {
-    std::vector<std::pair<std::string, std::string>> qname_ns; // prefix -> uri used by xsi:type values
+    std::vector<std::pair<std::string, std::string>>
+        qname_ns; // prefix -> uri used by xsi:type values
     std::vector<xmlNodePtr> stack{node};
     while (!stack.empty()) {
         xmlNodePtr n = stack.back();
@@ -858,7 +879,8 @@ std::optional<Failure> read_failure(xmlNodePtr n) {
         return std::nullopt;
     }
     Failure f;
-    f.code = static_cast<std::uint32_t>(std::strtoul(child_text(n, "ErrorCode").value_or("0").c_str(), nullptr, 10));
+    f.code = static_cast<std::uint32_t>(
+        std::strtoul(child_text(n, "ErrorCode").value_or("0").c_str(), nullptr, 10));
     f.description = child_text(n, "ErrorDescription").value_or("");
     return f;
 }
@@ -868,11 +890,13 @@ std::optional<Failure> read_failure(xmlNodePtr n) {
 tl::expected<Request, ParseError> parse_request(const std::string& xml) {
     Doc doc = parse_xml(xml);
     if (!doc) {
-        return tl::make_unexpected(ParseError{ErrorCode::ValidationError, "not well-formed XML", std::nullopt});
+        return tl::make_unexpected(
+            ParseError{ErrorCode::ValidationError, "not well-formed XML", std::nullopt});
     }
     xmlNodePtr root = xmlDocGetRootElement(doc.d);
     if (!is(root, "HI1Message")) {
-        return tl::make_unexpected(ParseError{ErrorCode::ValidationError, "root is not HI1Message", std::nullopt});
+        return tl::make_unexpected(
+            ParseError{ErrorCode::ValidationError, "root is not HI1Message", std::nullopt});
     }
     std::optional<Header> best_effort;
     if (xmlNodePtr h = child(root, "Header")) {
@@ -930,7 +954,8 @@ tl::expected<Request, ParseError> parse_request(const std::string& xml) {
                     return tl::make_unexpected(
                         ParseError{ErrorCode::ValidationError, obj.error(), best_effort});
                 }
-                action.body = DeliverAction{child_text(verb, "Identifier").value_or(""), std::move(*obj)};
+                action.body =
+                    DeliverAction{child_text(verb, "Identifier").value_or(""), std::move(*obj)};
             } else if (is(verb, "GETCSPCONFIG")) {
                 action.body = GetCspConfigAction{};
             }
@@ -1009,11 +1034,13 @@ CspConfig read_config(xmlNodePtr n) {
 tl::expected<Response, ParseError> parse_response(const std::string& xml) {
     Doc doc = parse_xml(xml);
     if (!doc) {
-        return tl::make_unexpected(ParseError{ErrorCode::ValidationError, "not well-formed XML", std::nullopt});
+        return tl::make_unexpected(
+            ParseError{ErrorCode::ValidationError, "not well-formed XML", std::nullopt});
     }
     xmlNodePtr root = xmlDocGetRootElement(doc.d);
     if (!is(root, "HI1Message")) {
-        return tl::make_unexpected(ParseError{ErrorCode::ValidationError, "root is not HI1Message", std::nullopt});
+        return tl::make_unexpected(
+            ParseError{ErrorCode::ValidationError, "root is not HI1Message", std::nullopt});
     }
     std::optional<Header> best_effort;
     if (xmlNodePtr h = child(root, "Header")) {
@@ -1251,7 +1278,10 @@ tl::expected<std::string, std::string> serialise_request(const Request& request)
                         b.text(v, b.core, "LastChanged", *body.last_changed);
                     }
                     if (body.maximum_object_count) {
-                        b.text(v, b.core, "MaximumObjectCount", std::to_string(*body.maximum_object_count));
+                        b.text(v,
+                               b.core,
+                               "MaximumObjectCount",
+                               std::to_string(*body.maximum_object_count));
                     }
                     if (body.status) {
                         b.entry(v, b.core, "Status", *body.status);
@@ -1298,9 +1328,12 @@ tl::expected<std::string, std::string> serialise_response(const Response& respon
                 using T = std::decay_t<decltype(out)>;
                 if constexpr (std::is_same_v<T, GetResult>) {
                     ok = b.object(b.node(a, b.core, "GETResponse"), out.object);
-                } else if constexpr (std::is_same_v<T, CreateResult> || std::is_same_v<T, UpdateResult>) {
-                    xmlNodePtr v =
-                        b.node(a, b.core, std::is_same_v<T, CreateResult> ? "CREATEResponse" : "UPDATEResponse");
+                } else if constexpr (std::is_same_v<T, CreateResult> ||
+                                     std::is_same_v<T, UpdateResult>) {
+                    xmlNodePtr v = b.node(a,
+                                          b.core,
+                                          std::is_same_v<T, CreateResult> ? "CREATEResponse"
+                                                                          : "UPDATEResponse");
                     b.text(v, b.core, "Identifier", out.identifier);
                     if (out.object) {
                         ok = b.object(v, *out.object);
@@ -1326,7 +1359,8 @@ tl::expected<std::string, std::string> serialise_response(const Response& respon
                         }
                     }
                 } else if constexpr (std::is_same_v<T, DeliverResult>) {
-                    b.text(b.node(a, b.core, "DELIVERResponse"), b.core, "Identifier", out.identifier);
+                    b.text(
+                        b.node(a, b.core, "DELIVERResponse"), b.core, "Identifier", out.identifier);
                 } else if constexpr (std::is_same_v<T, ConfigResult>) {
                     write_config(b, b.node(a, b.core, "GETCSPCONFIGResponse"), out.config);
                 } else if constexpr (std::is_same_v<T, Failure>) {
@@ -1335,7 +1369,8 @@ tl::expected<std::string, std::string> serialise_response(const Response& respon
             },
             r.outcome);
         if (!ok) {
-            return tl::make_unexpected(std::string("could not attach an HI1Object to the response"));
+            return tl::make_unexpected(
+                std::string("could not attach an HI1Object to the response"));
         }
     }
     return finish(b);

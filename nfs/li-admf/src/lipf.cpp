@@ -40,9 +40,22 @@ std::string Lipf::destination_id(const std::string& xid, const std::string& addr
     std::snprintf(buf,
                   sizeof(buf),
                   "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-                  digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6],
-                  digest[7], digest[8], digest[9], digest[10], digest[11], digest[12], digest[13],
-                  digest[14], digest[15]);
+                  digest[0],
+                  digest[1],
+                  digest[2],
+                  digest[3],
+                  digest[4],
+                  digest[5],
+                  digest[6],
+                  digest[7],
+                  digest[8],
+                  digest[9],
+                  digest[10],
+                  digest[11],
+                  digest[12],
+                  digest[13],
+                  digest[14],
+                  digest[15]);
     return buf;
 }
 
@@ -50,8 +63,9 @@ namespace {
 
 bool supported_target(x1::TargetIdentifierKind kind) {
     // The identifiers the AMF IRI-POI matches a registering UE's SUPI against.
-    return kind == x1::TargetIdentifierKind::SupiImsi || kind == x1::TargetIdentifierKind::SupiNai ||
-           kind == x1::TargetIdentifierKind::Imsi || kind == x1::TargetIdentifierKind::Nai;
+    return kind == x1::TargetIdentifierKind::SupiImsi ||
+           kind == x1::TargetIdentifierKind::SupiNai || kind == x1::TargetIdentifierKind::Imsi ||
+           kind == x1::TargetIdentifierKind::Nai;
 }
 
 } // namespace
@@ -62,7 +76,8 @@ std::optional<std::string> Lipf::infeasible(const TaskSpec& spec) const {
     }
     for (const auto& t : spec.targets) {
         if (!supported_target(t.kind)) {
-            return "target identifier '" + t.element + "' cannot be matched by any POI in this deployment";
+            return "target identifier '" + t.element +
+                   "' cannot be matched by any POI in this deployment";
         }
     }
     if (spec.wants_cc && !config_.cc_capable) {
@@ -98,7 +113,8 @@ x1::TaskDetails Lipf::mdf2_task(const TaskSpec& spec) const {
     t.dids = dids;
     x1::MediationDetails md;
     md.liid = spec.liid;
-    md.delivery = spec.wants_cc ? x1::MediationDeliveryType::Hi2AndHi3 : x1::MediationDeliveryType::Hi2Only;
+    md.delivery =
+        spec.wants_cc ? x1::MediationDeliveryType::Hi2AndHi3 : x1::MediationDeliveryType::Hi2Only;
     md.start_time = spec.start_time;
     md.end_time = spec.end_time;
     md.dids = dids;
@@ -110,7 +126,8 @@ x1::TaskDetails Lipf::poi_task(const TaskSpec& spec) const {
     x1::TaskDetails t;
     t.xid = spec.xid;
     t.targets = spec.targets;
-    t.delivery = x1::DeliveryType::X2Only; // an IRI-POI streams over X2; CC would be X3 (no CC-POI yet)
+    t.delivery =
+        x1::DeliveryType::X2Only; // an IRI-POI streams over X2; CC would be X3 (no CC-POI yet)
     // The POI's own X2 destination is its configured MDF2 (the POI ignores Destination routing,
     // ADR-0377), so no DIDs are provisioned on it.
     t.identifier_association_events = config_.poi_identifier_association;
@@ -136,14 +153,20 @@ LipfResult Lipf::send(const NetworkElement& ne, x1::MessageType type, x1::Reques
     }
     const auto parsed = x1::parse_response(*answer);
     if (!parsed) {
-        return {false, ne.name + " sent an unreadable X1 response: " + parsed.error().detail, std::nullopt};
+        return {false,
+                ne.name + " sent an unreadable X1 response: " + parsed.error().detail,
+                std::nullopt};
     }
     if (parsed->size() != 1) {
-        return {false, ne.name + " answered " + std::to_string(parsed->size()) + " responses to one request", std::nullopt};
+        return {false,
+                ne.name + " answered " + std::to_string(parsed->size()) +
+                    " responses to one request",
+                std::nullopt};
     }
     if (const auto* err = std::get_if<x1::ErrorResponse>(&(*parsed)[0])) {
         return {false,
-                ne.name + ": X1 error " + std::to_string(static_cast<int>(err->code)) + " " + err->description,
+                ne.name + ": X1 error " + std::to_string(static_cast<int>(err->code)) + " " +
+                    err->description,
                 static_cast<int>(err->code)};
     }
     return {true, "", std::nullopt};
@@ -161,7 +184,8 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
         }
         for (const auto* ne : created_destinations_on) {
             for (const auto& d : spec.destinations) {
-                (void)send(*ne, x1::MessageType::RemoveDestination,
+                (void)send(*ne,
+                           x1::MessageType::RemoveDestination,
                            x1::RemoveDestination{destination_id(spec.xid, d.address)});
             }
         }
@@ -183,7 +207,8 @@ LipfResult Lipf::provision(const TaskSpec& spec) {
             dest.delivery = spec.wants_cc ? x1::DeliveryType::X2AndX3 : x1::DeliveryType::X2Only;
             dest.address = {x1::DeliveryAddress::Kind::IpAddressAndPort, d.address};
             auto r = send(ne, x1::MessageType::CreateDestination, x1::CreateDestination{dest});
-            // 2030 DidAlreadyExists: a retry of an earlier provisioning; the destination is already right.
+            // 2030 DidAlreadyExists: a retry of an earlier provisioning; the destination is already
+            // right.
             if (!r.ok && r.x1_error != static_cast<int>(x1::ErrorCode::DidAlreadyExists)) {
                 return fail(r);
             }
@@ -231,7 +256,8 @@ LipfResult Lipf::deprovision(const TaskSpec& spec) {
         }
         for (const auto& d : spec.destinations) {
             // Best effort: a destination shared with another task is "in use" (7010) and stays.
-            (void)send(ne, x1::MessageType::RemoveDestination,
+            (void)send(ne,
+                       x1::MessageType::RemoveDestination,
                        x1::RemoveDestination{destination_id(spec.xid, d.address)});
         }
     }
@@ -253,7 +279,9 @@ void Lipf::retire_destinations(const std::string& xid, const std::vector<std::st
             continue;
         }
         for (const auto& address : addresses) {
-            (void)send(ne, x1::MessageType::RemoveDestination, x1::RemoveDestination{destination_id(xid, address)});
+            (void)send(ne,
+                       x1::MessageType::RemoveDestination,
+                       x1::RemoveDestination{destination_id(xid, address)});
         }
     }
 }

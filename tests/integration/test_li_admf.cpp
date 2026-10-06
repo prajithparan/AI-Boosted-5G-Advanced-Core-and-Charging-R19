@@ -10,11 +10,11 @@
 #include "sbi_core/http2_client.hpp"
 
 #include <nlohmann/json.hpp>
-#include <pqxx/pqxx>
 
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <pqxx/pqxx>
 #include <string>
 #include <thread>
 
@@ -167,7 +167,10 @@ TEST(LiAdmfService, TheEndpointIdentitiesMustMatch) {
     const Hi1Service service(config());
     hi1::Request wrong_receiver = config_request();
     wrong_receiver.header.receiver = {"GB", "SOMEONE-ELSE"};
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(wrong_receiver)))).code, 3007U);
+    EXPECT_EQ(
+        top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(wrong_receiver))))
+            .code,
+        3007U);
 
     // The mTLS peer may only speak for the EndpointID it is onboarded as.
     hi1::Request wrong_sender = config_request();
@@ -180,12 +183,15 @@ TEST(LiAdmfService, TheEndpointIdentitiesMustMatch) {
 TEST(LiAdmfService, ActionIdentifiersMustStartAtZeroAndCountUp) {
     const Hi1Service service(config());
     hi1::Request skipped = config_request(1); // starts at 1
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(skipped)))).code, 3007U);
+    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(skipped)))).code,
+              3007U);
 
     hi1::Request duplicate;
     duplicate.header = request_header();
     duplicate.actions = {{0, hi1::GetCspConfigAction{}}, {0, hi1::GetCspConfigAction{}}};
-    EXPECT_EQ(top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(duplicate)))).code, 3002U);
+    EXPECT_EQ(
+        top_failure(answer_of(service.handle(kPeerCn, "/", "text/xml", build(duplicate)))).code,
+        3002U);
 
     hi1::Request in_order;
     in_order.header = request_header();
@@ -300,7 +306,8 @@ TEST_F(LiAdmfStore, ListFiltersAreBoundParametersAndCompose) {
 
 TEST_F(LiAdmfStore, AuditRowsAreAppendedAndCounted) {
     const auto before = store_->audit_count();
-    store_->audit({kPeerCn, "/", "c02358b2-76cf-4ba4-a8eb-f6436ccaea2e", "GB/LEA-SIM-01", 1, "ok", ""});
+    store_->audit(
+        {kPeerCn, "/", "c02358b2-76cf-4ba4-a8eb-f6436ccaea2e", "GB/LEA-SIM-01", 1, "ok", ""});
     store_->audit({kPeerCn, "/", "", "", 0, "rejected", "3020: not schema-valid"});
     EXPECT_EQ(store_->audit_count(), before + 2);
 }
@@ -317,8 +324,9 @@ std::string write_process_config() {
     cfg["metrics_bind_address"] = "127.0.0.1:19492";
     cfg["public_base_url"] = "https://127.0.0.1:19808";
     // The test's mTLS client is the lab's hello-nf certificate, bound to the LEA endpoint below.
-    cfg["lea_bindings"] = nlohmann::json::array(
-        {{{"peer_cert_cn", "hello-nf"}, {"country_code", "GB"}, {"unique_identifier", "LEA-SIM-01"}}});
+    cfg["lea_bindings"] = nlohmann::json::array({{{"peer_cert_cn", "hello-nf"},
+                                                  {"country_code", "GB"},
+                                                  {"unique_identifier", "LEA-SIM-01"}}});
     const std::string path = std::string(::testing::TempDir()) + "li_admf_test.json";
     std::ofstream(path) << cfg.dump(2);
     return path;
@@ -380,11 +388,13 @@ TEST(LiAdmfProcess, AnLeaGetsTheCspConfigOverMtlsAndEveryExchangeIsAudited) {
     EXPECT_EQ(cfg->config.li_endpoints[0].url, "https://127.0.0.1:19808/li/authorisation/new");
 
     // A workflow path answers too (same receiver, same message layer).
-    const auto wf = post(lea, "https://127.0.0.1:19808/li/authorisation/new", build(config_request()));
+    const auto wf =
+        post(lea, "https://127.0.0.1:19808/li/authorisation/new", build(config_request()));
     ASSERT_TRUE(wf.has_value());
     EXPECT_EQ(wf->status, 200);
 
-    // A garbage body is a top-level 3020, over HTTP 200 (9.3.3: status codes never carry HI1 errors).
+    // A garbage body is a top-level 3020, over HTTP 200 (9.3.3: status codes never carry HI1
+    // errors).
     const auto bad = post(lea, kUrl, "<nope/>");
     ASSERT_TRUE(bad.has_value());
     EXPECT_EQ(bad->status, 200);
@@ -402,15 +412,19 @@ TEST(LiAdmfProcess, AnLeaGetsTheCspConfigOverMtlsAndEveryExchangeIsAudited) {
     EXPECT_EQ(store.audit_count(), audited_before + 4);
 }
 
-std::string x1_report(const std::string& type, const std::string& ne_identifier, const std::string& body) {
+std::string
+x1_report(const std::string& type, const std::string& ne_identifier, const std::string& body) {
     return R"(<?xml version="1.0" encoding="UTF-8"?>
 <X1Request xmlns="http://uri.etsi.org/03221/X1/2017/10" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <x1RequestMessage xsi:type=")" + type + R"(">
+  <x1RequestMessage xsi:type=")" +
+           type + R"(">
     <admfIdentifier>admf-01</admfIdentifier>
-    <neIdentifier>)" + ne_identifier + R"(</neIdentifier>
+    <neIdentifier>)" +
+           ne_identifier + R"(</neIdentifier>
     <messageTimestamp>2026-10-06T00:00:00.000000Z</messageTimestamp>
     <version>v1.23.1</version>
-    <x1TransactionId>2b1e4f6a-0000-4000-8000-0000000000b1</x1TransactionId>)" + body + R"(
+    <x1TransactionId>2b1e4f6a-0000-4000-8000-0000000000b1</x1TransactionId>)" +
+           body + R"(
   </x1RequestMessage>
 </X1Request>)";
 }
@@ -425,13 +439,16 @@ TEST(LiAdmfProcess, TheNesReportToTheAdmfOverX1AndOnlyTheirOwnCertificateIsAccep
     ::unsetenv("LI-ADMF_CONFIG_FILE");
     ASSERT_GT(admf.pid(), 0);
 
-    // The AMF POI's own identity: certificate CN "amf", neIdentifier "amf-poi-01" (config/li-admf.json).
+    // The AMF POI's own identity: certificate CN "amf", neIdentifier "amf-poi-01"
+    // (config/li-admf.json).
     auto amf = client_with("amf");
     const std::string url = "https://127.0.0.1:19808/X1/ADMF";
-    const std::string ne_issue = R"(<typeOfNeIssueMessage>FaultReport</typeOfNeIssueMessage><description>no X1 request within TIME_P2</description>)";
+    const std::string ne_issue =
+        R"(<typeOfNeIssueMessage>FaultReport</typeOfNeIssueMessage><description>no X1 request within TIME_P2</description>)";
     std::optional<sbi_core::http2::ClientResponse> ok;
     for (int attempt = 0; attempt < 100 && !ok.has_value(); ++attempt) {
-        ok = post(amf, url, x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue), "application/xml");
+        ok = post(
+            amf, url, x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue), "application/xml");
         if (!ok.has_value()) {
             std::this_thread::sleep_for(100ms);
         }
@@ -441,21 +458,28 @@ TEST(LiAdmfProcess, TheNesReportToTheAdmfOverX1AndOnlyTheirOwnCertificateIsAccep
     EXPECT_NE(ok->body.find("ReportNEIssueResponse"), std::string::npos) << ok->body;
 
     // A task this ADMF never provisioned: X1 2020.
-    const auto stray = post(amf, url,
-                            x1_report("ReportTaskIssueRequest", "amf-poi-01",
-                                      "<xId>11111111-1111-4111-8111-111111111111</xId><taskReportType>TerminatingFault</taskReportType>"),
+    const auto stray = post(amf,
+                            url,
+                            x1_report("ReportTaskIssueRequest",
+                                      "amf-poi-01",
+                                      "<xId>11111111-1111-4111-8111-111111111111</"
+                                      "xId><taskReportType>TerminatingFault</taskReportType>"),
                             "application/xml");
     ASSERT_TRUE(stray.has_value());
     EXPECT_NE(stray->body.find("2020"), std::string::npos) << stray->body;
 
     // The certificate is the AMF's but the request claims to be another NE: X1 1060.
-    const auto wrong_ne = post(amf, url, x1_report("ReportNEIssueRequest", "mdf2-01", ne_issue), "application/xml");
+    const auto wrong_ne =
+        post(amf, url, x1_report("ReportNEIssueRequest", "mdf2-01", ne_issue), "application/xml");
     ASSERT_TRUE(wrong_ne.has_value());
     EXPECT_NE(wrong_ne->body.find("1060"), std::string::npos) << wrong_ne->body;
 
     // A certificate that is not a configured network element is refused outright.
     auto stranger = client_with("hello-nf");
-    const auto refused = post(stranger, url, x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue), "application/xml");
+    const auto refused = post(stranger,
+                              url,
+                              x1_report("ReportNEIssueRequest", "amf-poi-01", ne_issue),
+                              "application/xml");
     ASSERT_TRUE(refused.has_value());
     EXPECT_EQ(refused->status, 403);
 }

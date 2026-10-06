@@ -18,7 +18,8 @@ using hi1::ObjectType;
 
 namespace {
 
-// ---- paths ---------------------------------------------------------------------------------------
+// ---- paths
+// ---------------------------------------------------------------------------------------
 
 struct WorkflowPath {
     const char* path;
@@ -34,7 +35,8 @@ constexpr WorkflowPath kPaths[] = {
     {"/li/task/change-delivery", Workflow::ChangeOfDelivery},
 };
 
-// ---- small helpers -------------------------------------------------------------------------------
+// ---- small helpers
+// -------------------------------------------------------------------------------
 
 std::string lea_key(const hi1::EndpointId& e) {
     return e.country_code + "/" + e.unique_identifier;
@@ -140,7 +142,8 @@ hi1::Failure top_failure(ErrorCode code, const std::string& why) {
     return {static_cast<std::uint32_t>(code), why};
 }
 
-// ---- workflow shape (message contents of H.5.3 - H.5.8) ------------------------------------------
+// ---- workflow shape (message contents of H.5.3 - H.5.8)
+// ------------------------------------------
 
 struct Counts {
     int create_auth = 0, create_task = 0, create_doc = 0;
@@ -153,17 +156,33 @@ Counts count(const std::vector<hi1::Action>& actions) {
     for (const auto& a : actions) {
         if (const auto* cr = std::get_if<hi1::CreateAction>(&a.body)) {
             switch (cr->object.type()) {
-                case ObjectType::Authorisation: ++c.create_auth; break;
-                case ObjectType::LITask: ++c.create_task; break;
-                case ObjectType::Document: ++c.create_doc; break;
-                default: ++c.other; break;
+                case ObjectType::Authorisation:
+                    ++c.create_auth;
+                    break;
+                case ObjectType::LITask:
+                    ++c.create_task;
+                    break;
+                case ObjectType::Document:
+                    ++c.create_doc;
+                    break;
+                default:
+                    ++c.other;
+                    break;
             }
         } else if (const auto* up = std::get_if<hi1::UpdateAction>(&a.body)) {
             switch (up->object.type()) {
-                case ObjectType::Authorisation: ++c.update_auth; break;
-                case ObjectType::LITask: ++c.update_task; break;
-                case ObjectType::Document: ++c.update_doc; break;
-                default: ++c.other; break;
+                case ObjectType::Authorisation:
+                    ++c.update_auth;
+                    break;
+                case ObjectType::LITask:
+                    ++c.update_task;
+                    break;
+                case ObjectType::Document:
+                    ++c.update_doc;
+                    break;
+                default:
+                    ++c.other;
+                    break;
             }
         } else {
             ++c.other;
@@ -174,51 +193,67 @@ Counts count(const std::vector<hi1::Action>& actions) {
 
 std::optional<hi1::Failure> check_shape(Workflow wf, const std::vector<hi1::Action>& actions) {
     const Counts c = count(actions);
-    const auto bad = [](ErrorCode code, const char* why) { return std::optional(top_failure(code, why)); };
+    const auto bad = [](ErrorCode code, const char* why) {
+        return std::optional(top_failure(code, why));
+    };
     if (wf == Workflow::None) {
         return std::nullopt;
     }
     if (c.other != 0) {
-        return bad(ErrorCode::ImproperValue, "this workflow endpoint takes only CREATE/UPDATE of Authorisation, LITask and Document objects");
+        return bad(ErrorCode::ImproperValue,
+                   "this workflow endpoint takes only CREATE/UPDATE of Authorisation, LITask and "
+                   "Document objects");
     }
     switch (wf) {
         case Workflow::NewAuthorisation:
             if (c.update_auth + c.update_task + c.update_doc != 0) {
-                return bad(ErrorCode::ImproperValue, "New Authorisation takes only CREATE requests (H.5.3.3)");
+                return bad(ErrorCode::ImproperValue,
+                           "New Authorisation takes only CREATE requests (H.5.3.3)");
             }
             if (c.create_auth != 1 || c.create_task < 1 || c.create_doc < 1) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "New Authorisation needs exactly one Authorisation, at least one LITask and at least one Document CREATE (H.5.3.3)");
+                           "New Authorisation needs exactly one Authorisation, at least one LITask "
+                           "and at least one Document CREATE (H.5.3.3)");
             }
             break;
         case Workflow::AuthorisationExtension:
-            if (c.update_auth != 1 || c.create_doc < 1 || c.create_auth + c.create_task + c.update_doc != 0) {
+            if (c.update_auth != 1 || c.create_doc < 1 ||
+                c.create_auth + c.create_task + c.update_doc != 0) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "Authorisation Extension needs one UPDATE of the Authorisation, any UPDATEs of its LITasks and at least one Document CREATE (H.5.4.3)");
+                           "Authorisation Extension needs one UPDATE of the Authorisation, any "
+                           "UPDATEs of its LITasks and at least one Document CREATE (H.5.4.3)");
             }
             break;
         case Workflow::AuthorisationCancellation:
-            if (c.update_auth != 1 || c.create_auth + c.create_task + c.update_task + c.update_doc != 0) {
+            if (c.update_auth != 1 ||
+                c.create_auth + c.create_task + c.update_task + c.update_doc != 0) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "Authorisation Cancellation needs one UPDATE of the Authorisation and any Document CREATEs (H.5.5.3)");
+                           "Authorisation Cancellation needs one UPDATE of the Authorisation and "
+                           "any Document CREATEs (H.5.5.3)");
             }
             break;
         case Workflow::TaskAddition:
-            if (c.create_task < 1 || c.create_doc < 1 || c.create_auth + c.update_auth + c.update_task + c.update_doc != 0) {
+            if (c.create_task < 1 || c.create_doc < 1 ||
+                c.create_auth + c.update_auth + c.update_task + c.update_doc != 0) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "Task Addition needs at least one LITask CREATE and at least one Document CREATE (H.5.6.3)");
+                           "Task Addition needs at least one LITask CREATE and at least one "
+                           "Document CREATE (H.5.6.3)");
             }
             break;
         case Workflow::TaskCancellation:
-            if (c.update_task < 1 || c.create_auth + c.create_task + c.update_auth + c.update_doc != 0) {
+            if (c.update_task < 1 ||
+                c.create_auth + c.create_task + c.update_auth + c.update_doc != 0) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "Task Cancellation needs at least one LITask UPDATE and any Document CREATEs (H.5.7.3)");
+                           "Task Cancellation needs at least one LITask UPDATE and any Document "
+                           "CREATEs (H.5.7.3)");
             }
             break;
         case Workflow::ChangeOfDelivery:
-            if (c.update_task < 1 || c.create_auth + c.create_task + c.create_doc + c.update_auth != 0) {
+            if (c.update_task < 1 ||
+                c.create_auth + c.create_task + c.create_doc + c.update_auth != 0) {
                 return bad(ErrorCode::RequiredElementMissing,
-                           "Change of Delivery needs at least one LITask UPDATE and any Document UPDATEs (H.5.8.3)");
+                           "Change of Delivery needs at least one LITask UPDATE and any Document "
+                           "UPDATEs (H.5.8.3)");
             }
             break;
         case Workflow::None:
@@ -259,30 +294,32 @@ struct Lifecycle::Impl {
     // -------------------------------------------------------------------------------------------
 
     bool acceptable_content_type(const std::string& ct) const {
-        static const std::set<std::string> kBase = {"application/pdf",
-                                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                                    "image/png",
-                                                    "image/jpeg",
-                                                    "text/plain"};
-        return kBase.count(ct) != 0 ||
-               std::find(config.extra_document_content_types.begin(), config.extra_document_content_types.end(), ct) !=
-                   config.extra_document_content_types.end();
+        static const std::set<std::string> kBase = {
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "image/png",
+            "image/jpeg",
+            "text/plain"};
+        return kBase.count(ct) != 0 || std::find(config.extra_document_content_types.begin(),
+                                                 config.extra_document_content_types.end(),
+                                                 ct) != config.extra_document_content_types.end();
     }
 
     // What this message creates, by id, so a link to an object in the same message resolves.
     struct MessageObject {
         ObjectType type;
         std::string authorisation_id; // for a task/document: the Authorisation it belongs to
-        bool failed = false;          // its own CREATE was refused (Annex D 3018 for anything linking to it)
+        bool failed = false; // its own CREATE was refused (Annex D 3018 for anything linking to it)
     };
 
     // The Authorisation an object's AssociatedObjects resolve to (own id for an Authorisation).
     // nullopt + `why` when a link does not resolve.
-    std::optional<std::string> resolve_authorisation(const hi1::Object& obj,
-                                                     const std::string& lea,
-                                                     const std::map<std::string, MessageObject>& in_message,
-                                                     ErrorCode& code,
-                                                     std::string& why) {
+    std::optional<std::string>
+    resolve_authorisation(const hi1::Object& obj,
+                          const std::string& lea,
+                          const std::map<std::string, MessageObject>& in_message,
+                          ErrorCode& code,
+                          std::string& why) {
         if (obj.type() == ObjectType::Authorisation) {
             return obj.identifier();
         }
@@ -333,37 +370,53 @@ struct Lifecycle::Impl {
     };
 
     // Validate and prepare one CREATE. Returns a failure result or fills `planned`.
-    std::optional<hi1::ActionResult> prepare_create(Workflow wf,
-                                                    std::uint64_t action_id,
-                                                    const hi1::Object& in,
-                                                    const hi1::EndpointId& lea,
-                                                    const std::string& txn,
-                                                    std::map<std::string, MessageObject>& in_message,
-                                                    std::vector<Planned>& planned) {
+    std::optional<hi1::ActionResult>
+    prepare_create(Workflow wf,
+                   std::uint64_t action_id,
+                   const hi1::Object& in,
+                   const hi1::EndpointId& lea,
+                   const std::string& txn,
+                   std::map<std::string, MessageObject>& in_message,
+                   std::vector<Planned>& planned) {
         const std::string lea_id = lea_key(lea);
         const ObjectType type = in.type();
         if (type == ObjectType::Notification) {
-            return failure(action_id, ErrorCode::ImproperValue, "NotificationObjects are created by the Receiver only (7.4.1)");
+            return failure(action_id,
+                           ErrorCode::ImproperValue,
+                           "NotificationObjects are created by the Receiver only (7.4.1)");
         }
         if (type == ObjectType::Other) {
-            return failure(action_id, ErrorCode::FeatureNotSupported,
-                           "object type " + in.type_name() + " is not part of the LI lifecycle workflow profile");
+            return failure(action_id,
+                           ErrorCode::FeatureNotSupported,
+                           "object type " + in.type_name() +
+                               " is not part of the LI lifecycle workflow profile");
         }
         const auto members = in.members();
-        const auto has = [&](const char* m) { return std::find(members.begin(), members.end(), m) != members.end(); };
+        const auto has = [&](const char* m) {
+            return std::find(members.begin(), members.end(), m) != members.end();
+        };
         if (has("Generation")) {
-            return failure(action_id, ErrorCode::ImproperValue, "Generation must not be specified in a CREATE (7.1.3)");
+            return failure(action_id,
+                           ErrorCode::ImproperValue,
+                           "Generation must not be specified in a CREATE (7.1.3)");
         }
         if (has(status_member(type))) {
-            return failure(action_id, ErrorCode::ImproperValue,
-                           std::string(status_member(type)) + " is set by the Receiver, not the Sender (7.2.5/8.2.3)");
+            return failure(action_id,
+                           ErrorCode::ImproperValue,
+                           std::string(status_member(type)) +
+                               " is set by the Receiver, not the Sender (7.2.5/8.2.3)");
         }
         if (in_message.count(in.identifier()) != 0 || store.get(in.identifier()).has_value()) {
-            return failure(action_id, ErrorCode::ObjectAlreadyExists, "object " + in.identifier() + " already exists");
+            return failure(action_id,
+                           ErrorCode::ObjectAlreadyExists,
+                           "object " + in.identifier() + " already exists");
         }
         if (type == ObjectType::Document) {
-            if (const auto ct = in.text_at({"DocumentBody", "ContentType"}); ct && !acceptable_content_type(*ct)) {
-                return failure(action_id, ErrorCode::ImproperValue, "document ContentType " + *ct + " is not accepted (H.5.2.3.4)");
+            if (const auto ct = in.text_at({"DocumentBody", "ContentType"});
+                ct && !acceptable_content_type(*ct)) {
+                return failure(action_id,
+                               ErrorCode::ImproperValue,
+                               "document ContentType " + *ct + " is not accepted (H.5.2.3.4)");
             }
         }
         ErrorCode code = ErrorCode::GeneralBusinessLogicError;
@@ -381,11 +434,15 @@ struct Lifecycle::Impl {
         if (wf == Workflow::TaskAddition) {
             const auto auth = store.get(authorisation_id);
             if (!auth || auth->lea != lea_id) {
-                return failure(action_id, ErrorCode::LinkTargetDoesNotExist, "Task Addition needs an existing Authorisation");
+                return failure(action_id,
+                               ErrorCode::LinkTargetDoesNotExist,
+                               "Task Addition needs an existing Authorisation");
             }
             if (terminal(auth->status)) {
-                return failure(action_id, ErrorCode::LinkTargetExpired,
-                               "Authorisation " + authorisation_id + " is " + auth->status + " and takes no new tasks");
+                return failure(action_id,
+                               ErrorCode::LinkTargetExpired,
+                               "Authorisation " + authorisation_id + " is " + auth->status +
+                                   " and takes no new tasks");
             }
         }
 
@@ -414,38 +471,53 @@ struct Lifecycle::Impl {
         return std::nullopt;
     }
 
-    std::optional<hi1::ActionResult> prepare_update(Workflow wf,
-                                                    std::uint64_t action_id,
-                                                    const hi1::Object& in,
-                                                    const hi1::EndpointId& lea,
-                                                    const std::string& txn,
-                                                    const std::map<std::string, MessageObject>& in_message,
-                                                    std::vector<Planned>& planned,
-                                                    std::string& extension_auth_end,
-                                                    std::string& extension_auth_id) {
+    std::optional<hi1::ActionResult>
+    prepare_update(Workflow wf,
+                   std::uint64_t action_id,
+                   const hi1::Object& in,
+                   const hi1::EndpointId& lea,
+                   const std::string& txn,
+                   const std::map<std::string, MessageObject>& in_message,
+                   std::vector<Planned>& planned,
+                   std::string& extension_auth_end,
+                   std::string& extension_auth_id) {
         const std::string lea_id = lea_key(lea);
         const auto stored = store.get(in.identifier());
         if (!stored || stored->lea != lea_id) {
-            return failure(action_id, ErrorCode::UpdateObjectDoesNotExist, "object " + in.identifier() + " does not exist");
+            return failure(action_id,
+                           ErrorCode::UpdateObjectDoesNotExist,
+                           "object " + in.identifier() + " does not exist");
         }
         if (stored->object_type != type_text(in.type())) {
-            return failure(action_id, ErrorCode::ImproperValue,
-                           "object " + in.identifier() + " is a " + stored->object_type + ", not a " + type_text(in.type()));
+            return failure(action_id,
+                           ErrorCode::ImproperValue,
+                           "object " + in.identifier() + " is a " + stored->object_type +
+                               ", not a " + type_text(in.type()));
         }
-        if (stored->status == "Expired" || stored->status == "Cancelled" || stored->status == "Rejected") {
-            return failure(action_id, ErrorCode::UpdateObjectExpired, "object " + in.identifier() + " is " + stored->status + " and cannot be updated");
+        if (stored->status == "Expired" || stored->status == "Cancelled" ||
+            stored->status == "Rejected") {
+            return failure(action_id,
+                           ErrorCode::UpdateObjectExpired,
+                           "object " + in.identifier() + " is " + stored->status +
+                               " and cannot be updated");
         }
         const ObjectType type = in.type();
         const auto members = in.members();
-        const auto has = [&](const char* m) { return std::find(members.begin(), members.end(), m) != members.end(); };
+        const auto has = [&](const char* m) {
+            return std::find(members.begin(), members.end(), m) != members.end();
+        };
         if (has(status_member(type))) {
-            return failure(action_id, ErrorCode::ValueChangeNotAllowed,
-                           std::string(status_member(type)) + " is set by the Receiver, not the Sender (7.2.5/8.2.3)");
+            return failure(action_id,
+                           ErrorCode::ValueChangeNotAllowed,
+                           std::string(status_member(type)) +
+                               " is set by the Receiver, not the Sender (7.2.5/8.2.3)");
         }
         if (const auto g = in.text("Generation")) {
             if (std::strtoull(g->c_str(), nullptr, 10) != stored->generation) {
-                return failure(action_id, ErrorCode::ImproperValueChange,
-                               "Generation " + *g + " does not match the current " + std::to_string(stored->generation) + " (7.1.3)");
+                return failure(action_id,
+                               ErrorCode::ImproperValueChange,
+                               "Generation " + *g + " does not match the current " +
+                                   std::to_string(stored->generation) + " (7.1.3)");
             }
         }
 
@@ -456,44 +528,61 @@ struct Lifecycle::Impl {
                 if (type == ObjectType::Authorisation) {
                     const auto v = hi1::view_authorisation(in);
                     if (!v.end_time || v.start_time) {
-                        return failure(action_id, ErrorCode::RequiredElementMissing,
-                                       "AuthorisationTimespan must carry the new EndTime and nothing else (table H.1)");
+                        return failure(action_id,
+                                       ErrorCode::RequiredElementMissing,
+                                       "AuthorisationTimespan must carry the new EndTime and "
+                                       "nothing else (table H.1)");
                     }
-                    const auto old_end = hi1::view_authorisation(*hi1::Object::from_xml(stored->xml)).end_time;
+                    const auto old_end =
+                        hi1::view_authorisation(*hi1::Object::from_xml(stored->xml)).end_time;
                     const auto new_t = parse_time(*v.end_time);
                     const auto old_t = old_end ? parse_time(*old_end) : std::nullopt;
                     if (!new_t || (old_t && *new_t <= *old_t)) {
-                        return failure(action_id, ErrorCode::ImproperValueChange, "an extension must move the EndTime later");
+                        return failure(action_id,
+                                       ErrorCode::ImproperValueChange,
+                                       "an extension must move the EndTime later");
                     }
                     extension_auth_end = *v.end_time;
                     extension_auth_id = in.identifier();
                 } else if (type == ObjectType::LITask) {
                     const auto v = hi1::view_litask(in);
                     if (!v.end_time || v.start_time) {
-                        return failure(action_id, ErrorCode::RequiredElementMissing,
-                                       "Timespan must carry the new EndTime and nothing else (table H.2)");
+                        return failure(
+                            action_id,
+                            ErrorCode::RequiredElementMissing,
+                            "Timespan must carry the new EndTime and nothing else (table H.2)");
                     }
-                    if (stored->authorisation_id != extension_auth_id && !extension_auth_id.empty()) {
-                        return failure(action_id, ErrorCode::ImproperValue, "the task does not belong to the extended Authorisation");
+                    if (stored->authorisation_id != extension_auth_id &&
+                        !extension_auth_id.empty()) {
+                        return failure(action_id,
+                                       ErrorCode::ImproperValue,
+                                       "the task does not belong to the extended Authorisation");
                     }
                     const auto t_end = parse_time(*v.end_time);
                     const auto a_end = parse_time(extension_auth_end);
                     if (!t_end || (a_end && *t_end > *a_end)) {
-                        return failure(action_id, ErrorCode::ImproperValue,
-                                       "task EndTime must not be later than the Authorisation's new EndTime (table H.2)");
+                        return failure(action_id,
+                                       ErrorCode::ImproperValue,
+                                       "task EndTime must not be later than the Authorisation's "
+                                       "new EndTime (table H.2)");
                     }
                 }
                 break;
             case Workflow::AuthorisationCancellation:
             case Workflow::TaskCancellation:
                 if (!desired || desired->value != "Cancelled") {
-                    return failure(action_id, ErrorCode::RequiredElementMissing,
-                                   std::string(desired_member(type)) + " must be set to \"Cancelled\" (tables H.3 / H.4)");
+                    return failure(action_id,
+                                   ErrorCode::RequiredElementMissing,
+                                   std::string(desired_member(type)) +
+                                       " must be set to \"Cancelled\" (tables H.3 / H.4)");
                 }
                 break;
             case Workflow::ChangeOfDelivery:
                 if (type == ObjectType::LITask && !has("DeliveryDetails")) {
-                    return failure(action_id, ErrorCode::RequiredElementMissing, "DeliveryDetails must carry the new delivery details (table H.5)");
+                    return failure(
+                        action_id,
+                        ErrorCode::RequiredElementMissing,
+                        "DeliveryDetails must carry the new delivery details (table H.5)");
                 }
                 break;
             default:
@@ -502,7 +591,9 @@ struct Lifecycle::Impl {
 
         auto merged = hi1::Object::from_xml(stored->xml);
         if (!merged) {
-            return failure(action_id, ErrorCode::GeneralBusinessLogicError, "stored object is unreadable: " + merged.error());
+            return failure(action_id,
+                           ErrorCode::GeneralBusinessLogicError,
+                           "stored object is unreadable: " + merged.error());
         }
         hi1::Object update = in;
         update.remove("Generation");
@@ -515,7 +606,8 @@ struct Lifecycle::Impl {
         project(next, *merged, type);
         next.last_txn = txn;
         (void)in_message;
-        planned.push_back({action_id, {StoreOp::Kind::Replace, next, stored->generation}, *merged, false});
+        planned.push_back(
+            {action_id, {StoreOp::Kind::Replace, next, stored->generation}, *merged, false});
         return std::nullopt;
     }
 
@@ -546,40 +638,55 @@ struct Lifecycle::Impl {
         for (const auto& a : actions) {
             ordered.push_back(&a);
         }
-        std::stable_sort(ordered.begin(), ordered.end(), [](const hi1::Action* x, const hi1::Action* y) {
-            const auto rank = [](const hi1::Action* a) {
-                if (const auto* u = std::get_if<hi1::UpdateAction>(&a->body)) {
-                    return u->object.type() == ObjectType::Authorisation ? 0 : 1;
-                }
-                if (const auto* c = std::get_if<hi1::CreateAction>(&a->body)) {
-                    return c->object.type() == ObjectType::Authorisation ? 0 : (c->object.type() == ObjectType::LITask ? 1 : 2);
-                }
-                return 3;
-            };
-            return rank(x) < rank(y);
-        });
+        std::stable_sort(
+            ordered.begin(), ordered.end(), [](const hi1::Action* x, const hi1::Action* y) {
+                const auto rank = [](const hi1::Action* a) {
+                    if (const auto* u = std::get_if<hi1::UpdateAction>(&a->body)) {
+                        return u->object.type() == ObjectType::Authorisation ? 0 : 1;
+                    }
+                    if (const auto* c = std::get_if<hi1::CreateAction>(&a->body)) {
+                        return c->object.type() == ObjectType::Authorisation
+                                   ? 0
+                                   : (c->object.type() == ObjectType::LITask ? 1 : 2);
+                    }
+                    return 3;
+                };
+                return rank(x) < rank(y);
+            });
         for (const hi1::Action* a : ordered) {
             std::optional<hi1::ActionResult> bad;
             if (const auto* c = std::get_if<hi1::CreateAction>(&a->body)) {
-                bad = prepare_create(wf, a->id, c->object, lea, header.transaction_id, in_message, planned);
+                bad = prepare_create(
+                    wf, a->id, c->object, lea, header.transaction_id, in_message, planned);
                 if (bad) {
                     in_message[c->object.identifier()] = {c->object.type(), "", true};
                 }
             } else if (const auto* u = std::get_if<hi1::UpdateAction>(&a->body)) {
-                bad = prepare_update(wf, a->id, u->object, lea, header.transaction_id, in_message, planned, ext_end, ext_auth);
+                bad = prepare_update(wf,
+                                     a->id,
+                                     u->object,
+                                     lea,
+                                     header.transaction_id,
+                                     in_message,
+                                     planned,
+                                     ext_end,
+                                     ext_auth);
             }
             if (bad) {
                 failures.emplace(a->id, std::move(*bad));
             }
         }
         if (!failures.empty()) {
-            // Nothing is applied: every action that was itself fine says so, rather than looking accepted.
+            // Nothing is applied: every action that was itself fine says so, rather than looking
+            // accepted.
             for (const auto& a : actions) {
                 const auto it = failures.find(a.id);
                 out.results.push_back(it != failures.end()
                                           ? it->second
-                                          : failure(a.id, ErrorCode::GeneralBusinessLogicError,
-                                                    "not applied: another action in this request was refused (H.5.2.2.4)"));
+                                          : failure(a.id,
+                                                    ErrorCode::GeneralBusinessLogicError,
+                                                    "not applied: another action in this request "
+                                                    "was refused (H.5.2.2.4)"));
             }
             return out;
         }
@@ -594,7 +701,8 @@ struct Lifecycle::Impl {
             spdlog::error("li-admf: storing an HI1 request failed: {}", e.what());
         }
         if (!applied) {
-            out.rejected = top_failure(ErrorCode::TransientTechnicalError, "the request could not be stored; nothing was changed");
+            out.rejected = top_failure(ErrorCode::TransientTechnicalError,
+                                       "the request could not be stored; nothing was changed");
             return out;
         }
         std::map<std::uint64_t, const Planned*> by_action;
@@ -620,11 +728,14 @@ struct Lifecycle::Impl {
         if (const auto* g = std::get_if<hi1::GetAction>(&a.body)) {
             const auto stored = store.get(g->identifier);
             if (!stored || stored->lea != lea_id) {
-                return failure(a.id, ErrorCode::GetObjectNotFound, "object " + g->identifier + " was not found");
+                return failure(a.id,
+                               ErrorCode::GetObjectNotFound,
+                               "object " + g->identifier + " was not found");
             }
             auto obj = hi1::Object::from_xml(stored->xml);
             if (!obj) {
-                return failure(a.id, ErrorCode::GeneralBusinessLogicError, "stored object is unreadable");
+                return failure(
+                    a.id, ErrorCode::GeneralBusinessLogicError, "stored object is unreadable");
             }
             return {a.id, hi1::GetResult{*obj}};
         }
@@ -667,7 +778,9 @@ struct Lifecycle::Impl {
             }
             return {a.id, std::move(result)};
         }
-        return failure(a.id, ErrorCode::FeatureNotSupported, "this verb is not taken at the API base URL; use a workflow endpoint (H.5)");
+        return failure(a.id,
+                       ErrorCode::FeatureNotSupported,
+                       "this verb is not taken at the API base URL; use a workflow endpoint (H.5)");
     }
 
     // -------------------------------------------------------------------------------------------
@@ -683,7 +796,8 @@ struct Lifecycle::Impl {
     using Batch = std::vector<Change>;
 
     // Set the Receiver-owned status (and an InvalidReason when `reason` is given), bump Generation,
-    // and write it back optimistically. nullopt on a conflict (another writer won; retry next pass).
+    // and write it back optimistically. nullopt on a conflict (another writer won; retry next
+    // pass).
     std::optional<StoredObject> set_status(const StoredObject& s,
                                            const std::string& status,
                                            const std::optional<hi1::Failure>& reason,
@@ -780,7 +894,8 @@ struct Lifecycle::Impl {
         }
         for (const auto& dest : v.destinations) {
             if (dest.address_kind != "IPAddressPort") {
-                d.invalid = "delivery address kind " + dest.address_kind + " is not supported (IPAddressPort only)";
+                d.invalid = "delivery address kind " + dest.address_kind +
+                            " is not supported (IPAddressPort only)";
                 return d;
             }
             spec.destinations.push_back({dest.address});
@@ -804,7 +919,10 @@ struct Lifecycle::Impl {
     }
 
     // Take a provisioned task off the network and record `status`. Retried next pass on failure.
-    void retire_task(const StoredObject& t, const std::string& status, const std::string& why, Batch& batch) {
+    void retire_task(const StoredObject& t,
+                     const std::string& status,
+                     const std::string& why,
+                     Batch& batch) {
         const auto state = store.lipf_state(t.object_id);
         if (state && state->state == "provisioned") {
             TaskSpec spec;
@@ -816,11 +934,15 @@ struct Lifecycle::Impl {
             if (!r.ok) {
                 spdlog::error("li-admf: deprovisioning task {} failed: {}", t.object_id, r.detail);
                 if (t.status != "Error") {
-                    (void)set_status(t, "Error", hi1::Failure{3003, "could not deprovision: " + r.detail}, batch);
+                    (void)set_status(t,
+                                     "Error",
+                                     hi1::Failure{3003, "could not deprovision: " + r.detail},
+                                     batch);
                 }
                 return;
             }
-            store.set_lipf_state({t.object_id, state->provisioned_generation, {}, "deprovisioned", 0});
+            store.set_lipf_state(
+                {t.object_id, state->provisioned_generation, {}, "deprovisioned", 0});
         }
         if (t.status != status) {
             (void)set_status(t,
@@ -831,7 +953,8 @@ struct Lifecycle::Impl {
     }
 
     // A task of an approved authorisation: make the network match what the LEA asked for.
-    void action_task(const StoredObject& t, const StoredObject& auth, std::time_t now, Batch& batch) {
+    void
+    action_task(const StoredObject& t, const StoredObject& auth, std::time_t now, Batch& batch) {
         const std::string desired = desired_of(t, ObjectType::LITask);
         if (auth.status == "Cancelled") {
             return retire_task(t, "Cancelled", "", batch);
@@ -886,12 +1009,13 @@ struct Lifecycle::Impl {
         }
 
         const auto state = store.lipf_state(t.object_id);
-        const bool in_sync = state && state->state == "provisioned" && state->provisioned_generation == t.generation &&
-                             t.status == "Active";
+        const bool in_sync = state && state->state == "provisioned" &&
+                             state->provisioned_generation == t.generation && t.status == "Active";
         if (in_sync) {
             return;
         }
-        if (t.status == "Error" && state && state->state == "failed" && state->provisioned_generation == t.generation &&
+        if (t.status == "Error" && state && state->state == "failed" &&
+            state->provisioned_generation == t.generation &&
             std::chrono::seconds(state->age_seconds) < config.retry_interval) {
             return; // back off
         }
@@ -914,8 +1038,10 @@ struct Lifecycle::Impl {
         if (state && state->state == "provisioned") {
             std::vector<std::string> gone;
             for (const auto& old : state->destinations) {
-                const bool kept = std::any_of(derived.spec->destinations.begin(), derived.spec->destinations.end(),
-                                              [&](const Destination& d) { return d.address == old; });
+                const bool kept =
+                    std::any_of(derived.spec->destinations.begin(),
+                                derived.spec->destinations.end(),
+                                [&](const Destination& d) { return d.address == old; });
                 if (!kept) {
                     gone.push_back(old);
                 }
@@ -964,7 +1090,8 @@ struct Lifecycle::Impl {
                 s.details = c.detail;
             }
             p.statuses.push_back(std::move(s));
-            details += " " + std::string(type_text(c.type)) + " " + c.object_id + " -> " + c.status + (c.detail.empty() ? ";" : " (" + c.detail + ");");
+            details += " " + std::string(type_text(c.type)) + " " + c.object_id + " -> " +
+                       c.status + (c.detail.empty() ? ";" : " (" + c.detail + ");");
         }
         if (!auth.last_txn.empty()) {
             details += " [request transaction " + auth.last_txn + "]";
@@ -972,7 +1099,8 @@ struct Lifecycle::Impl {
         p.details = details;
         auto notification = hi1::make_notification(p);
         if (!notification) {
-            spdlog::error("li-admf: could not build a NotificationObject: {}", notification.error());
+            spdlog::error("li-admf: could not build a NotificationObject: {}",
+                          notification.error());
             return;
         }
         (void)notification->set_text("Generation", "1");
@@ -1010,7 +1138,8 @@ struct Lifecycle::Impl {
         df.status = "AwaitingApproval";
         const auto docs = store.list(df);
         if (!refusal.empty()) {
-            if (const auto rejected = set_status(auth, "Rejected", hi1::Failure{3001, refusal}, batch)) {
+            if (const auto rejected =
+                    set_status(auth, "Rejected", hi1::Failure{3001, refusal}, batch)) {
                 for (const auto& t : tasks) {
                     (void)set_status(t, "Rejected", hi1::Failure{3001, refusal}, batch);
                 }
@@ -1020,7 +1149,10 @@ struct Lifecycle::Impl {
             }
             return;
         }
-        if (set_status(auth, desired == "EmergencyApproval" ? "EmergencyApproval" : "Approved", std::nullopt, batch)) {
+        if (set_status(auth,
+                       desired == "EmergencyApproval" ? "EmergencyApproval" : "Approved",
+                       std::nullopt,
+                       batch)) {
             for (const auto& d : docs) {
                 (void)set_status(d, "Approved", std::nullopt, batch);
             }
@@ -1050,11 +1182,15 @@ struct Lifecycle::Impl {
             }
             return;
         }
-        if (desired.empty() || desired == "Approved" || desired == "EmergencyApproval" || desired == "SubmittedToCSP") {
+        if (desired.empty() || desired == "Approved" || desired == "EmergencyApproval" ||
+            desired == "SubmittedToCSP") {
             if (auth.status == "AwaitingApproval") {
                 review_new(auth, desired, batch);
             } else if (auth.status == "Suspended") {
-                (void)set_status(auth, desired == "EmergencyApproval" ? "EmergencyApproval" : "Approved", std::nullopt, batch);
+                (void)set_status(auth,
+                                 desired == "EmergencyApproval" ? "EmergencyApproval" : "Approved",
+                                 std::nullopt,
+                                 batch);
             }
         }
     }
@@ -1106,7 +1242,8 @@ struct Lifecycle::Impl {
             if (r.ok) {
                 spdlog::debug("li-admf: X1 keepalive to {} acknowledged", r.ne);
             } else {
-                // The NE will raise a fault after its TIME_P2 and, by default, deactivate its tasks.
+                // The NE will raise a fault after its TIME_P2 and, by default, deactivate its
+                // tasks.
                 spdlog::error("li-admf: X1 keepalive to {} FAILED: {}", r.ne, r.detail);
             }
         }
@@ -1114,9 +1251,11 @@ struct Lifecycle::Impl {
 
     void worker_loop() {
         std::unique_lock<std::mutex> lock(wake_mutex);
-        auto next_keepalive = std::chrono::steady_clock::now(); // first one immediately: the NEs' P2 clocks started at boot
+        auto next_keepalive = std::chrono::steady_clock::now(); // first one immediately: the NEs'
+                                                                // P2 clocks started at boot
         while (running.load()) {
-            wake_cv.wait_for(lock, config.reconcile_interval, [this] { return woken || !running.load(); });
+            wake_cv.wait_for(
+                lock, config.reconcile_interval, [this] { return woken || !running.load(); });
             if (!running.load()) {
                 return;
             }
@@ -1144,14 +1283,19 @@ struct Lifecycle::Impl {
         using R = li_core::x1::TaskReportType;
         const std::string detail = report.details.value_or("");
         spdlog::warn("li-admf: NE reported on task {}: type {} code {} {}",
-                     report.xid, static_cast<int>(report.report_type), report.error_code.value_or(0), detail);
+                     report.xid,
+                     static_cast<int>(report.report_type),
+                     report.error_code.value_or(0),
+                     detail);
         std::optional<std::string> new_status;
         std::optional<hi1::Failure> reason;
         switch (report.report_type) {
             case R::TerminatingFault:
             case R::FullyActionedAndUnsuccessful:
                 new_status = "Error";
-                reason = hi1::Failure{3003, "the network element reported a fault on this task: " + (detail.empty() ? std::string("no details") : detail)};
+                reason = hi1::Failure{3003,
+                                      "the network element reported a fault on this task: " +
+                                          (detail.empty() ? std::string("no details") : detail)};
                 break;
             case R::ImplicitDeactivation:
                 new_status = "Expired"; // the NE stopped intercepting by itself (end time reached)
@@ -1168,8 +1312,13 @@ struct Lifecycle::Impl {
         const auto auth = store.get(task->authorisation_id);
         Batch batch;
         if (const auto next = set_status(*task, *new_status, reason, batch)) {
-            // The network no longer holds it: make the next pass re-provision an Error task, and not retire an Expired one twice.
-            store.set_lipf_state({task->object_id, next->generation, {}, *new_status == "Error" ? "failed" : "deprovisioned", 0});
+            // The network no longer holds it: make the next pass re-provision an Error task, and
+            // not retire an Expired one twice.
+            store.set_lipf_state({task->object_id,
+                                  next->generation,
+                                  {},
+                                  *new_status == "Error" ? "failed" : "deprovisioned",
+                                  0});
             if (auth) {
                 emit_notification(*auth, batch);
             }
@@ -1177,9 +1326,15 @@ struct Lifecycle::Impl {
         return std::nullopt;
     }
 
-    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne, const li_core::x1::ReportNEIssue& r) {
-        // The worst an NE can say is that it lost its ADMF; that is an operator matter, so log it loudly.
-        spdlog::error("li-admf: NE {} reported {} (code {}): {}", ne, static_cast<int>(r.type), r.issue_code.value_or(0), r.description);
+    std::optional<li_core::x1::ErrorCode> ne_issue(const std::string& ne,
+                                                   const li_core::x1::ReportNEIssue& r) {
+        // The worst an NE can say is that it lost its ADMF; that is an operator matter, so log it
+        // loudly.
+        spdlog::error("li-admf: NE {} reported {} (code {}): {}",
+                      ne,
+                      static_cast<int>(r.type),
+                      r.issue_code.value_or(0),
+                      r.description);
         return std::nullopt;
     }
 };
@@ -1223,11 +1378,13 @@ void Lifecycle::keepalive_once() {
     impl_->keepalive();
 }
 
-std::optional<li_core::x1::ErrorCode> Lifecycle::task_issue(const li_core::x1::ReportTaskIssue& report) {
+std::optional<li_core::x1::ErrorCode>
+Lifecycle::task_issue(const li_core::x1::ReportTaskIssue& report) {
     return impl_->task_issue(report);
 }
 
-std::optional<li_core::x1::ErrorCode> Lifecycle::ne_issue(const std::string& ne, const li_core::x1::ReportNEIssue& report) {
+std::optional<li_core::x1::ErrorCode>
+Lifecycle::ne_issue(const std::string& ne, const li_core::x1::ReportNEIssue& report) {
     return impl_->ne_issue(ne, report);
 }
 

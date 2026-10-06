@@ -52,7 +52,8 @@ struct FakeNe {
             }
             return std::nullopt;
         };
-        cb.create_destination = [this](const x1::DestinationDetails& d) -> std::optional<x1::ErrorCode> {
+        cb.create_destination =
+            [this](const x1::DestinationDetails& d) -> std::optional<x1::ErrorCode> {
             log.push_back("CreateDestination " + d.did);
             if (destinations.count(d.did) != 0) {
                 return x1::ErrorCode::DidAlreadyExists;
@@ -62,7 +63,8 @@ struct FakeNe {
         };
         cb.remove_destination = [this](const std::string& did) -> std::optional<x1::ErrorCode> {
             log.push_back("RemoveDestination " + did);
-            return destinations.erase(did) == 0 ? std::optional(x1::ErrorCode::DidDoesNotExist) : std::nullopt;
+            return destinations.erase(did) == 0 ? std::optional(x1::ErrorCode::DidDoesNotExist)
+                                                : std::nullopt;
         };
         return cb;
     }
@@ -72,7 +74,8 @@ class FakeTransport : public li_admf::X1Transport {
 public:
     FakeNe amf;
     FakeNe mdf;
-    tl::expected<std::string, std::string> post(const NetworkElement& ne, const std::string& body) override {
+    tl::expected<std::string, std::string> post(const NetworkElement& ne,
+                                                const std::string& body) override {
         FakeNe& target = ne.role == "mdf2" ? mdf : amf;
         return x1::handle_request(body, target.callbacks(ne.ne_identifier));
     }

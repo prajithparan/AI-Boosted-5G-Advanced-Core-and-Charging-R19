@@ -462,8 +462,9 @@ extract(const AMFStartOfInterceptionWithRegisteredUE_t& src) {
         out.location = extract_location(*src.location);
     }
     if (src.timeOfRegistration != nullptr) {
-        out.time_of_registration = std::string(
-            reinterpret_cast<const char*>(src.timeOfRegistration->buf), src.timeOfRegistration->size);
+        out.time_of_registration =
+            std::string(reinterpret_cast<const char*>(src.timeOfRegistration->buf),
+                        src.timeOfRegistration->size);
     }
     return out;
 }

@@ -10,9 +10,9 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -233,7 +233,8 @@ struct LiPoi::Impl {
                 bool known = false;
                 if (existing != tasks.end()) {
                     for (const auto& old : existing->second.targets) {
-                        known = known || (old.element == target.element && old.value == target.value);
+                        known =
+                            known || (old.element == target.element && old.value == target.value);
                     }
                 }
                 if (!known) {

@@ -122,15 +122,16 @@ public:
 
     // Set an ActionUnsuccesfulInformation member (AuthorisationInvalidReason / InvalidReason /
     // DocumentInvalidReason): ErrorCode + ErrorDescription, at its schema position.
-    tl::expected<void, std::string> set_failure(std::string_view field, std::uint32_t code, const std::string& description);
+    tl::expected<void, std::string>
+    set_failure(std::string_view field, std::uint32_t code, const std::string& description);
 
     // The local names of the members present (ObjectIdentifier included), in document order.
     [[nodiscard]] std::vector<std::string> members() const;
 
     // TS 103 120 6.4.7 UPDATE semantics: every member present in `update` replaces the stored one
-    // wholesale (a list member is overwritten, never appended to; an empty list clears it); a member
-    // absent from `update` is left unchanged. ObjectIdentifier is never changed. The two objects
-    // must be of the same type, else an error.
+    // wholesale (a list member is overwritten, never appended to; an empty list clears it); a
+    // member absent from `update` is left unchanged. ObjectIdentifier is never changed. The two
+    // objects must be of the same type, else an error.
     tl::expected<void, std::string> merge(const Object& update);
 
 private:
@@ -159,8 +160,8 @@ struct TargetValue {
     bool operator==(const TargetValue&) const = default;
 };
 struct DeliveryDest {
-    std::string address_kind;                 // the DeliveryAddress choice element, e.g. "IPAddressPort"
-    std::string address;                      // "ip:port" for IPAddressPort, else the element text
+    std::string address_kind; // the DeliveryAddress choice element, e.g. "IPAddressPort"
+    std::string address;      // "ip:port" for IPAddressPort, else the element text
     std::optional<std::string> destination_reference;
     std::optional<DictionaryEntry> iri_or_cc;
     std::optional<DictionaryEntry> handover_format;
@@ -189,7 +190,7 @@ struct NotificationParams {
     std::string identifier;
     std::string country_code;
     std::string owner_identifier;
-    std::string details; // NotificationDetails (human readable)
+    std::string details;  // NotificationDetails (human readable)
     DictionaryEntry type; // NotificationType, e.g. ETSI/NotificationType/General
     bool new_notification = true;
     std::string timestamp; // QualifiedDateTime
@@ -221,8 +222,8 @@ struct DeliverAction {
     Object object;
 };
 struct GetCspConfigAction {};
-using ActionBody =
-    std::variant<GetAction, CreateAction, UpdateAction, ListAction, DeliverAction, GetCspConfigAction>;
+using ActionBody = std::
+    variant<GetAction, CreateAction, UpdateAction, ListAction, DeliverAction, GetCspConfigAction>;
 struct Action {
     std::uint64_t id = 0; // ActionIdentifier
     ActionBody body;

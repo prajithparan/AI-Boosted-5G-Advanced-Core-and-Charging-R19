@@ -1,7 +1,6 @@
 #include "li_core/x1.hpp"
 
 #include <arpa/inet.h>
-
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -795,7 +794,8 @@ void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
         add_text(td, "correlationID", std::to_string(*t.correlation_id));
     }
     if (t.implicit_deactivation_allowed) {
-        add_text(td, "implicitDeactivationAllowed", *t.implicit_deactivation_allowed ? "true" : "false");
+        add_text(
+            td, "implicitDeactivationAllowed", *t.implicit_deactivation_allowed ? "true" : "false");
     }
     if (t.product_id) {
         add_text(td, "productID", *t.product_id);
@@ -808,15 +808,19 @@ void write_task_details(xmlNodePtr parent, const TaskDetails& t) {
         xmlNsPtr tgpp = xmlNewNs(ext,
                                  reinterpret_cast<const xmlChar*>(k3gppX1ExtNs),
                                  reinterpret_cast<const xmlChar*>("tgpp"));
-        xmlNodePtr ia = xmlNewChild(
-            ext, tgpp, reinterpret_cast<const xmlChar*>("IdentifierAssociationExtensions"), nullptr);
-        xmlNewTextChild(ia,
+        xmlNodePtr ia =
+            xmlNewChild(ext,
                         tgpp,
-                        reinterpret_cast<const xmlChar*>("IdentifierAssociationEventsGenerated"),
-                        reinterpret_cast<const xmlChar*>(
-                            *t.identifier_association_events == IdentifierAssociationEventsGenerated::All
-                                ? "All"
-                                : "IdentifierAssociation"));
+                        reinterpret_cast<const xmlChar*>("IdentifierAssociationExtensions"),
+                        nullptr);
+        xmlNewTextChild(
+            ia,
+            tgpp,
+            reinterpret_cast<const xmlChar*>("IdentifierAssociationEventsGenerated"),
+            reinterpret_cast<const xmlChar*>(*t.identifier_association_events ==
+                                                     IdentifierAssociationEventsGenerated::All
+                                                 ? "All"
+                                                 : "IdentifierAssociation"));
     }
 }
 
@@ -832,10 +836,22 @@ std::string expand_ipv6(const std::string& text) {
     std::snprintf(buf,
                   sizeof(buf),
                   "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-                  addr.s6_addr[0], addr.s6_addr[1], addr.s6_addr[2], addr.s6_addr[3],
-                  addr.s6_addr[4], addr.s6_addr[5], addr.s6_addr[6], addr.s6_addr[7],
-                  addr.s6_addr[8], addr.s6_addr[9], addr.s6_addr[10], addr.s6_addr[11],
-                  addr.s6_addr[12], addr.s6_addr[13], addr.s6_addr[14], addr.s6_addr[15]);
+                  addr.s6_addr[0],
+                  addr.s6_addr[1],
+                  addr.s6_addr[2],
+                  addr.s6_addr[3],
+                  addr.s6_addr[4],
+                  addr.s6_addr[5],
+                  addr.s6_addr[6],
+                  addr.s6_addr[7],
+                  addr.s6_addr[8],
+                  addr.s6_addr[9],
+                  addr.s6_addr[10],
+                  addr.s6_addr[11],
+                  addr.s6_addr[12],
+                  addr.s6_addr[13],
+                  addr.s6_addr[14],
+                  addr.s6_addr[15]);
     return buf;
 }
 
@@ -852,18 +868,18 @@ void write_destination(xmlNodePtr parent, const DestinationDetails& d, xmlNsPtr 
             // IPAddressPort's children are TS 103 280 elements (elementFormDefault=qualified), so
             // they carry that namespace, not the X1 one.
             const auto colon = d.address.value.rfind(':');
-            const std::string ip = colon == std::string::npos ? d.address.value
-                                                              : d.address.value.substr(0, colon);
+            const std::string ip =
+                colon == std::string::npos ? d.address.value : d.address.value.substr(0, colon);
             const std::string port =
                 colon == std::string::npos ? "" : d.address.value.substr(colon + 1);
             const bool v6 = ip.find(':') != std::string::npos;
             xmlNodePtr ipp = add_node(addr, "ipAddressAndPort");
-            xmlNodePtr a = xmlNewChild(ipp, c, reinterpret_cast<const xmlChar*>("address"), nullptr);
+            xmlNodePtr a =
+                xmlNewChild(ipp, c, reinterpret_cast<const xmlChar*>("address"), nullptr);
             xmlNewTextChild(a,
                             c,
                             reinterpret_cast<const xmlChar*>(v6 ? "IPv6Address" : "IPv4Address"),
-                            reinterpret_cast<const xmlChar*>(
-                                (v6 ? expand_ipv6(ip) : ip).c_str()));
+                            reinterpret_cast<const xmlChar*>((v6 ? expand_ipv6(ip) : ip).c_str()));
             xmlNodePtr p = xmlNewChild(ipp, c, reinterpret_cast<const xmlChar*>("port"), nullptr);
             xmlNewTextChild(p,
                             c,
@@ -900,9 +916,10 @@ tl::expected<std::string, std::string> serialise_request(const std::vector<Reque
     xmlNsPtr xsi = xmlNewNs(
         root, reinterpret_cast<const xmlChar*>(kXsiNs), reinterpret_cast<const xmlChar*>("xsi"));
     xmlNewNs(root, reinterpret_cast<const xmlChar*>(kX1Ns), reinterpret_cast<const xmlChar*>("x1"));
-    xmlNsPtr c = xmlNewNs(root,
-                          reinterpret_cast<const xmlChar*>("http://uri.etsi.org/03280/common/2017/07"),
-                          reinterpret_cast<const xmlChar*>("c"));
+    xmlNsPtr c =
+        xmlNewNs(root,
+                 reinterpret_cast<const xmlChar*>("http://uri.etsi.org/03280/common/2017/07"),
+                 reinterpret_cast<const xmlChar*>("c"));
     xmlDocSetRootElement(doc, root);
 
     for (const auto& req : requests) {
@@ -917,7 +934,8 @@ tl::expected<std::string, std::string> serialise_request(const std::vector<Reque
             return tl::make_unexpected(std::string("request type is not buildable by an ADMF: ") +
                                        message_type_name(req.type));
         }
-        xmlNodePtr m = xmlNewChild(root, x1, reinterpret_cast<const xmlChar*>("x1RequestMessage"), nullptr);
+        xmlNodePtr m =
+            xmlNewChild(root, x1, reinterpret_cast<const xmlChar*>("x1RequestMessage"), nullptr);
         set_ns_type(m, xsi, xsi_name);
         write_header(m, req.header);
         switch (req.type) {
@@ -980,8 +998,8 @@ ProvisioningStatus read_provisioning(const std::string& v) {
 
 tl::expected<std::vector<ClientResponse>, ParseError> parse_response(const std::string& xml) {
     // Same hardening as parse_request: no network, no entity substitution.
-    xmlDocPtr doc =
-        xmlReadMemory(xml.data(), static_cast<int>(xml.size()), "x1r.xml", nullptr, XML_PARSE_NONET);
+    xmlDocPtr doc = xmlReadMemory(
+        xml.data(), static_cast<int>(xml.size()), "x1r.xml", nullptr, XML_PARSE_NONET);
     if (doc == nullptr) {
         return tl::make_unexpected(ParseError{true, "not well-formed XML", std::nullopt});
     }
@@ -1029,13 +1047,14 @@ tl::expected<std::vector<ClientResponse>, ParseError> parse_response(const std::
                     r.task = read_task_details(td);
                 }
                 if (xmlNodePtr st = child(trd, "taskStatus")) {
-                    r.provisioning = read_provisioning(child_text(st, "provisioningStatus").value_or(""));
+                    r.provisioning =
+                        read_provisioning(child_text(st, "provisioningStatus").value_or(""));
                     if (xmlNodePtr faults = child(st, "listOfFaults")) {
                         for (xmlNodePtr f = faults->children; f != nullptr; f = f->next) {
                             if (is(f, "unresolvedFault")) {
-                                r.unresolved_faults.push_back(
-                                    Fault{std::atoi(child_text(f, "errorCode").value_or("0").c_str()),
-                                          child_text(f, "errorDescription").value_or("")});
+                                r.unresolved_faults.push_back(Fault{
+                                    std::atoi(child_text(f, "errorCode").value_or("0").c_str()),
+                                    child_text(f, "errorDescription").value_or("")});
                             }
                         }
                     }
