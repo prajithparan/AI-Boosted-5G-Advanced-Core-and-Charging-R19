@@ -3,6 +3,7 @@
   "pfcp_bind_port": 8805,
   "metrics_bind_address": "0.0.0.0:9471",
   "nrf_base_url": "https://127.0.0.1:7777",
+  "advertised_ipv4": "auto",
   "li_poi": {
     "enabled": false,
     "x1_bind_address": "0.0.0.0",

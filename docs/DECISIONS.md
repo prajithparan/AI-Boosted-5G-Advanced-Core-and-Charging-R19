@@ -431,6 +431,9 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0463](decisions/ADR-0463-smf-and-upf-pois-the-plan-the-shared-poi-runtime-and-the.md) SMF and UPF POIs -- the plan, the shared POI runtime, and the SMF xIRI codec
 - [0464](decisions/ADR-0464-cc-chain-cc-tf-in-the-smf-cc-poi-in-the-upf-x3-mdf3-adr.md) CC chain -- CC-TF in the SMF, CC-POI in the UPF, X3, MDF3 (ADR-0463 stage 3)
 - [0465](decisions/ADR-0465-closed-adrs-status-verified-against-origin-main-archived.md) Closed ADRs: status verified against origin/main, archived under docs/decisions/archive/
+- [0466](decisions/ADR-0466-upf-container-packaging-dockerfile-compose-service-and-helm.md) UPF container packaging: Dockerfile, Compose service and Helm chart
+- [0467](decisions/ADR-0467-contributor-model-cla-one-area-per-pr-approval-for-all.md) Contributor model: CLA, one-area-per-PR, approval for all outside contributors, org move deferred
+- [0468](decisions/ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md) CI lint on pull_request events: diff against the PR base instead of a full clang-tidy sweep
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

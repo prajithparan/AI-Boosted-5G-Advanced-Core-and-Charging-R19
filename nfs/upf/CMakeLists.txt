@@ -25,7 +25,7 @@ add_custom_command(
 )
 add_custom_target(gtpu_bpf_obj ALL DEPENDS ${GTPU_BPF_OBJ})
 
-add_executable(upf src/main.cpp src/datapath.cpp src/event_subscription_store.cpp src/li_poi.cpp)
+add_executable(upf src/main.cpp src/datapath.cpp src/event_subscription_store.cpp src/li_poi.cpp src/advertised_address.cpp)
 add_dependencies(upf gtpu_bpf_obj)
 target_link_libraries(upf PRIVATE sbi_core sbi_generated pfcp_core PkgConfig::libbpf PkgConfig::libcap nf_config li_core li_poi)
 # See nfs/hello-nf/CMakeLists.txt for why this is a compile-time absolute path.

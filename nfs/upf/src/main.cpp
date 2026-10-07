@@ -100,6 +100,7 @@
 #include "pfcp_core/session_ies.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
+#include "advertised_address.hpp"
 #include "nf_config/nf_config.hpp"
 
 #ifndef CERTS_DIR
@@ -315,7 +316,9 @@ private:
 // Same pattern as every other NF's run_nrf_lifecycle (docs/DECISIONS.md ADR-0006/ADR-0019), with
 // one real difference: UPF has no HTTP2 server of its own to advertise (see file header) -- this
 // is purely an outbound SBI client role.
-void run_nrf_lifecycle(const std::string& upf_instance_id, const std::string& nrf_base) {
+void run_nrf_lifecycle(const std::string& upf_instance_id,
+                       const std::string& nrf_base,
+                       const std::string& advertised_ipv4) {
     sbi_core::http2::TlsConfig client_tls{
         .cert_path = CERTS_DIR "/upf/cert.pem",
         .key_path = CERTS_DIR "/upf/key.pem",
@@ -353,7 +356,7 @@ void run_nrf_lifecycle(const std::string& upf_instance_id, const std::string& nr
         {"nfInstanceId", upf_instance_id},
         {"nfType", kNfType},
         {"nfStatus", "REGISTERED"},
-        {"ipv4Addresses", json::array({"127.0.0.1"})},
+        {"ipv4Addresses", json::array({advertised_ipv4})}, // ADR-0466: not 127.0.0.1
         {"heartBeatTimer", kHeartbeatSeconds},
         {"upfInfo", json(upf_info)},
     };
@@ -1499,7 +1502,8 @@ void run_pfcp_lifecycle(std::time_t start_time,
                         TeidSessionStore& teid_session_store,
                         SeidToTeidStore& seid_to_teid_store,
                         upf::UpfLiPoi* li_poi,
-                        std::uint16_t pfcp_bind_port) {
+                        std::uint16_t pfcp_bind_port,
+                        const upf::Ipv4& node_ipv4) {
     boost::asio::io_context ioc;
     // ADR-0357: this is the thread main() blocks in, and it blocks in a SYNCHRONOUS receive_from
     // below, which ioc.stop() cannot interrupt -- the io_context here only constructs the socket.
@@ -1526,7 +1530,8 @@ void run_pfcp_lifecycle(std::time_t start_time,
         ioc, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), pfcp_bind_port));
     spdlog::info("upf: listening for PFCP/N4 (UDP) on 0.0.0.0:{}", pfcp_bind_port);
 
-    constexpr std::array<std::uint8_t, 4> kNodeIpv4{127, 0, 0, 1}; // this lab's loopback-only scope
+    // ADR-0466: the PFCP Node ID is the address advertised to the NRF (was a hardcoded 127.0.0.1).
+    const std::array<std::uint8_t, 4>& kNodeIpv4 = node_ipv4;
     std::uint64_t next_seid = 1;
     std::uint32_t next_teid = 1;
     PfdStore pfd_store;
@@ -1691,6 +1696,8 @@ int main() {
         nf_config::require<std::string>(config, "nrf_base_url", "UPF_NRF_BASE_URL");
     // ADR-0203: UPF's first-ever real inbound SBI server port.
     const auto sbi_port = nf_config::require<unsigned short>(config, "port");
+    const auto advertised_ipv4_setting =
+        nf_config::require<std::string>(config, "advertised_ipv4", "UPF_ADVERTISED_IPV4");
 
     sbi_core::init_logging("upf");
     sbi_core::init_tracing("upf");
@@ -1698,6 +1705,20 @@ int main() {
 
     const std::string upf_instance_id = sbi_core::generate_uuid_v4();
     spdlog::info("upf: starting, nfInstanceId={}", upf_instance_id);
+
+    // ADR-0466: what the SMF will send PFCP to. Failing here is deliberate -- a guessed address
+    // (the old hardcoded 127.0.0.1) is silent: the UPF would start and the SMF would never get an
+    // N4 association.
+    const auto advertised_ipv4 =
+        upf::resolve_advertised_ipv4(advertised_ipv4_setting, nrf_base_url);
+    if (!advertised_ipv4) {
+        spdlog::critical("upf: FATAL: {} -- exiting", advertised_ipv4.error());
+        return 1;
+    }
+    const std::string advertised_ipv4_str = upf::to_string(*advertised_ipv4);
+    spdlog::info("upf: advertising {} (advertised_ipv4=\"{}\")",
+                 advertised_ipv4_str,
+                 advertised_ipv4_setting);
     spdlog::info("upf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
 
     const std::time_t start_time = std::time(nullptr);
@@ -1821,7 +1842,7 @@ int main() {
         li_poi->start();
     }
 
-    std::thread(run_nrf_lifecycle, upf_instance_id, nrf_base_url).detach();
+    std::thread(run_nrf_lifecycle, upf_instance_id, nrf_base_url, advertised_ipv4_str).detach();
     // ADR-0394 (extended): NOT detached -- run_sbi_server holds a reference to event_subs, which
     // main() destructs on return; a detached copy of this exact bug (an unjoined thread using a
     // soon-to-be-destructed local) is what caused a real, reproduced crash in NSACF's own
@@ -1832,13 +1853,14 @@ int main() {
     // so main()'s own `return 0` below waits for it to actually finish first.
     std::thread sbi_server_thread(
         run_sbi_server, sbi_port, std::ref(event_subs), sbi_core::read_tps_limit(config));
-    run_pfcp_lifecycle(start_time,
-                       datapath.has_value() ? &*datapath : nullptr,
-                       teid_session_store,
-                       seid_to_teid_store,
-                       li_poi.get(),
-                       nf_config::require<std::uint16_t>(
-                           config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT")); // blocks forever
+    run_pfcp_lifecycle(
+        start_time,
+        datapath.has_value() ? &*datapath : nullptr,
+        teid_session_store,
+        seid_to_teid_store,
+        li_poi.get(),
+        nf_config::require<std::uint16_t>(config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT"),
+        *advertised_ipv4); // blocks forever
     sbi_server_thread.join();
     return 0;
 }

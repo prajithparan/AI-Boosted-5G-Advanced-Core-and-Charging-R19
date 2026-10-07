@@ -279,6 +279,13 @@ target_compile_definitions(udsf_integration_tests PRIVATE
 )
 gtest_discover_tests(udsf_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0466: the UPF's advertised IPv4 (literal or "auto"). Opens no listening port (UDP connect() only).
+add_executable(upf_advertised_address_tests test_upf_advertised_address.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/upf/src/advertised_address.cpp)
+target_include_directories(upf_advertised_address_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/upf/src)
+target_link_libraries(upf_advertised_address_tests PRIVATE GTest::gtest GTest::gtest_main)
+gtest_discover_tests(upf_advertised_address_tests)
+
 # ADR-0464: the CC chain -- UPF CC-POI (real upf::UpfLiPoi, packets fed through its tap seam) ->
 # X3 -> the real li-mdf3 process -> HI3 -> a loopback LEMF. Needs Valkey; skips without it.
 add_executable(li_cc_chain_integration_tests test_li_cc_chain.cpp

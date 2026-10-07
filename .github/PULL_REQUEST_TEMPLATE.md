@@ -13,15 +13,19 @@
       YAML could generate.
 - [ ] No invented TS numbers, reference points, API paths, or JSON fields — everything is cited
       against a real spec document I've actually read.
-- [ ] Added/updated a `docs/DECISIONS.md` ADR entry (Context / Implementation / Testing and
-      verification / What this does NOT include).
+- [ ] This PR touches exactly one area from the table in `.github/CONTRIBUTING.md`: <!-- name it -->
+- [ ] Added/updated an ADR created with `python3 scripts/docs/new_adr.py` (not by editing
+      `docs/DECISIONS.md`), and `python3 scripts/docs/check_adr_index.py` passes.
+- [ ] README and every doc made false by this change are updated in this PR.
 - [ ] Updated `docs/TRACEABILITY.md` (procedure → TS clause → source file → test).
 - [ ] Added tests derived from the relevant TS call flow; `ctest --test-dir build` passes locally.
 - [ ] Ran `clang-format-18` on changed files.
 - [ ] Any stub, simplification, or non-conformant shortcut in this PR is called out explicitly
       below (not left for review to discover).
 - [ ] New code is C/C++/Python only (or the GUI's established React/JSON Forms exception).
-- [ ] I agree this contribution is licensed under this repo's [Apache License 2.0](../LICENSE).
+- [ ] I have signed the CLA (once it is announced as live; see CONTRIBUTING.md) and this
+      contribution is under this repo's [Apache License 2.0](../LICENSE).
+- [ ] If AI assistance was used, I say so below and I checked every spec reference myself.
 
 ## Known limitations / stubs / simplifications
 

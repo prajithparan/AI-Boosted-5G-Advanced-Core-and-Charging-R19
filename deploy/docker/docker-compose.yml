@@ -92,6 +92,38 @@ services:
       - "7779:7779"   # Nsmf_PDUSession /sm-contexts (TLS 1.3 + mTLS)
       - "9466:9466"   # Prometheus /metrics
 
+  # ADR-0466: UPF -- PFCP (N4) + the lab eBPF/XDP GTP-U datapath. The datapath needs capabilities a
+  # container does not have by default (ip link/netns need NET_ADMIN + SYS_ADMIN, the netns bind-mount
+  # target needs DAC_OVERRIDE, loading XDP needs BPF + PERFMON); without them the UPF still starts and
+  # serves PFCP, and logs that the datapath was not started. config/upf.json `advertised_ipv4: auto`
+  # makes it register the address it uses to reach the NRF (this container's own), which is what the SMF
+  # sends PFCP to. Not yet run in Compose (image not built).
+  upf:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/upf.Dockerfile
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      nrf:
+        condition: service_started
+    environment:
+      UPF_NRF_BASE_URL: https://nrf:7777
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - DAC_OVERRIDE
+      - BPF
+      - PERFMON
+    volumes:
+      - certs_data:/build/certs
+      # ADR-0453 (mandatory, DoD item 7): config/upf.json is not in the image.
+      - ../../config:/build/config:ro
+    ports:
+      - "7796:7796"       # Nupf SBI (TLS 1.3 + mTLS)
+      - "8805:8805/udp"   # PFCP N4
+      - "9471:9471"       # Prometheus /metrics
+
   udm:
     build:
       context: ../..

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: upf
+description: >
+  UPF (User Plane Function) -- PFCP N4 (TS 29.244) plus this project's lab eBPF/XDP GTP-U datapath, and
+  Nupf_EventExposure. Lab-grade Helm chart (ADR-0466). DISCLOSED GAPS, not silently shipped:
+  (1) same as deploy/helm/smf/Chart.yaml -- this chart does not provision PKI, so a pod cannot build the
+  TLS material for mTLS with nrf/smf until Phase 8 solves that for all charts;
+  (2) `advertised_ipv4: auto` makes the UPF register the pod IP it uses to reach the NRF, but the
+  SMF-to-UPF PFCP path through this chart has not been exercised in a cluster; (3) the datapath is a lab veth/netns fixture (10.99.0.0/30), not an N3 interface to a gNB, and
+  needs the capabilities set in values.yaml `securityContext`, which many clusters forbid -- without
+  them the UPF still serves PFCP and logs that the datapath was not started.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,45 @@
+image:
+  repository: 5gc-upf
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+# Capabilities the eBPF/XDP datapath needs (see Chart.yaml gap 3). Remove the block to run PFCP-only.
+securityContext:
+  capabilities:
+    add: [NET_ADMIN, SYS_ADMIN, DAC_OVERRIDE, BPF, PERFMON]
+
+# Rendered to /build/config/upf.json (the image does not contain it -- ADR-0453). Same keys as
+# config/upf.json in the repository; `nrf_base_url` points at the in-cluster NRF Service.
+config:
+  port: 7796
+  pfcp_bind_port: 8805
+  metrics_bind_address: "0.0.0.0:9471"
+  nrf_base_url: "https://nrf:7777"
+  # "auto": the address this pod uses to reach the NRF (ADR-0466) -- the pod IP, which is what the SMF must
+  # send PFCP to. A literal IPv4 overrides; a hostname is rejected (the SMF parses a literal).
+  advertised_ipv4: "auto"
+  li_poi:
+    enabled: false
+    x1_bind_address: "0.0.0.0"
+    x1_port: 7810
+    ne_identifier: "upf-poi-01"
+    network_function_id: "upf-01.5gc.example.net"
+    interception_point_id: "UPF-CC-POI-1"
+    mdf3_host: "127.0.0.1"
+    mdf3_port: 7812
+    mdf3_sni: "localhost"
+    x1_keepalive_p1_seconds: 60
+    x1_keepalive_p2_seconds: 180
+    x1_keepalive_p3_seconds: 300
+    x1_allow_deactivate_all: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

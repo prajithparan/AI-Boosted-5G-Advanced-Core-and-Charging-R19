@@ -57,6 +57,9 @@ env:
 jobs:
   build:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
+    # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.
+    timeout-minutes: 240
     # Real datastores for the integration tests. Since ADR-0384..0388 every charging/BSS service
     # persists in ONE consolidated PostgreSQL (postgres-chf: databases `charging` + `orchestration`,
     # created by deploy/db/init-domain-dbs.sh); the per-service product-catalog / balance /
@@ -464,6 +467,9 @@ jobs:
 
   sanitize:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
+    # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.
+    timeout-minutes: 240
     strategy:
       # fail-fast: false (ADR-0222) -- real, observed waste: default fail-fast:true cancelled a
       # still-running, unrelated `tsan` leg the moment `asan-ubsan` failed from a GitHub-infra-level
@@ -887,6 +893,9 @@ jobs:
 
   lint:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: a push or PR lints only changed files (~40 min measured); the weekly/on-demand full
+    # sweep takes 4.5-5.5 h (ADR-0371) and must keep the 6 h maximum.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 90 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1000,10 +1009,19 @@ jobs:
         # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
         env:
           BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           FULL_LINT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_lint) }}
         run: |
           # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
           # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
+          # A pull_request event has no `before`, so it fell through to the full sweep below -- run
+          # 37559833729 (PR #2) spent the 6 h job limit there and was cancelled, where the same job
+          # on a push took 37 min. For a PR, diff the PR's merge commit against its base instead
+          # (fetched shallow: a diff only needs the two trees). ADR-0468.
+          if [ -z "$BEFORE" ] && [ -n "$PR_BASE" ]; then
+            git fetch --quiet --no-tags --depth=1 origin "$PR_BASE" || true
+            BEFORE="$PR_BASE"
+          fi
           if [ "$FULL_LINT" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
              || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             echo "lint: full sweep (event=${GITHUB_EVENT_NAME}, before=${BEFORE:-none})"

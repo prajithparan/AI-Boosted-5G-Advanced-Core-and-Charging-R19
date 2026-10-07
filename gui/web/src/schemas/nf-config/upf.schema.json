@@ -23,6 +23,11 @@
       "x-env-override": "UPF_NRF_BASE_URL",
       "x-cpp-type": "std::string"
     },
+    "advertised_ipv4": {
+      "type": "string",
+      "x-env-override": "UPF_ADVERTISED_IPV4",
+      "x-cpp-type": "std::string"
+    },
     "li_poi": {
       "type": "object",
       "additionalProperties": false,
@@ -70,6 +75,7 @@
     }
   },
   "required": [
+    "advertised_ipv4",
     "metrics_bind_address",
     "nrf_base_url",
     "pfcp_bind_port",
