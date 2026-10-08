@@ -4,8 +4,8 @@
 
 #include <array>
 #include <cstdint>
-#include <expected>
 #include <string>
+#include <tl/expected.hpp>
 
 namespace upf {
 
@@ -18,8 +18,8 @@ using Ipv4 = std::array<std::uint8_t, 4>;
 //     loopback, the container's own address in Compose/Kubernetes.
 // Anything else, and any failure to find an address, is an error: the caller must not start with a
 // guessed address, because a wrong one is silent (the SMF just never gets an N4 association).
-std::expected<Ipv4, std::string> resolve_advertised_ipv4(const std::string& setting,
-                                                         const std::string& nrf_base_url);
+tl::expected<Ipv4, std::string> resolve_advertised_ipv4(const std::string& setting,
+                                                        const std::string& nrf_base_url);
 
 std::string to_string(const Ipv4& ip);
 

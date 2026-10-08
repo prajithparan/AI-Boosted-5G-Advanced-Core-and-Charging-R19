@@ -352,7 +352,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 Sanitizer builds: add `-D5GC_ENABLE_ASAN=ON` or `-D5GC_ENABLE_TSAN=ON` at configure time (mutually
-exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push — see
+exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push that changes code (a
+docs-only change runs lint only, ADR-0469) — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 <h2 align="center">Contributing / working style</h2>

@@ -431,7 +431,8 @@
   "ADR-0465-closed-adrs-status-verified-against-origin-main-archived.md",
   "ADR-0466-upf-container-packaging-dockerfile-compose-service-and-helm.md",
   "ADR-0467-contributor-model-cla-one-area-per-pr-approval-for-all.md",
-  "ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md"
+  "ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md",
+  "ADR-0469-ci-skip-build-and-sanitizer-jobs-for-docs-only-changes-lint.md"
  ],
  "split_commit": "0530e4f"
 }

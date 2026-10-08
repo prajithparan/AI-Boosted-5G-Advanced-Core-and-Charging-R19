@@ -55,7 +55,50 @@ env:
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
 
 jobs:
+  # ADR-0469: decide whether the change touches anything but documentation. Docs-only pushes (this
+  # repo updates docs on every push) skip `build` and `sanitize` -- ~2 h of tests on the single lab
+  # runner -- while `lint` still runs because it checks the README architecture diagram. A skipped
+  # job counts as passing for a required status check, unlike a workflow-level `paths-ignore`, which
+  # leaves the check pending forever. Any doubt (no base commit, a failed diff, schedule/manual
+  # runs) means "code changed". Runs on a GitHub-hosted runner so it never queues behind the
+  # single lab runner.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          code=true
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+          esac
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$base^{commit}" 2>/dev/null \
+             && git diff --name-only "$base" "$GITHUB_SHA" > changed.txt; then
+            echo "changed files:"; cat changed.txt
+            # Documentation only: anything under docs/, Markdown anywhere, LICENSE, issue/PR templates.
+            if [ -s changed.txt ] && ! grep -vE '^(docs/|LICENSE$|\.github/(ISSUE_TEMPLATE/|PULL_REQUEST_TEMPLATE\.md$))|\.md$' changed.txt | grep -q .; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code changed: $code (event=$EVENT)"
+
   build:
+    # ADR-0469: after `lint` (fast, catches formatting/tidy/diagram drift first) and only when code changed.
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: [self-hosted, linux, x64, 5gc-lab]
     # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
     # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.
@@ -466,6 +509,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
   sanitize:
+    # ADR-0469: the two sanitizer legs are ~85 min of the run; do not start them if `build` or `lint` failed.
+    needs: [changes, lint, build]
+    if: needs.changes.outputs.code == 'true'
     runs-on: [self-hosted, linux, x64, 5gc-lab]
     # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
     # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.

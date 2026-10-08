@@ -434,6 +434,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0466](decisions/ADR-0466-upf-container-packaging-dockerfile-compose-service-and-helm.md) UPF container packaging: Dockerfile, Compose service and Helm chart
 - [0467](decisions/ADR-0467-contributor-model-cla-one-area-per-pr-approval-for-all.md) Contributor model: CLA, one-area-per-PR, approval for all outside contributors, org move deferred
 - [0468](decisions/ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md) CI lint on pull_request events: diff against the PR base instead of a full clang-tidy sweep
+- [0469](decisions/ADR-0469-ci-skip-build-and-sanitizer-jobs-for-docs-only-changes-lint.md) CI: skip build and sanitizer jobs for docs-only changes; lint first, sanitizers only after build passes
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

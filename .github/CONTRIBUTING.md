@@ -103,8 +103,9 @@ ctest --test-dir build --output-on-failure
 - Format every file you touch before committing: `clang-format-18 -i <files>`. (Plain
   `clang-format` is not the version CI uses.)
 
-CI ([`ci.yml`](workflows/ci.yml)) runs four jobs: `build`, `sanitize (asan-ubsan)`,
-`sanitize (tsan)` and `lint` (`clang-format` + `clang-tidy`). All four must pass.
+CI ([`ci.yml`](workflows/ci.yml)) runs `lint` (`clang-format`, `clang-tidy` on changed files, README
+diagram sync), then `build`, then `sanitize (asan-ubsan)` and `sanitize (tsan)`. A change that touches
+only documentation skips `build` and the sanitizers (ADR-0469). Everything that runs must pass.
 
 ## What a PR must include
 
