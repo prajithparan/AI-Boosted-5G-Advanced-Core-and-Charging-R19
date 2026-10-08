@@ -18,7 +18,7 @@
 //      backend is called, and a failed audit write aborts the call. An unlogged PII access is
 //      impossible, not merely discouraged.
 //
-// Motto check ("Built by AI. Built for AI. Bound by the spec."): every tool answers from a stored
+// Motto check ("AI-built. Sovereign by design. Spec-bound. Human-governed."): every tool answers from a stored
 // record. None synthesises a value. A tool that cannot ground its answer returns an error, so an
 // agent above it has nothing to hallucinate from.
 

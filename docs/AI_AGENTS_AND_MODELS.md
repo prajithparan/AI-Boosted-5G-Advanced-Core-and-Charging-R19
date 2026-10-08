@@ -140,10 +140,10 @@ what happened in that window.
 
 ## The motto is a design constraint
 
-**"Built by AI. Built for AI. Bound by the spec."**
+**"AI-built. Sovereign by design. Spec-bound. Human-governed."**
 
-The third clause governs the first two. Concretely, when an agent or model decision is being made
+The last two clauses govern the first two (the motto was reworded 2026-10-08; it used to read "Built by AI. Built for AI. Bound by the spec."). Concretely, when an agent or model decision is being made
 here: the model advises and a deterministic, spec-grounded path decides (as quota sizing already
 does with its [0.5x, 2.0x] clamp); nothing an agent surfaces may be a field or value the
-specification does not define; and "the AI suggested it" is never a reason to relax a guardrail.
+specification does not define; and "the AI suggested it" is never a reason to relax a guardrail; and a write or configuration action needs an explicit human approval.
 An agent that cannot ground an answer in a record should say so rather than generate one.
