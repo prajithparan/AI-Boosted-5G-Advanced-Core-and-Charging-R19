@@ -370,7 +370,7 @@ GUI; platform libraries are maintainer-only), the maintainer keeps the final mer
 contributions will need a signed CLA. The CLA text and bot, `CODEOWNERS`, the area-label CI check,
 `bootstrap.sh`, branch protection and the GitHub organization move are **not done yet**;
 fork-PR approval is already required for every outside contributor. CI (ADR-0468, ADR-0469) lints
-only the files a push or PR changed, skips the build and sanitizer jobs for docs-only changes, and runs
+only the `.cpp` files a push changed (a PR: everything it changes against `main`), skips the build and sanitizer jobs for docs-only changes, and runs
 `lint`, then `build`, then the sanitizers.
 
 <h2 align="center">License</h2>

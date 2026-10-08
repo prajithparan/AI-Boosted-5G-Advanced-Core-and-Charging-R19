@@ -1060,11 +1060,13 @@ jobs:
         run: |
           # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
           # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
-          # A pull_request event has no `before`, so it fell through to the full sweep below -- run
-          # 37559833729 (PR #2) spent the 6 h job limit there and was cancelled, where the same job
-          # on a push took 37 min. For a PR, diff the PR's merge commit against its base instead
-          # (fetched shallow: a diff only needs the two trees). ADR-0468.
-          if [ -z "$BEFORE" ] && [ -n "$PR_BASE" ]; then
+          # ADR-0468: `github.event.before` is empty only on the first pull_request event (opened); on
+          # every later push to the PR (synchronize) it is the PREVIOUS PR head, so "changed since
+          # before" lints only the last push. That let a push that failed lint be followed by a
+          # docs-only push that went green (run 37712070781: clang-tidy took 0 s with two .cpp files
+          # still unlinted). For any pull_request, lint everything the PR changes against its base
+          # (fetched shallow: a diff only needs the two trees).
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE" ]; then
             git fetch --quiet --no-tags --depth=1 origin "$PR_BASE" || true
             BEFORE="$PR_BASE"
           fi
