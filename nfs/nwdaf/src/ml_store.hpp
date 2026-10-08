@@ -65,6 +65,7 @@ public:
     std::optional<nlohmann::json> get_training_subscription(const std::string& id);
     bool replace_training_subscription(const std::string& id, const nlohmann::json& record);
     bool remove_training_subscription(const std::string& id);
+    std::vector<std::pair<std::string, nlohmann::json>> all_training_subscriptions();
 
     // MTLF: one replica delivers a subscription's notifications per loop tick (ADR-0365's
     // rule for the AnLF notifier, applied here): SET NX PX on nwdaf:mlprov:lease:<id>.

@@ -94,6 +94,18 @@ bool MlStore::remove_training_subscription(const std::string& id) {
     return redis_->del(kTrainSubPrefix + id) > 0;
 }
 
+std::vector<std::pair<std::string, nlohmann::json>> MlStore::all_training_subscriptions() {
+    std::vector<std::string> ids;
+    redis_->smembers(kTrainSubIndex, std::back_inserter(ids));
+    std::vector<std::pair<std::string, nlohmann::json>> out;
+    for (const auto& id : ids) {
+        if (auto s = get_training_subscription(id)) {
+            out.emplace_back(id, std::move(*s));
+        }
+    }
+    return out;
+}
+
 bool MlStore::claim_delivery(const std::string& id, std::chrono::milliseconds ttl) {
     return redis_->set(kProvLeasePrefix + id, "1", ttl, sw::redis::UpdateType::NOT_EXIST);
 }

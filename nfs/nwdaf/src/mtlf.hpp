@@ -105,6 +105,10 @@ private:
     bool train(const std::string& event, const char* why);
     bool reconcile_consumers(const std::string& event, const nlohmann::json& model);
     void deliver(const std::string& sub_id, nlohmann::json sub);
+    // Nnwdaf_MLModelTraining_Notify with the trained model (ADR-0471, increment 2).
+    void deliver_training(const std::string& sub_id, nlohmann::json sub);
+    // The immediate report of a training subscription (immReport), when asked and available.
+    nlohmann::json training_representation(const nlohmann::json& sub) const;
     nlohmann::json event_notif(const std::string& event,
                                const nlohmann::json& model,
                                const nlohmann::json& sub,
