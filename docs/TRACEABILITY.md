@@ -5490,3 +5490,4 @@ Disclosed: the UPF `on_packet()` is a seam fed by tests; the datapath does not c
 
 
 | Nnwdaf_MLModelTraining subscription create / replace / merge-patch / delete and UnsubscribeInfo (CRUD only; no notification, FL behaviour not implemented, ADR-0471) | TS 23.288 7.10.2, 7.10.3; TS 29.520 (TS29520_Nnwdaf_MLModelTraining.yaml v1.1.0) | `nfs/nwdaf/src/mtlf.cpp` (install_training_routes), `nfs/nwdaf/src/ml_store.cpp` | `test_nwdaf_ml_training_sub.cpp` NwdafMlTrainingSub.SubscriptionLifecycle |
+| Nnwdaf_MLModelTraining model notification (mLModelInfos + notifCorreId, modelUpdateInd on re-train) and immReport; seeded-model test only, no delay/status/termination notifications (ADR-0471 increment 2) | TS 23.288 7.10.4; TS 29.520 (TS29520_Nnwdaf_MLModelTraining.yaml v1.1.0, NwdafMLModelTrainNotif) | `nfs/nwdaf/src/mtlf.cpp` (deliver_training, training_representation) | `test_nwdaf_ml_training_sub.cpp` NwdafMlTrainingSub.ModelNotificationAndImmReportFromASeededModel |

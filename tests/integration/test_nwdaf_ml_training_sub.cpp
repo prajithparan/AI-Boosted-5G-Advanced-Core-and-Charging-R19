@@ -5,19 +5,26 @@
 // Covers: POST (201 + Location + failEventReports for an event it does not train; 500 when none is
 // trainable; 400 for a missing notifCorreId), PUT (200 / 404), PATCH merge-patch (200, a member
 // outside NwdafMLModelTrainSubscPatch is 400), DELETE (204 / 404), UnsubscribeInfo (204, 400
-// without termCause, 404). It does NOT cover notifications or any federated-learning behaviour:
-// neither exists yet (ADR-0471).
+// without termCause, 404), and the model notification + immReport (increment 2: a model record
+// is SEEDED in Valkey, there is no ADRF or trainer in this lab). It does NOT cover delayEventNotif,
+// statusReport, termTrainReq or any federated-learning behaviour: none exists yet (ADR-0471).
 
 #include "sbi_core/http2_client.hpp"
+#include "sbi_core/http2_server.hpp"
 
+#include <boost/asio/io_context.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <sw/redis++/redis++.h>
 #include <thread>
+#include <vector>
 
 #include "spawn_guard.hpp"
 
@@ -74,6 +81,61 @@ json subscription(const json& events = json::array({json{{"mLEvent", "NF_LOAD"},
                 {"notifUri", "https://127.0.0.1:19994/notify"},
                 {"notifCorreId", "corr-1"}};
 }
+
+constexpr int kReceiverPort = 19994;
+
+// An HTTP/2 + mTLS endpoint standing in for the consumer's notifUri.
+class Receiver {
+public:
+    Receiver()
+        : server_(ioc_,
+                  "127.0.0.1",
+                  kReceiverPort,
+                  sbi_core::http2::TlsConfig{.cert_path = CERTS_DIR "/hello-nf/cert.pem",
+                                             .key_path = CERTS_DIR "/hello-nf/key.pem",
+                                             .ca_path = CERTS_DIR "/ca/ca.crt"}) {
+        server_.add_route("POST", "/notify", [this](const sbi_core::http2::Request& req) {
+            std::string callback;
+            if (const auto it = req.headers.find("3gpp-sbi-callback"); it != req.headers.end()) {
+                callback = it->second;
+            }
+            {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                notes_.push_back(Note{json::parse(req.body), callback});
+            }
+            cv_.notify_all();
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+        server_.start();
+        thread_ = std::thread([this] { ioc_.run(); });
+    }
+    ~Receiver() {
+        ioc_.stop();
+        thread_.join();
+    }
+    struct Note {
+        json body;
+        std::string callback;
+    };
+    bool wait_for_count(std::size_t n, std::chrono::seconds limit) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(lock, limit, [&] { return notes_.size() >= n; });
+    }
+    std::vector<Note> notes() {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        return notes_;
+    }
+
+private:
+    boost::asio::io_context ioc_;
+    sbi_core::http2::Server server_;
+    std::thread thread_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::vector<Note> notes_;
+};
 
 } // namespace
 
@@ -193,4 +255,97 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
     r = call("DELETE", item2, nullptr);
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->status, 404);
+}
+
+TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
+    const std::string redis_url =
+        std::getenv("NWDAF_REDIS_URL") ? std::getenv("NWDAF_REDIS_URL") : "tcp://127.0.0.1:6379";
+    std::unique_ptr<sw::redis::Redis> redis;
+    try {
+        redis = std::make_unique<sw::redis::Redis>(redis_url);
+        redis->ping();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "no Valkey at " << redis_url << " (" << e.what()
+                     << ") -- skipped, not passed";
+    }
+    const auto seed = [&](int version) {
+        redis->set("nwdaf:mlmodel:NF_LOAD",
+                   json{{"version", version},
+                        {"modelUniqueId", 4242},
+                        {"fileUrl", "https://adrf.example/models/4242"},
+                        {"adrfId", "adrf-seeded"},
+                        {"storeTransId", "trans-seeded"},
+                        {"accuracyPct", 91},
+                        {"dataSource", "seeded"},
+                        {"trainedAt", "2026-10-08T00:00:00Z"}}
+                       .dump());
+    };
+    // A model must be absent when the subscription is created (immReport empty), then appear.
+    redis->del("nwdaf:mlmodel:NF_LOAD");
+
+    Receiver receiver;
+    auto c = make_client();
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
+    setenv("NWDAF_ROLE", "mtlf", 1);
+    setenv("NWDAF_PORT", "7797", 1);
+    setenv("NWDAF_METRICS_BIND_ADDRESS", "0.0.0.0:9486", 1);
+    setenv("NWDAF_SELF_BASE_URL", kMtlf, 1);
+    setenv("NWDAF_MTLF_CHECK_INTERVAL_SECONDS", "2", 1);
+    nf_test::SpawnedProcess mtlf(NWDAF_PATH);
+    for (const char* k : {"NWDAF_ROLE",
+                          "NWDAF_PORT",
+                          "NWDAF_METRICS_BIND_ADDRESS",
+                          "NWDAF_SELF_BASE_URL",
+                          "NWDAF_MTLF_CHECK_INTERVAL_SECONDS"}) {
+        unsetenv(k);
+    }
+    ASSERT_TRUE(wait_up(c, std::string(kMtlf) + kRoot + "/subscriptions", 30s));
+    const auto tok = token(c);
+    ASSERT_FALSE(tok.empty());
+    const auto post = [&](const json& body) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = std::string(kMtlf) + kRoot + "/subscriptions";
+        req.headers.emplace("authorization", "Bearer " + tok);
+        req.headers.emplace("content-type", "application/json");
+        req.body = body.dump();
+        return c.send(req);
+    };
+
+    // immReport is asked for but no model exists yet: none is returned.
+    json sub = subscription();
+    sub["eventReq"] = json{{"immRep", true}};
+    auto r = post(sub);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    EXPECT_FALSE(json::parse(r->body).contains("immReport")) << r->body;
+
+    // A model appears: the MTLF loop notifies mLModelInfos + notifCorreId, not an update.
+    seed(1);
+    ASSERT_TRUE(receiver.wait_for_count(1, 30s)) << "no model notification";
+    {
+        const auto note = receiver.notes().at(0);
+        EXPECT_EQ(note.callback, "Nnwdaf_MLModelTraining_myNotification");
+        EXPECT_EQ(note.body.at("notifCorreId"), "corr-1");
+        const auto& info = note.body.at("mLModelInfos").at(0);
+        EXPECT_EQ(info.at("event"), "NF_LOAD");
+        EXPECT_EQ(info.at("modelUniqueId"), 4242);
+        EXPECT_EQ(info.at("modelUpdateInd"), false);
+    }
+    // Re-trained (version bump): a second notification flagged as an update.
+    seed(2);
+    ASSERT_TRUE(receiver.wait_for_count(2, 30s)) << "no re-train notification";
+    EXPECT_EQ(receiver.notes().at(1).body.at("mLModelInfos").at(0).at("modelUpdateInd"), true);
+
+    // A new subscription with immRep now gets the report in the 201 body.
+    r = post(sub);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    const auto body = json::parse(r->body);
+    ASSERT_TRUE(body.contains("immReport")) << r->body;
+    EXPECT_EQ(body.at("immReport").at("notifCorreId"), "corr-1");
+    EXPECT_EQ(body.at("immReport").at("mLModelInfos").at(0).at("modelUniqueId"), 4242);
+
+    redis->del("nwdaf:mlmodel:NF_LOAD");
 }
