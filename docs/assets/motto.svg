@@ -1,15 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 60" width="820" height="60"
-     role="img" aria-label="Built by AI. Built for AI. Bound by the spec.">
-  <title>Built by AI. Built for AI. Bound by the spec.</title>
-  <!-- Same two-hue system as the title: cyan accent, blue, neutral anchor. The governing clause
-       ("Bound by the spec") takes the authoritative neutral rather than a third bright hue:
-       it is the constraint, not a third feature. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 60" width="1100" height="60"
+     role="img" aria-label="AI-built. Sovereign by design. Spec-bound. Human-governed.">
+  <title>AI-built. Sovereign by design. Spec-bound. Human-governed.</title>
+  <!-- Four clauses, one colour each, matching the four steps of "The promise" in
+       docs/assets/hero-diagram.png (AI-built, Sovereign by design, Spec-bound, Human-governed). -->
   <style>
     .m { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
                       "Helvetica Neue", Arial, sans-serif;
          font-size: 34px; font-weight: 700; letter-spacing: -0.3px; }
   </style>
-  <text class="m" x="410" y="42" text-anchor="middle">
-    <tspan fill="#0E7490">Built by AI.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#1D4ED8">Built for AI.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#0F172A">Bound by the spec.</tspan>
+  <text class="m" x="550" y="42" text-anchor="middle">
+    <tspan fill="#0E7490">AI-built.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#1D4ED8">Sovereign by design.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#0F172A">Spec-bound.</tspan><tspan fill="#64748B"> </tspan><tspan fill="#B45309">Human-governed.</tspan>
   </text>
 </svg>

@@ -1,16 +1,13 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
-    <img src="docs/assets/SovereignAIBased.jpeg"
-         alt="AI-boosted open 5G stack for affordable rural connectivity + AI-driven charging for emerging markets" width="920">
-  </picture>
+  <img src="docs/assets/hero-diagram.png"
+       alt="Sovereign AI stack: own it, trust nothing, spec in core out, sell anything, see it coming, what's next, around an AI-built 5G tower, with the promise AI-built, sovereign by design, spec-bound, human-governed" width="920">
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/motto-dark.svg">
-    <img src="docs/assets/motto.svg" alt="Built by AI. Built for Sovereign AI. Bound by the spec."
-         width="760">
+    <img src="docs/assets/motto.svg" alt="AI-built. Sovereign by design. Spec-bound. Human-governed."
+         width="900">
   </picture>
 </p>
 
