@@ -31,7 +31,7 @@ not implement it, and a title should not need a footnote to be true.
 **Why this matters:**
 - 70% of world still lacks affordable 5G. Vendor cores cost $500k+. This is Apache 2.0.
 - Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
-- Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with real eBPF/XDP fast path, CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
+- Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with an eBPF/XDP uplink GTP-U decapsulation path (a lab veth/netns fixture, not a gNB-facing N3), CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
 
 **Sovereign AI-Boosted**:
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
@@ -77,7 +77,7 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done |
 | 1 | Codegen spine: `tools/sbi-codegen`, generated DTOs/serializers from the R19 YAML | Done |
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
-| 3 | User plane: N4/PFCP, UPF datapath (including a real eBPF/XDP fast path) | Done |
+| 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
 | 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); next roaming / HFL (ADR-0359 step 6) |
 | 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF); Tier 3 not started |
@@ -119,8 +119,8 @@ wired end-to-end. See [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) for
 mapping.
 
 **P4.12 (telco-grade hardening)** — per-protocol TPS spike protection across **all three** protocol
-front doors (SBI on all 22 servers, Diameter, and SS7/M3UA — ADR-0280/0285/0288, each off unless
-configured); chaos tests that kill CHF mid-session and partition the balance store, asserting no
+front doors (SBI on the 22 servers that existed then, Diameter, and SS7/M3UA — ADR-0280/0285/0288, each off unless
+configured; 24 of today's 27 NF configs carry a `tps` setting, and `nrf`, `li-mdf` and `li-mdf3` do not, which has not been investigated); chaos tests that kill CHF mid-session and partition the balance store, asserting no
 lost usage and no double-charge (ADR-0281); business-level alarming wired to real exported metrics
 with Prometheus rules (ADR-0282); CDR retention that archives before it deletes (ADR-0283).
 
@@ -183,18 +183,16 @@ Stated at the honest level of detail — what is really expressible today, and w
 | **Shared / family / group bundle** | **Supported** | a TMF654 `Bucket` with `isShared: true` whose `relatedParty` names its members: every member's usage reserves and debits against that one bucket, so a family genuinely draws down a single allowance (ADR-0307). No new resource and no schema change were needed — `isShared` and `relatedParty` are the standard's own fields and both columns already existed. An expired or suspended shared bucket is refused in the store rather than at each call site, and a subscriber never resolves to a bucket they are not a member of |
 | **Postpaid billing / invoicing** | **Partial — bill generation done, delivery not** | real TS 32.298 BER-encoded CDRs land in Doris with retention and archival (ADR-0283), and `billing::run_bill` aggregates TMF678 `AppliedCustomerBillingRate` line items into a real `CustomerBill` with derived totals, marking items billed so a re-run cannot double-charge (ADR-0310). Line items are produced from real Release CDRs by `chf::cdrs_to_billing_items` and the chain is covered end to end by `test_cdr_billing_chain.cpp`. **Still absent**: a bill-cycle scheduler, delivery, dunning and payment. Mixed-currency accounts and zero-activity bills omit the amount rather than stating a wrong or fabricated one |
 
-**Every `Partial` and `Not supported` row above is committed work, not a permanent state**
-(ADR-0300, user-directed): a standard telco has to be able to sell all of them, and slice-based
-products — which do not exist as a concept here at all yet — need a commercial rating model too.
-The model is **attribute-based**: any attribute arriving at CHF on N40 or N28 -- `sNssai`,
-`uPFID`, `dnn`, `ratType`, `servingNetworkId` -- must be usable both to rate and to scope a
-product, so "10 GB on slice 1, 5 GB on slice 10, or an allowance tied to a UPF" are configurations
-of one mechanism rather than separate features. That mechanism is the first thing to build,
-because roaming rating, group scoping and time-based grants are all expressed in it.
-TAP IN and TAP OUT file processing are in scope (`libs/tap3-core` already implements GSMA TD.57
-TAP 3.12 in both directions -- 112 encode/decode functions, all nine `CallEventDetail` variants --
-so what is missing is the batch/ingest processing around it, not the format). RAP (TD.32) and
-NRTRDE (TD.35) remain unstarted and would need those documents.
+**Every `Partial` row above is committed work, not a permanent state** (ADR-0300, user-directed): a
+standard telco has to be able to sell all of them. The attribute-based mechanism that paragraph
+planned is built (ADR-0303): any attribute arriving at CHF on N40 or N28 -- `sNssai`, `uPFID`, `dnn`,
+`ratType`, `servingNetworkId` -- can both rate and scope a product, so "10 GB on slice 1, 5 GB on
+slice 10, or an allowance tied to a UPF" are configurations of one mechanism. What is still open
+are the three `Partial` rows: unit pooling across voice and data, roaming settlement, and postpaid
+bill delivery. TAP OUT batch construction and TAP IN validation are built (ADR-0306,
+`bss/roaming-interconnect`, on top of `libs/tap3-core`, GSMA TD.57 TAP 3.12); real roaming CDR file
+ingestion and settlement are not. RAP (TD.32) and NRTRDE (TD.35) remain unstarted and would need
+those documents.
 
 AI-assisted quota sizing (ONNX, in-process) adjusts **volume** grants only; service-specific-unit
 grants are deliberately excluded (ADR-0248's own disclosed scope).
@@ -224,8 +222,12 @@ Full phase plan: [`PROMPT.md`](PROMPT.md).
 - **Duplicate-safe by construction.** TS 29.500 clause 5.2.8 idempotency keys are claimed
   atomically *before* a charging request is processed, so a retransmitted Release cannot
   double-charge or orphan a session.
-- **3,000,000 CDRs across 75,000 subscribers**, driven through the real N40 path — *charged*, not
-  inserted — with zero failures, zero dropped writes and zero sequence-gap alarms.
+- **5,000,000 CDR rows driven through the real N40 path and rated** (ADR-0455, 2026-10-05): 1,240,000
+  sessions plus 10,000 warm-up over 99,999 distinct subscribers (Consumer and Enterprise), four CHFs,
+  host Release binaries on a single host, `failed=0` and no error or critical log lines on any CHF,
+  at 35.7 sessions/s. The earlier 3.3M-row corpus granted nothing and cost nothing, so it is not a
+  charging result. Not measured: the feature table against the raw CDRs beyond row and subscriber
+  counts, and anything on more than one host.
 
 **On AI — advisory, auditable, and switchable off.**
 
@@ -243,8 +245,8 @@ Full phase plan: [`PROMPT.md`](PROMPT.md).
 
 <h2 align="center">AI capabilities</h2>
 
-One AI feature is built and running in the charging path. Everything else on this list is not
-built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
+One AI feature runs in the charging path (default OFF). The NWDAF analytics and drift monitoring
+below are built and still in progress; the remaining items on this list are not built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
 backs it.
 
 | Capability | Status | What backs it |
@@ -260,9 +262,9 @@ backs it.
 | **ARPU / RPU-driven charging models, churn propensity, next-best-offer** | **Not built** | no model, and in several cases no collected training data either |
 | **Agentic / MCP layer over NF state** | **Corrected 2026-10-02 (docs-audit): started, not "never started"** | `tools/mcp-server` + `config/mcp-server.json` exist. Read-only MCP tool server built with PII governance from commit one (ADR-0331, fixing two routed-to-nonexistent-endpoint tools in ADR-0332); `agents/customer-agent` built and fully feasible (ADR-0333); `agents/ops-agent` built but deliberately half-deliverable -- its analytics half is blocked on NEF's `FetchAnalyticsInfo` (`nfs/nef/src/main.cpp`), which still hardcodes `501` rather than calling NWDAF, not on NWDAF's own existence (ADR-0335) |
 
-**Honest summary:** the platform has *one* production AI capability -- dynamic grant sizing -- and
-it ships disabled. The architecture around it is the part that is genuinely reusable: train in
-Python, serve ONNX in-process from C++, keep features in Redis, clamp the model's influence to a
+**Honest summary:** the platform has *one* AI capability in the charging path -- dynamic grant sizing -- and
+it ships disabled; the NWDAF analytics are built separately and still in progress. The architecture around it is the part that is genuinely reusable: train in
+Python, serve ONNX in-process from C++, keep features in Valkey, clamp the model's influence to a
 bounded multiplier on a deterministic decision, and log every advisory with the bound that applied.
 That shape is what additional models plug into. Calling the system "AI-powered" today would be
 overstating a single clamped regressor behind a default-off switch.
@@ -307,11 +309,12 @@ libs/sbi-core/     Shared SBI infrastructure: HTTP/2 server+client, OAuth2 clien
                    ProblemDetails, 3gpp-Sbi-* headers, structured logging, OpenTelemetry tracing.
                    Every NF links this; no NF includes another NF's private headers.
 nfs/<nf>/          One independent binary + library per Network Function: nrf, amf, smf, udm, udr,
-                   ausf, pcf, upf, chf, nssf, bsf, nef, scp, eir, smsf, gmlc, lmf. nfs/hello-nf is
-                   a Phase 0 throwaway, not a real NF.
+                   ausf, pcf, upf, chf, nssf, bsf, nef, scp, eir, smsf, gmlc, lmf, nsacf, udsf,
+                   nwdaf (AnLF/MTLF), dccf, mfaf, adrf, and the Lawful Interception functions
+                   li-admf, li-mdf, li-mdf3. nfs/hello-nf is a Phase 0 throwaway, not a real NF.
 bss/<service>/     Standalone TM Forum ODA-layer services (not 3GPP NFs, no NRF registration):
                    product-catalog (TMF620), balance-management (TMF654), subscriber-management
-                   (TMF632), roaming-interconnect (TMF651).
+                   (TMF632), roaming-interconnect (TMF651), provisioning.
 libs/bss-sid/      Shared TM Forum SID DTOs/mapping code bss/ services and nfs/chf link against.
 libs/aka-crypto/   5G-AKA/EAP-AKA' crypto (Milenage, KDF) and real SUCI de-concealment (ECIES
                    Profile A/B, TS 33.501 Annex C) -- both independently verified against real,
@@ -323,6 +326,17 @@ libs/ss7-core/, libs/tcap-core/, libs/map-core/, libs/cap-core/, libs/diameter-c
 libs/tap3-core/    Real, hand-rolled GSMA TAP3 (TD.57) roaming-CDR BER codec, all 9 real
                    CallEventDetail variants.
 libs/tbcd-core/    TBCD-STRING codec (TS 23.003), shared by the legacy-interconnect libs above.
+libs/nf-config/    Per-service runtime configuration loader (config/<service>.json).
+libs/sbi-generated/, libs/ngap-core/, libs/ngap-generated/
+                   Generated SBI DTOs and the NGAP codec (ASN.1 PER via asn1c).
+libs/li-*/         Lawful Interception libraries (X1/X2/X3/HI codecs, POI runtime, MDF store).
+libs/event-bus/    Kafka producer/consumer client over librdkafka (ADR-0365), used by the MFAF.
+gui/               Operator GUI: React + JSON Forms (gui/web), C++ backend-for-frontend (gui/bff),
+                   schema generator (gui/schema-gen).
+agents/            customer-agent and ops-agent (MCP-based, see the AI capabilities table).
+simulators/        ransim (UERANSIM-based RAN/UE test tool, external, ADR-0016) and reference
+                   implementations (freeDiameter, jss7, osmocom) used for arms-length comparison.
+config/ deploy/    Per-service JSON config; Docker Compose, Helm charts and database schemas.
 tools/             Build-time tooling (the OpenAPI-to-C++ codegen spine) plus sbi-loadgen, the
                    load-generation harness used for real performance measurement (ADR-0244/0246).
 specs/             Vendored 3GPP/ETSI source material: R19 OpenAPI YAML (SBI API shapes), NGAP
@@ -343,6 +357,7 @@ Requires CMake 3.28+, Ninja, a C++20/23 compiler (developed against GCC 13 and C
 ```sh
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent
 
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
