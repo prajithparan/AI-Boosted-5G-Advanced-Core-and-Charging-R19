@@ -2097,6 +2097,7 @@ int main() {
     }
     if (is_mtlf) {
         service_names.push_back("nnwdaf-mlmodelprovision");
+        service_names.push_back("nnwdaf-mlmodeltraining");
         if (!is_anlf) {
             service_names.push_back("nnwdaf-mlmodelmonitor");
         }

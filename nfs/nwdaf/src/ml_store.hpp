@@ -19,6 +19,8 @@
 //                              consumer's nfInstanceId (the OAuth2 token subject); index
 //                              nwdaf:mlprov:subs -- separate from the AnLF's nwdaf:subs so an
 //                              MTLF-only instance never serves the AnLF's event subscriptions
+//   nwdaf:mltrainsub:sub:<id>  an Nnwdaf_MLModelTraining subscription as received, plus the
+//                              consumer's nfInstanceId; index nwdaf:mltrainsub:subs (ADR-0471)
 //   nwdaf:mlmodel:<event>      the model this MTLF currently provisions for an analytics ID:
 //                              modelUniqueId, where it is in the ADRF, its lineage (MLflow run,
 //                              data source, sample counts, held-out accuracy)
@@ -56,6 +58,13 @@ public:
     bool replace_provision_subscription(const std::string& id, const nlohmann::json& record);
     bool remove_provision_subscription(const std::string& id);
     std::vector<std::pair<std::string, nlohmann::json>> all_provision_subscriptions();
+
+    // MTLF: Nnwdaf_MLModelTraining subscriptions (ADR-0471), kept apart from the provision
+    // subscriptions above: a different service, a different notification body.
+    std::string create_training_subscription(const nlohmann::json& record);
+    std::optional<nlohmann::json> get_training_subscription(const std::string& id);
+    bool replace_training_subscription(const std::string& id, const nlohmann::json& record);
+    bool remove_training_subscription(const std::string& id);
 
     // MTLF: one replica delivers a subscription's notifications per loop tick (ADR-0365's
     // rule for the AnLF notifier, applied here): SET NX PX on nwdaf:mlprov:lease:<id>.

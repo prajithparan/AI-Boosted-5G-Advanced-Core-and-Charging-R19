@@ -165,6 +165,7 @@ set(SBI_CODEGEN_PILOT_FILES
     TS29520_Nnwdaf_DataManagement.yaml
     TS29520_Nnwdaf_MLModelMonitor.yaml
     TS29520_Nnwdaf_MLModelProvision.yaml
+    TS29520_Nnwdaf_MLModelTraining.yaml
     TS29520_Nnwdaf_RoamingAnalytics.yaml
     TS29520_Nnwdaf_RoamingData.yaml
     # ADR-0365: MFAF (TS 29.576) -- all three of its R19 service files (3DA configuration,
@@ -336,6 +337,7 @@ set(SBI_CODEGEN_PILOT_PATHS
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_DataManagement.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelMonitor.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelProvision.yaml
+    ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_MLModelTraining.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingAnalytics.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29520_Nnwdaf_RoamingData.yaml
     ${SBI_CODEGEN_SPECS_DIR}/TS29576_Nmfaf_3daDataManagement.yaml

@@ -8,6 +8,8 @@ namespace {
 constexpr const char* kCounter = "nwdaf:next_id";
 constexpr const char* kProvSubPrefix = "nwdaf:mlprov:sub:";
 constexpr const char* kProvSubIndex = "nwdaf:mlprov:subs";
+constexpr const char* kTrainSubPrefix = "nwdaf:mltrainsub:sub:";
+constexpr const char* kTrainSubIndex = "nwdaf:mltrainsub:subs";
 constexpr const char* kProvLeasePrefix = "nwdaf:mlprov:lease:";
 constexpr const char* kModelPrefix = "nwdaf:mlmodel:";
 constexpr const char* kTrainLeasePrefix = "nwdaf:mltrain:";
@@ -63,6 +65,33 @@ std::vector<std::pair<std::string, nlohmann::json>> MlStore::all_provision_subsc
         }
     }
     return out;
+}
+
+std::string MlStore::create_training_subscription(const nlohmann::json& record) {
+    const auto id = next_id("nwdaf-mltrain-");
+    redis_->set(kTrainSubPrefix + id, record.dump());
+    redis_->sadd(kTrainSubIndex, id);
+    return id;
+}
+
+std::optional<nlohmann::json> MlStore::get_training_subscription(const std::string& id) {
+    const auto raw = redis_->get(kTrainSubPrefix + id);
+    if (!raw) {
+        return std::nullopt;
+    }
+    return nlohmann::json::parse(*raw);
+}
+
+bool MlStore::replace_training_subscription(const std::string& id, const nlohmann::json& record) {
+    return redis_->set(kTrainSubPrefix + id,
+                       record.dump(),
+                       std::chrono::milliseconds(0),
+                       sw::redis::UpdateType::EXIST);
+}
+
+bool MlStore::remove_training_subscription(const std::string& id) {
+    redis_->srem(kTrainSubIndex, id);
+    return redis_->del(kTrainSubPrefix + id) > 0;
 }
 
 bool MlStore::claim_delivery(const std::string& id, std::chrono::milliseconds ttl) {

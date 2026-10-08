@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "TS29520_Nnwdaf_MLModelTraining.hpp"
 
 namespace nwdaf {
 
@@ -22,6 +23,7 @@ namespace {
 
 // servers[0].url of TS29520_Nnwdaf_MLModelProvision.yaml (ADR-0325).
 constexpr const char* kProvisionRoot = "/nnwdaf-mlmodelprovision/v1";
+constexpr const char* kTrainingRoot = "/nnwdaf-mlmodeltraining/v1";
 // TS 29.500 Annex B: <API>_<callback key>; the YAML keys its callback "myNotification".
 constexpr const char* kProvisionCallback = "Nnwdaf_MLModelProvision_myNotification";
 // The ADRF's roots -- servers[0].url of TS29575_Nadrf_DataManagement.yaml and
@@ -1064,6 +1066,217 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
             } catch (const std::exception& e) {
                 return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
             }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    install_training_routes(server);
+}
+
+// ---- Nnwdaf_MLModelTraining subscription CRUD (ADR-0471) --------------------------------------
+// TS 29.520 YAML TS29520_Nnwdaf_MLModelTraining.yaml (v1.1.0), TS 23.288 7.10.2 / 7.10.3.
+// STUB / NOT YET DONE, disclosed: this stores and serves the subscription resource only.
+//   * No notification (NwdafMLModelTrainNotif) is ever sent -- no callback is made to notifUri.
+//   * The federated-learning fields (mlCorreId, roundInd, skipFlInd, mLAccChkFlg, mLPreFlag,
+//     mLTrainRepInfo, tgtRepUe, mLModelTrainInfos) are accepted and stored but not acted on.
+//   * UnsubscribeInfo (termCause) removes the subscription; it does not terminate any FL round.
+void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
+    const std::string root = kTrainingRoot;
+
+    // Shared by POST and PUT: the YAML's shape (required mLEventSubscs, notifUri, notifCorreId),
+    // then the events this MTLF trains models for. Events it does not go to failEventReports
+    // (FailureEventInfoForMLModelTrain); none accepted is a 500.
+    const auto validate = [this](const sbi_core::http2::Request& req,
+                                 json& record,
+                                 std::optional<sbi_core::http2::Response>& err) {
+        auto auth = check_bearer(req, verifier_);
+        if (auth && !auth->valid) {
+            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            return;
+        }
+        sbi_core::http2::Response bad;
+        auto dto = sbi_core::http2::parse_json_body<sbi_gen::NwdafMLModelTrainSubsc>(req, bad);
+        if (!dto) {
+            err = bad;
+            return;
+        }
+        json request = json::parse(req.body);
+        for (const char* required : {"mLEventSubscs", "notifUri", "notifCorreId"}) {
+            if (!request.contains(required)) {
+                err = problem(400,
+                              "Bad Request",
+                              std::string(required) + " is required (NwdafMLModelTrainSubsc)",
+                              "MANDATORY_IE_MISSING");
+                return;
+            }
+        }
+        json failures = json::array();
+        int accepted = 0;
+        for (const auto& es : request.at("mLEventSubscs")) {
+            const auto event = es.value("mLEvent", "");
+            if (!event.empty() && trains(event)) {
+                ++accepted;
+            } else {
+                failures.push_back(json{{"event", event.empty() ? json() : json(event)}});
+            }
+        }
+        if (accepted == 0) {
+            err = problem(500,
+                          "Internal Server Error",
+                          "this MTLF trains no model for any requested event; it trains " +
+                              json(options_.events).dump(),
+                          "UNAVAILABLE_ML_MODEL_FOR_ALLEVENTS");
+            return;
+        }
+        request.erase("failEventReports");
+        if (!failures.empty()) {
+            request["failEventReports"] = failures;
+        }
+        record = json{{"request", request},
+                      {"consumer", (auth && auth->valid) ? auth->subject : std::string()}};
+    };
+
+    server.add_route(
+        "POST", root + "/subscriptions", [=, this](const sbi_core::http2::Request& req) {
+            json record;
+            std::optional<sbi_core::http2::Response> err;
+            validate(req, record, err);
+            if (err) {
+                return *err;
+            }
+            const auto id = store_.create_training_subscription(record);
+            auto resp = json_response(201, record.at("request"));
+            resp.headers.emplace("location", root + "/subscriptions/" + id);
+            return resp;
+        });
+
+    server.add_route("PUT",
+                     root + "/subscriptions/{subscriptionId}",
+                     [=, this](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!store_.get_training_subscription(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         json record;
+                         std::optional<sbi_core::http2::Response> err;
+                         validate(req, record, err);
+                         if (err) {
+                             return *err;
+                         }
+                         if (!store_.replace_training_subscription(id, record)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         return json_response(200, record.at("request"));
+                     });
+
+    // RFC 7396 merge patch of NwdafMLModelTrainSubscPatch. Members outside that schema are
+    // rejected, so a patch cannot rewrite mLEventSubscs or notifCorreId (not in the YAML patch).
+    server.add_route(
+        "PATCH",
+        root + "/subscriptions/{subscriptionId}",
+        [=, this](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto id = req.path_params.at("subscriptionId");
+            auto existing = store_.get_training_subscription(id);
+            if (!existing) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            json patch;
+            try {
+                patch = json::parse(req.body);
+            } catch (const std::exception& e) {
+                return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT");
+            }
+            if (!patch.is_object()) {
+                return problem(400,
+                               "Bad Request",
+                               "a merge patch must be a JSON object",
+                               "INVALID_MSG_FORMAT");
+            }
+            static const std::vector<std::string> kPatchable = {"notifUri",
+                                                                "eventReq",
+                                                                "mLModelInfos",
+                                                                "mLModelTrainInfos",
+                                                                "mLPreFlag",
+                                                                "mLAccChkFlg",
+                                                                "mLTrainRepInfo",
+                                                                "roundInd",
+                                                                "tgtRepUe",
+                                                                "skipFlInd"};
+            for (const auto& [key, value] : patch.items()) {
+                if (std::find(kPatchable.begin(), kPatchable.end(), key) == kPatchable.end()) {
+                    return problem(400,
+                                   "Bad Request",
+                                   key + " is not a member of NwdafMLModelTrainSubscPatch",
+                                   "INVALID_MSG_FORMAT");
+                }
+                if (key == "notifUri" && value.is_null()) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "notifUri is mandatory and cannot be removed",
+                                   "INVALID_MSG_FORMAT");
+                }
+            }
+            existing->at("request").merge_patch(patch);
+            if (!store_.replace_training_subscription(id, *existing)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            return json_response(200, existing->at("request"));
+        });
+
+    server.add_route("DELETE",
+                     root + "/subscriptions/{subscriptionId}",
+                     [this](const sbi_core::http2::Request& req) {
+                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                             return sbi_core::http2::problem_response(
+                                 401, "Unauthorized", auth->error);
+                         }
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!store_.remove_training_subscription(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+
+    // UnsubscribeInfo: termCause is required (TrainingUnsubscribeInfo). FL termination itself
+    // is deferred, see the header of this section.
+    server.add_route(
+        "POST",
+        root + "/subscriptions/{subscriptionId}/unsubscribe-info",
+        [this](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response bad;
+            auto dto = sbi_core::http2::parse_json_body<sbi_gen::TrainingUnsubscribeInfo>(req, bad);
+            if (!dto) {
+                return bad;
+            }
+            const json body = json::parse(req.body);
+            if (!body.contains("termCause")) {
+                return problem(400,
+                               "Bad Request",
+                               "termCause is required (TrainingUnsubscribeInfo)",
+                               "MANDATORY_IE_MISSING");
+            }
+            const auto id = req.path_params.at("subscriptionId");
+            if (!store_.remove_training_subscription(id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            spdlog::info("nwdaf-mtlf: ML model training subscription {} ended by consumer: {}",
+                         id,
+                         body.at("termCause").dump());
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

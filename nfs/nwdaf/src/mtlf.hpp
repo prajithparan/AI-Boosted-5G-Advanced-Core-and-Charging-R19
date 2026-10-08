@@ -77,6 +77,8 @@ public:
          TrainingExecutor& executor);
 
     void install_routes(sbi_core::http2::Server& server);
+    // Nnwdaf_MLModelTraining subscription CRUD (ADR-0471); called by install_routes.
+    void install_training_routes(sbi_core::http2::Server& server);
     // What this role adds to the NRF profile's nwdafInfo (TS 29.510 MlAnalyticsInfo).
     nlohmann::json nrf_profile_info() const;
     // The training / notification loop; returns when `running` clears. `pause(seconds)` sleeps

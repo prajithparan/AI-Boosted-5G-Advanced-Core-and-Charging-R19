@@ -166,6 +166,17 @@ target_compile_definitions(nwdaf_mtlf_integration_tests PRIVATE
 )
 gtest_discover_tests(nwdaf_mtlf_integration_tests PROPERTIES TIMEOUT 400)
 
+# ADR-0471: Nnwdaf_MLModelTraining subscription CRUD (an NWDAF in role mtlf behind a real NRF + Valkey).
+add_executable(nwdaf_ml_training_sub_integration_tests test_nwdaf_ml_training_sub.cpp)
+target_link_libraries(nwdaf_ml_training_sub_integration_tests PRIVATE redis++::redis++_static sbi_core sbi_generated GTest::gtest GTest::gtest_main)
+add_dependencies(nwdaf_ml_training_sub_integration_tests nrf nwdaf)
+target_compile_definitions(nwdaf_ml_training_sub_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    NWDAF_PATH="$<TARGET_FILE:nwdaf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+)
+gtest_discover_tests(nwdaf_ml_training_sub_integration_tests PROPERTIES TIMEOUT 200)
+
 # ADR-0372: the LI_X2/LI_X3 delivery client over real OpenSSL mTLS. Its own binary -- it needs no
 # NF processes (an in-process loopback TLS server stands in for the MDF), only li_core, OpenSSL,
 # and the lab certs. Binds an ephemeral port, so it does not collide with CI's fixed test ports.

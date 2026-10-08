@@ -436,6 +436,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0468](decisions/ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md) CI lint on pull_request events: diff against the PR base instead of a full clang-tidy sweep
 - [0469](decisions/ADR-0469-ci-skip-build-and-sanitizer-jobs-for-docs-only-changes-lint.md) CI: skip build and sanitizer jobs for docs-only changes; lint first, sanitizers only after build passes
 - [0470](decisions/ADR-0470-nwdaf-optional-llm-extension-seam-out-of-scope-now-plug-in.md) NWDAF optional LLM extension seam: out of scope now, plug-in contract fixed
+- [0471](decisions/ADR-0471-nwdaf-nnwdaf-mlmodeltraining-subscription-crud-now.md) NWDAF Nnwdaf_MLModelTraining: subscription CRUD now, federated-learning round logic as the next increments
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

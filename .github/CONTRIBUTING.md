@@ -104,8 +104,9 @@ ctest --test-dir build --output-on-failure
   `clang-format` is not the version CI uses.)
 
 CI ([`ci.yml`](workflows/ci.yml)) runs `lint` (`clang-format`, `clang-tidy` on changed files, README
-diagram sync), then `build`, then `sanitize (asan-ubsan)` and `sanitize (tsan)`. A change that touches
-only documentation skips `build` and the sanitizers (ADR-0469). Everything that runs must pass.
+diagram sync), then `build`, then `sanitize (asan-ubsan)` and `sanitize (tsan)`. A pull request whose
+whole diff against `main` is documentation skips `build` and the sanitizers (ADR-0469); a PR that
+also contains code runs them on every push. Everything that runs must pass.
 
 ## What a PR must include
 

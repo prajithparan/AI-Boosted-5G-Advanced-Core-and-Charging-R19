@@ -5488,3 +5488,5 @@ in `tests/integration/test_udsf.cpp` (binary `udsf_integration_tests`), suite `U
 
 Disclosed: the UPF `on_packet()` is a seam fed by tests; the datapath does not call it, so none of these rows proves real packet capture (ADR-0463 stage 4).
 
+
+| Nnwdaf_MLModelTraining subscription create / replace / merge-patch / delete and UnsubscribeInfo (CRUD only; no notification, FL behaviour not implemented, ADR-0471) | TS 23.288 7.10.2, 7.10.3; TS 29.520 (TS29520_Nnwdaf_MLModelTraining.yaml v1.1.0) | `nfs/nwdaf/src/mtlf.cpp` (install_training_routes), `nfs/nwdaf/src/ml_store.cpp` | `test_nwdaf_ml_training_sub.cpp` NwdafMlTrainingSub.SubscriptionLifecycle |
