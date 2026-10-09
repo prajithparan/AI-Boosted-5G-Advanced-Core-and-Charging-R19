@@ -74,6 +74,10 @@ public:
     // MTLF: the provisioned model per event.
     std::optional<nlohmann::json> get_model(const std::string& event);
     void put_model(const std::string& event, const nlohmann::json& record);
+    // The global model of the last completed federation for `event` (ADR-0471 increment 4).
+    // Separate key from put_model: it is a linear-fl-v1 JSON, not the ONNX the AnLF infers with.
+    void put_fl_global(const std::string& event, const nlohmann::json& record);
+    std::optional<nlohmann::json> get_fl_global(const std::string& event);
     bool acquire_training_lease(const std::string& event, std::chrono::milliseconds ttl);
     void release_training_lease(const std::string& event);
     // The ADRF storage subscription (transRefId) that keeps the training data flowing.

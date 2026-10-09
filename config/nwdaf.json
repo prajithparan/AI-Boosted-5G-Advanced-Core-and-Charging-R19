@@ -84,6 +84,21 @@
       "learning_rate": 0.1,
       "accuracy_tolerance": 10.0,
       "default_max_response_seconds": 300
+    },
+    "fl_server": {
+      "enabled": false,
+      "aggregate_script": "",
+      "round_grace_seconds": 30,
+      "repeat_interval_seconds": 0,
+      "federations": [
+        {
+          "event": "NF_LOAD",
+          "ml_corre_id": "nf-load-fl-1",
+          "rounds": 5,
+          "min_clients": 2,
+          "max_res_time_seconds": 120
+        }
+      ]
     }
   },
   "training": {

@@ -36,13 +36,17 @@
 #include <nlohmann/json.hpp>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "fl_client.hpp"
+#include "fl_server.hpp"
 #include "ml_store.hpp"
 #include "training_executor.hpp"
 
@@ -84,6 +88,18 @@ public:
         fl_options_ = options;
     }
 
+    // Enables the federated-learning server (ADR-0471 increment 4): the federations of the
+    // config run on their own thread once run() starts.
+    struct FlServerOptions {
+        std::vector<FlFederation> federations;
+        long round_grace_seconds = 0;     // wait beyond maxResTime for the clients' notifications
+        long repeat_interval_seconds = 0; // 0 = each federation runs once per process
+    };
+    void set_fl_server(FlAggregator& aggregator, FlServerOptions options) {
+        fl_aggregator_ = &aggregator;
+        fl_server_options_ = std::move(options);
+    }
+
     void install_routes(sbi_core::http2::Server& server);
     // Nnwdaf_MLModelTraining subscription CRUD (ADR-0471); called by install_routes.
     void install_training_routes(sbi_core::http2::Server& server);
@@ -117,6 +133,9 @@ private:
     void deliver_training(const std::string& sub_id, nlohmann::json sub);
     // One FL round for a subscription carrying an mlCorreId, once per roundInd (fl_client.hpp).
     void deliver_fl_round(const std::string& sub_id, nlohmann::json sub);
+    // One federation, rounds 1..N (TS 23.288 6.2C.2.2 steps 0-9). Returns a one-line outcome.
+    std::string run_federation(const FlFederation& fed, std::atomic<bool>& running);
+    void fl_server_loop(std::atomic<bool>& running);
     // The immediate report of a training subscription (immReport), when asked and available.
     nlohmann::json training_representation(const nlohmann::json& sub) const;
     nlohmann::json event_notif(const std::string& event,
@@ -140,6 +159,20 @@ private:
     TrainingExecutor& executor_;
     FlRoundExecutor* fl_executor_ = nullptr;
     FlClientOptions fl_options_;
+    FlAggregator* fl_aggregator_ = nullptr;
+    FlServerOptions fl_server_options_;
+    sbi_core::OAuth2Client oauth_fl_client_;
+    // Notification slots of the round in progress, keyed by the per-client notifCorreId that is
+    // also the callback path segment (a notification carries no client identity of its own).
+    struct FlSlot {
+        int round = 0;
+        std::string notif_corre_id;
+        FlFederation fed;
+        std::optional<tl::expected<FlUpdate, std::string>> result;
+    };
+    std::mutex fl_mutex_;
+    std::condition_variable fl_cv_;
+    std::map<std::string, FlSlot> fl_slots_;
     std::string adrf_base_cached_;
     std::string adrf_id_cached_;
     sbi_core::OAuth2Client oauth_anlf_monitor_;

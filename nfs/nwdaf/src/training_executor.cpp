@@ -222,4 +222,49 @@ SubprocessFlRoundExecutor::train_round(const FlRoundJob& job) {
     return result;
 }
 
+SubprocessFlAggregator::SubprocessFlAggregator(SubprocessFlAggregatorOptions options)
+    : options_(std::move(options)) {}
+
+tl::expected<nlohmann::json, std::string>
+SubprocessFlAggregator::aggregate(const std::vector<nlohmann::json>& updates) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(options_.workdir, ec);
+    if (ec) {
+        return tl::make_unexpected("FL workdir " + options_.workdir + ": " + ec.message());
+    }
+    const auto stamp = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
+    const fs::path base = fs::path(options_.workdir) / ("fl-aggregate-" + stamp);
+    std::vector<std::string> args{options_.python, options_.script, "--inputs"};
+    std::vector<fs::path> inputs;
+    for (std::size_t i = 0; i < updates.size(); ++i) {
+        inputs.push_back(base.string() + "." + std::to_string(i) + ".update.json");
+        std::ofstream out(inputs.back());
+        out << updates[i].dump();
+        if (!out) {
+            return tl::make_unexpected("cannot write " + inputs.back().string());
+        }
+        args.push_back(inputs.back().string());
+    }
+    const fs::path output = base.string() + ".global.json";
+    const fs::path log = base.string() + ".log";
+    args.push_back("--output");
+    args.push_back(output.string());
+    if (auto ran = run_python(args, options_.workdir, log, options_.timeout, "FL aggregation");
+        !ran) {
+        return tl::make_unexpected(ran.error());
+    }
+    try {
+        auto model = nlohmann::json::parse(read_file(output));
+        for (const auto& in : inputs) {
+            fs::remove(in, ec);
+        }
+        return model;
+    } catch (const std::exception& e) {
+        return tl::make_unexpected("FL aggregation output unreadable: " + std::string(e.what()));
+    }
+}
+
 } // namespace nwdaf

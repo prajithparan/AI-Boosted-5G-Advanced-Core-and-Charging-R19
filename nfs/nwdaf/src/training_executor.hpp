@@ -95,4 +95,31 @@ private:
     SubprocessFlRoundExecutorOptions options_;
 };
 
+// Federated-learning SERVER aggregation (ADR-0471 increment 4): sample-weighted FedAvg of the
+// clients' interim models by the sidecar's fl_aggregate.py.
+class FlAggregator {
+public:
+    virtual ~FlAggregator() = default;
+    // Each update: {"model": <linear-fl-v1>, "n_samples": <int>}. Returns the global model JSON.
+    virtual tl::expected<nlohmann::json, std::string>
+    aggregate(const std::vector<nlohmann::json>& updates) = 0;
+};
+
+struct SubprocessFlAggregatorOptions {
+    std::string python;
+    std::string script; // absolute path of fl_aggregate.py
+    std::string workdir;
+    std::chrono::seconds timeout{600};
+};
+
+class SubprocessFlAggregator final : public FlAggregator {
+public:
+    explicit SubprocessFlAggregator(SubprocessFlAggregatorOptions options);
+    tl::expected<nlohmann::json, std::string>
+    aggregate(const std::vector<nlohmann::json>& updates) override;
+
+private:
+    SubprocessFlAggregatorOptions options_;
+};
+
 } // namespace nwdaf

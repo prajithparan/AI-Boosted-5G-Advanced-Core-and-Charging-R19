@@ -128,7 +128,12 @@ Mtlf::Mtlf(MtlfOptions options,
                           options_.nrf_base + "/oauth2/token",
                           options_.instance_id,
                           "nnwdaf-mlmodelmonitor",
-                          "NWDAF") {}
+                          "NWDAF"),
+      oauth_fl_client_(client,
+                       options_.nrf_base + "/oauth2/token",
+                       options_.instance_id,
+                       "nnwdaf-mlmodeltraining",
+                       "NWDAF") {}
 
 bool Mtlf::trains(const std::string& event) const {
     return std::find(options_.events.begin(), options_.events.end(), event) !=
@@ -691,6 +696,207 @@ void Mtlf::deliver_fl_round(const std::string& sub_id, json sub) {
     store_.replace_training_subscription(sub_id, sub);
 }
 
+// ---- Federated-learning SERVER (ADR-0471 increment 4) -----------------------------------------
+// TS 23.288 6.2C.2.2: discover FL clients, subscribe each (round 1) / merge-patch it (later rounds)
+// with the global model, collect the interim models from the notification callback, aggregate
+// (FedAvg, the sidecar), repeat, then end every client's subscription with FL_FINISHED and the
+// final model. Project simplifications are listed in ADR-0471; the main ones: the callback route
+// is unauthenticated (like every other callback in this NF), a client that misses a round is
+// dropped from that round only, and the final model is not used by the AnLF's inference.
+std::string Mtlf::run_federation(const FlFederation& fed, std::atomic<bool>& running) {
+    const auto disc = call(oauth_disc_,
+                           "GET",
+                           options_.nrf_base + kNrfDiscRoot +
+                               "/nf-instances?target-nf-type=NWDAF&requester-nf-type=NWDAF",
+                           nullptr);
+    if (disc.status != 200) {
+        return "NRF discovery of FL clients failed (" + std::to_string(disc.status) + ")";
+    }
+    std::vector<FlClientRef> clients;
+    try {
+        clients = select_fl_clients(json::parse(disc.body).value("nfInstances", json::array()),
+                                    fed.event,
+                                    options_.instance_id);
+    } catch (const std::exception& e) {
+        return std::string("NRF discovery response unreadable: ") + e.what();
+    }
+    if (static_cast<int>(clients.size()) < fed.min_clients) {
+        return "only " + std::to_string(clients.size()) + " FL client(s) at the NRF, " +
+               std::to_string(fed.min_clients) + " needed";
+    }
+    const auto stamp = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
+    struct Member {
+        FlClientRef ref;
+        std::string notif_corre_id;
+        std::string subscription_url; // empty until the round-1 subscription exists
+        bool active = true;
+    };
+    std::vector<Member> members;
+    for (std::size_t i = 0; i < clients.size(); ++i) {
+        members.push_back(
+            Member{clients[i], fed.ml_corre_id + "-" + stamp + "-" + std::to_string(i), "", true});
+    }
+    const std::string root = "/nnwdaf-mlmodeltraining/v1";
+    json global = nullptr;
+    std::string outcome;
+
+    for (int round = 1; round <= fed.rounds && running; ++round) {
+        {
+            const std::lock_guard<std::mutex> lock(fl_mutex_);
+            for (auto& m : members) {
+                if (m.active) {
+                    fl_slots_[m.notif_corre_id] =
+                        FlSlot{round, m.notif_corre_id, fed, std::nullopt};
+                }
+            }
+        }
+        for (auto& m : members) {
+            if (!m.active) {
+                continue;
+            }
+            Call r;
+            if (round == 1) {
+                const auto sub = build_round_subscription(fed,
+                                                          round,
+                                                          global,
+                                                          options_.self_base + root +
+                                                              "/fl-callbacks/" + m.notif_corre_id,
+                                                          m.notif_corre_id);
+                r = call(oauth_fl_client_, "POST", m.ref.base_url + root + "/subscriptions", &sub);
+                if (r.status == 201 && !r.location.empty()) {
+                    // The NWDAF's Location is a path; make it absolute at the client that sent it.
+                    m.subscription_url =
+                        r.location.rfind("http", 0) == 0 ? r.location : m.ref.base_url + r.location;
+                }
+            } else {
+                const auto patch = build_round_patch(fed, round, global);
+                r = call(oauth_fl_client_, "PATCH", m.subscription_url, &patch);
+            }
+            if (r.status != 200 && r.status != 201) {
+                spdlog::warn("nwdaf-mtlf: FL {} round {}: client {} refused ({} {})",
+                             fed.ml_corre_id,
+                             round,
+                             m.ref.nf_instance_id,
+                             r.status,
+                             r.error.empty() ? r.body : r.error);
+                m.active = false;
+            }
+        }
+        // Collect until every active client answered or maxResTime + grace passed.
+        const auto deadline =
+            std::chrono::steady_clock::now() +
+            std::chrono::seconds(fed.max_res_time_s + fl_server_options_.round_grace_seconds);
+        std::vector<json> updates;
+        {
+            std::unique_lock<std::mutex> lock(fl_mutex_);
+            const auto all_in = [&] {
+                return std::all_of(members.begin(), members.end(), [&](const Member& m) {
+                    return !m.active || fl_slots_.at(m.notif_corre_id).result.has_value();
+                });
+            };
+            while (running && !all_in() && std::chrono::steady_clock::now() < deadline) {
+                fl_cv_.wait_for(lock, std::chrono::seconds(1));
+            }
+            for (auto& m : members) {
+                if (!m.active) {
+                    continue;
+                }
+                const auto& slot = fl_slots_.at(m.notif_corre_id);
+                if (slot.result && slot.result->has_value()) {
+                    updates.push_back(json{{"model", (*slot.result)->model},
+                                           {"n_samples", (*slot.result)->n_samples}});
+                } else {
+                    spdlog::warn("nwdaf-mtlf: FL {} round {}: client {} gave no usable update ({})",
+                                 fed.ml_corre_id,
+                                 round,
+                                 m.ref.nf_instance_id,
+                                 slot.result ? slot.result->error() : "no notification in time");
+                }
+            }
+        }
+        if (static_cast<int>(updates.size()) < fed.min_clients) {
+            outcome = "round " + std::to_string(round) + ": " + std::to_string(updates.size()) +
+                      " usable update(s), " + std::to_string(fed.min_clients) + " needed";
+            break;
+        }
+        auto aggregated = fl_aggregator_->aggregate(updates);
+        if (!aggregated) {
+            outcome =
+                "round " + std::to_string(round) + " aggregation failed: " + aggregated.error();
+            break;
+        }
+        global = *aggregated;
+        spdlog::info("nwdaf-mtlf: FL {} round {}/{} aggregated {} client update(s)",
+                     fed.ml_corre_id,
+                     round,
+                     fed.rounds,
+                     updates.size());
+        if (round == fed.rounds) {
+            outcome = "completed";
+        }
+    }
+    if (outcome.empty()) {
+        outcome = "stopped";
+    }
+
+    // End every client's subscription (6.2C.2.2 step 9): FL_FINISHED + the final model on success,
+    // OTHER otherwise.
+    const bool finished = outcome == "completed";
+    for (auto& m : members) {
+        if (m.subscription_url.empty()) {
+            continue;
+        }
+        json term{{"termCause", finished ? "FL_FINISHED" : "OTHER"}};
+        if (finished) {
+            term["mLModelInfos"] = json::array(
+                {json{{"event", fed.event}, {"mlFile", fl_base64_encode(global.dump())}}});
+        }
+        static_cast<void>(
+            call(oauth_fl_client_, "POST", m.subscription_url + "/unsubscribe-info", &term));
+    }
+    {
+        const std::lock_guard<std::mutex> lock(fl_mutex_);
+        for (const auto& m : members) {
+            fl_slots_.erase(m.notif_corre_id);
+        }
+    }
+    if (finished) {
+        json record{{"event", fed.event},
+                    {"mlCorreId", fed.ml_corre_id},
+                    {"model", global},
+                    {"rounds", fed.rounds},
+                    {"clients", static_cast<int>(members.size())},
+                    {"completedAt", sbi_core::format_rfc3339(std::chrono::system_clock::now())}};
+        store_.put_fl_global(fed.event, record);
+    }
+    return outcome;
+}
+
+void Mtlf::fl_server_loop(std::atomic<bool>& running) {
+    while (running) {
+        for (const auto& fed : fl_server_options_.federations) {
+            if (!running) {
+                break;
+            }
+            try {
+                const auto outcome = run_federation(fed, running);
+                spdlog::info(
+                    "nwdaf-mtlf: federation {} ({}): {}", fed.ml_corre_id, fed.event, outcome);
+            } catch (const std::exception& e) {
+                spdlog::warn("nwdaf-mtlf: federation {} failed: {}", fed.ml_corre_id, e.what());
+            }
+        }
+        if (fl_server_options_.repeat_interval_seconds <= 0) {
+            return;
+        }
+        for (long s = 0; s < fl_server_options_.repeat_interval_seconds && running; ++s) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+}
+
 json Mtlf::training_representation(const json& sub) const {
     json body = sub.at("request");
     body.erase("immReport");
@@ -758,6 +964,18 @@ void Mtlf::deliver(const std::string& sub_id, json sub) {
 }
 
 void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t)>& pause) {
+    std::thread fl_thread;
+    if (fl_aggregator_ != nullptr && !fl_server_options_.federations.empty()) {
+        fl_thread = std::thread([this, &running] { fl_server_loop(running); });
+    }
+    struct Join {
+        std::thread& t;
+        ~Join() {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+    } join_fl{fl_thread};
     while (running) {
         try {
             for (const auto& event : options_.events) {
@@ -1408,6 +1626,27 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
 
     // UnsubscribeInfo: termCause is required (TrainingUnsubscribeInfo). FL termination itself
     // is deferred, see the header of this section.
+    // FL server callback (ADR-0471 increment 4): where the FL clients' NwdafMLModelTrainNotif for a
+    // round arrive. The path segment is the per-client notifCorreId. Like every callback in this NF
+    // it is not authenticated -- a recorded gap, not a design.
+    server.add_route(
+        "POST", root + "/fl-callbacks/{notifCorreId}", [this](const sbi_core::http2::Request& req) {
+            const auto corre = req.path_params.at("notifCorreId");
+            const json body = json::parse(req.body, nullptr, false);
+            const std::lock_guard<std::mutex> lock(fl_mutex_);
+            const auto it = fl_slots_.find(corre);
+            if (it == fl_slots_.end() || body.is_discarded()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no federation round awaits " + corre);
+            }
+            it->second.result =
+                parse_fl_notification(body, it->second.fed, it->second.round, corre);
+            fl_cv_.notify_all();
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
     server.add_route(
         "POST",
         root + "/subscriptions/{subscriptionId}/unsubscribe-info",

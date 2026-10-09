@@ -122,6 +122,18 @@ void MlStore::put_model(const std::string& event, const nlohmann::json& record) 
     redis_->set(kModelPrefix + event, record.dump());
 }
 
+void MlStore::put_fl_global(const std::string& event, const nlohmann::json& record) {
+    redis_->set("nwdaf:flglobal:" + event, record.dump());
+}
+
+std::optional<nlohmann::json> MlStore::get_fl_global(const std::string& event) {
+    const auto v = redis_->get("nwdaf:flglobal:" + event);
+    if (!v) {
+        return std::nullopt;
+    }
+    return nlohmann::json::parse(*v);
+}
+
 bool MlStore::acquire_training_lease(const std::string& event, std::chrono::milliseconds ttl) {
     return redis_->set(kTrainLeasePrefix + event, "1", ttl, sw::redis::UpdateType::NOT_EXIST);
 }

@@ -255,6 +255,48 @@
               "type": "integer"
             }
           }
+        },
+        "fl_server": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "aggregate_script": {
+              "type": "string"
+            },
+            "round_grace_seconds": {
+              "type": "integer"
+            },
+            "repeat_interval_seconds": {
+              "type": "integer"
+            },
+            "federations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "event": {
+                    "type": "string"
+                  },
+                  "ml_corre_id": {
+                    "type": "string"
+                  },
+                  "rounds": {
+                    "type": "integer"
+                  },
+                  "min_clients": {
+                    "type": "integer"
+                  },
+                  "max_res_time_seconds": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -353,11 +395,14 @@
     "ml_model_provision.nf_types: empty array, item type unknown",
     "mtlf: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "mtlf.fl_client: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "mtlf.fl_server: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "mtlf.fl_server.federations[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "training: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "accuracy_monitoring: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "smf_base_url: present in the file but no source line visibly reads it",
     "accuracy_threshold: read with require<> but absent from the file (env-only?)",
     "accuracy_tolerance: read with require<> but absent from the file (env-only?)",
+    "aggregate_script: read with require<> but absent from the file (env-only?)",
     "check_interval_seconds: read with require<> but absent from the file (env-only?)",
     "data_set_id: read with require<> but absent from the file (env-only?)",
     "default_max_response_seconds: read with require<> but absent from the file (env-only?)",
@@ -373,10 +418,12 @@
     "mlflow_tracking_uri: read with require<> but absent from the file (env-only?)",
     "observation_window_seconds: read with require<> but absent from the file (env-only?)",
     "python: read with require<> but absent from the file (env-only?)",
+    "repeat_interval_seconds: read with require<> but absent from the file (env-only?)",
     "retrain_cooldown_seconds: read with require<> but absent from the file (env-only?)",
     "retrain_interval_seconds: read with require<> but absent from the file (env-only?)",
     "retrain_min_new_windows: read with require<> but absent from the file (env-only?)",
     "retry_seconds: read with require<> but absent from the file (env-only?)",
+    "round_grace_seconds: read with require<> but absent from the file (env-only?)",
     "script: read with require<> but absent from the file (env-only?)",
     "timeout_seconds: read with require<> but absent from the file (env-only?)",
     "tolerance: read with require<> but absent from the file (env-only?)",
