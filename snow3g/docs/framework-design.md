@@ -56,8 +56,8 @@ Written by us, contains no SAGE content. Sketch (names are ours; not from any sp
 ## 8. Plan and what is blocked
 | Step | Content | Can start now? |
 |---|---|---|
-| F1 | ABI header + loader + fail-closed AMF wiring + dummy test provider + restricted-material guard + docs | **Yes** (no SAGE content needed) |
-| F2 | `sage-import` stage 1 (ingest/fingerprint/lock) | **Yes** |
+| F1 | ABI header + loader + fail-closed AMF wiring + dummy test provider + restricted-material guard + docs | **Built 2026-10-09** (AMF loads providers but does not yet select NEA1/NIA1; see ADR-0479 status update) |
+| F2 | `sage-import` stage 1 (ingest/fingerprint/lock) | **Built 2026-10-09** |
 | F3 | Extractors (stage 2) | **No** -- needs the licensed package layout |
 | F4 | Emit/build (stage 3), Fork A or B | **No** -- same |
 | F5 | KAT gate run with real Document 3/4 vectors | **No** -- operator-side only |

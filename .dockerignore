@@ -14,3 +14,9 @@ certs/
 
 __pycache__/
 *.pyc
+
+# ADR-0479
+snow3g/vault/
+snow3g/generated/
+snow3g/sage-package/
+*.sage

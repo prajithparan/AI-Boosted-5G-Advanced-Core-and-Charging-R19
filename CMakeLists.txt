@@ -60,6 +60,7 @@ add_subdirectory(libs/nf-config) # ADR-0449: sbi-core now links nf_config, so it
 add_subdirectory(libs/sbi-core)
 add_subdirectory(libs/sbi-generated)
 add_subdirectory(libs/aka-crypto)
+add_subdirectory(libs/nas-alg-provider) # ADR-0479
 add_subdirectory(libs/ngap-generated)
 add_subdirectory(libs/ngap-core)
 add_subdirectory(libs/li-generated)

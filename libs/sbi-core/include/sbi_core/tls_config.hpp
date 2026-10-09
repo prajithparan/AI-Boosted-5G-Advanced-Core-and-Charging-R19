@@ -35,7 +35,8 @@ inline MinTlsVersion min_tls_version() {
     if (std::string(v) == "1.2") {
         return MinTlsVersion::v1_2;
     }
-    throw std::runtime_error(std::string("sbi-core: tls_min_version must be \"1.3\" or \"1.2\", got \"") + v + "\"");
+    throw std::runtime_error(
+        std::string("sbi-core: tls_min_version must be \"1.3\" or \"1.2\", got \"") + v + "\"");
 }
 
 // TLS 1.2 cipher suites (TLS 1.3 suites are unaffected): ECDHE key exchange with AEAD only -- no

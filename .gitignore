@@ -66,3 +66,9 @@ nfs/nwdaf/training/mlflow.db
 nfs/nwdaf/training/mlruns/
 nfs/nwdaf/training/runs/
 specs/etsi/103120/schemas-definitions-main.zip
+
+# ADR-0479: licence-restricted SAGE material and anything generated from it never enters git
+snow3g/vault/
+snow3g/generated/
+snow3g/sage-package/
+*.sage
