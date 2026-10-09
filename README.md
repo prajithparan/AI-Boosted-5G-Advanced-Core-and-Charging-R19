@@ -26,14 +26,14 @@ deliberately not used as the title — TS 32.296 defines that as its own network
 not implement it, and a title should not need a footnote to be true.
 
 **Why this matters:**
-- 70% of world still lacks affordable 5G. Vendor cores cost $500k+. This is Apache 2.0.
+- Much of the world still has no affordable 5G, and commercial cores are priced for the largest operators. This one is **Apache 2.0**: read it, run it, fork it, own it.
 - Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
 - Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with an eBPF/XDP uplink GTP-U decapsulation path (a lab veth/netns fixture, not a gNB-facing N3), CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
 
 **Sovereign AI-Boosted**:
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
 - CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
-- Can be Powered locally by any LLMs(Sovereign AI) like  Meta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
+- **Sovereign by design:** the AI layer is built to run on a locally hosted open-weight LLM (any model whose licence you have vetted) for LLM-as-judge and policy reasoning, so a rural or air-gapped deployment needs no cloud dependency. The ML pipelines that ship today (NWDAF, CHF anomaly detection) are classical models, trained in a Python sidecar and run in-process; the LLM agents are on the roadmap, not in this tree yet.
 - 100% open infrastructure: Apache Doris, Kafka (KRaft), PostgreSQL 16, Valkey 8 (replaces Redis per OSI compliance), MLflow, scikit-learn.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
