@@ -1840,7 +1840,7 @@ int main() {
     if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
         const auto& lp = config.at("li_poi");
         li_poi::Config poi_cfg;
-        poi_cfg.x1_bind_address = lp.value("x1_bind_address", std::string{"0.0.0.0"});
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
         poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
         poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"upf-poi"});
         poi_cfg.network_function_id = lp.value("network_function_id", upf_instance_id);
