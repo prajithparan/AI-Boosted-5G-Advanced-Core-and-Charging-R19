@@ -1,5 +1,6 @@
 {
   "port": 7786,
+  "sbi_bind_address": "0.0.0.0",
   "db_pool_size": 16,
   "metrics_bind_address": "0.0.0.0:9474",
   "self_base_url": "https://127.0.0.1:7786",

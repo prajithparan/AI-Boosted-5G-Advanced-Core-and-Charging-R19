@@ -27,6 +27,7 @@ int main() {
 
     const auto config = nf_config::load("provisioning", CONFIG_DIR);
     const auto port = nf_config::require<unsigned short>(config, "port", "PROVISIONING_PORT");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "PROVISIONING_METRICS_BIND_ADDRESS");
     const auto orchestration_url = nf_config::require<std::string>(
@@ -115,7 +116,7 @@ int main() {
     };
 
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     server.add_route("POST",
                      "/provisioning/v1/customerOrder",

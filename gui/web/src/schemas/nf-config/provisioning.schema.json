@@ -10,6 +10,10 @@
       "x-env-override": "PROVISIONING_PORT",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "PROVISIONING_METRICS_BIND_ADDRESS",
@@ -104,7 +108,8 @@
     "db_pool_size",
     "metrics_bind_address",
     "orchestration_database_url",
-    "port"
+    "port",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/provisioning.json",
   "x-source": [
