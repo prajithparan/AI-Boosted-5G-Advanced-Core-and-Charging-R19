@@ -111,7 +111,13 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
 
     // TLS 1.3 + mTLS, non-negotiable (CLAUDE.md). No option here disables verification -- if the
     // cert/key/CA paths are wrong this fails closed (curl_easy_perform returns an error), not open.
-    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_3);
+    if (min_tls_version() == MinTlsVersion::v1_2) {
+        // ADR-0478 opt-in: floor 1.2 (curl treats this as "1.2 or newer"), AEAD-ECDHE suites only.
+        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_easy_setopt(curl, CURLOPT_SSL_CIPHER_LIST, kTls12CipherList);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_3);
+    }
     curl_easy_setopt(curl, CURLOPT_SSLCERT, tls_.cert_path.c_str());
     curl_easy_setopt(curl, CURLOPT_SSLKEY, tls_.key_path.c_str());
     curl_easy_setopt(curl, CURLOPT_CAINFO, tls_.ca_path.c_str());

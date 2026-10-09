@@ -698,7 +698,19 @@ boost::asio::ssl::context make_server_ssl_context(const TlsConfig& tls) {
     // mode specifically. Combined with no SSLv3/TLS1.0-1.2 context ever being constructed, there is
     // no downgrade path -- this is enforced by which OpenSSL method table gets selected, not just a
     // set_options() flag that could be forgotten.
-    boost::asio::ssl::context ctx(boost::asio::ssl::context::tlsv13_server);
+    // ADR-0478: with the opt-in floor "1.2" a generic server context is used instead, with SSLv2/3
+    // and TLS 1.0/1.1 disabled and the AEAD-ECDHE-only TLS 1.2 cipher list.
+    const bool allow_tls12 = min_tls_version() == MinTlsVersion::v1_2;
+    boost::asio::ssl::context ctx(allow_tls12 ? boost::asio::ssl::context::tls_server
+                                              : boost::asio::ssl::context::tlsv13_server);
+    if (allow_tls12) {
+        ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                        boost::asio::ssl::context::no_sslv2 | boost::asio::ssl::context::no_sslv3 |
+                        boost::asio::ssl::context::no_tlsv1 |
+                        boost::asio::ssl::context::no_tlsv1_1);
+        SSL_CTX_set_min_proto_version(ctx.native_handle(), TLS1_2_VERSION);
+        SSL_CTX_set_cipher_list(ctx.native_handle(), kTls12CipherList);
+    }
 
     try {
         ctx.use_certificate_chain_file(tls.cert_path);

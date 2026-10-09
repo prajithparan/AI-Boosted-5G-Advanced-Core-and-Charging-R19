@@ -142,6 +142,8 @@ supported."* `http2_client.cpp:114` pins `CURL_SSLVERSION_TLSv1_3`. A profile-co
 offers only TLS 1.2 cannot connect. This is the one finding where the non-conformant choice is the
 *more* secure one; it is recorded as a decision for the architect, not silently changed.
 
+**Status (ADR-0478):** opt-in TLS 1.2 floor implemented (`tls_min_version`, default stays 1.3); unit-tested with a TLS 1.2-only peer, not run in any NF; full TS 33.210 1.2 profile not verified.
+
 ### F6. SNI is never sent -- TS 33.501 §13.1.0
 
 *"TLS clients shall include the SNI extension."* All 53 base URLs in `config/*.json` are

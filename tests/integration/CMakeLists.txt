@@ -335,3 +335,9 @@ add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp
 target_include_directories(nrf_discovery_authz_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nrf/src)
 target_link_libraries(nrf_discovery_authz_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 gtest_discover_tests(nrf_discovery_authz_tests PROPERTIES TIMEOUT 60)
+
+# ADR-0478: the opt-in TLS 1.2 floor. In-process server on an ephemeral port; no NF processes.
+add_executable(sbi_tls_min_version_tests test_sbi_tls_min_version.cpp)
+target_link_libraries(sbi_tls_min_version_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(sbi_tls_min_version_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(sbi_tls_min_version_tests PROPERTIES TIMEOUT 60)

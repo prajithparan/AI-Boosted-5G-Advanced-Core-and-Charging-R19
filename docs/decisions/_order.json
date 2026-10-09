@@ -440,7 +440,8 @@
   "ADR-0474-li-end-to-end-tests-keep-their-fixed-sleeps-they-are.md",
   "ADR-0475-li-increment-7a-the-udm-iri-poi-event-list-for-approval-ts.md",
   "ADR-0476-duplicate-json-member-names-are-rejected-in-the-sbi-server.md",
-  "ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md"
+  "ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md",
+  "ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md"
  ],
  "split_commit": "0530e4f"
 }

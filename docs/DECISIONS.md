@@ -443,6 +443,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0475](decisions/ADR-0475-li-increment-7a-the-udm-iri-poi-event-list-for-approval-ts.md) LI increment 7a -- the UDM IRI-POI: event list for approval (TS 33.127 7.2.2.4, TS 33.128 7.2.2.3)
 - [0476](decisions/ADR-0476-duplicate-json-member-names-are-rejected-in-the-sbi-server.md) Duplicate JSON member names are rejected in the SBI server before any handler (finding F3, TS 33.117 4.3.6.3)
 - [0477](decisions/ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md) NRF discovery authorization: allowedNfTypes/allowedPlmns/allowedNssais (finding F4)
+- [0478](decisions/ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md) Opt-in TLS 1.2 floor for SBI interop (finding F5, TS 33.210 6.2.1)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
