@@ -103,7 +103,7 @@ this AMF. ZUC's absence is conformant. NEA0 (null ciphering) is also required an
 Rel-19) are cover pages only: "The technical provisions ... are contained in the SAGE Specification"
 (ETSI SAGE UEA2/UIA2 Documents 1-3, subject to ETSI licensing conditions). The S-boxes, LFSR/FSM, and
 f8/f9 construction and test vectors are therefore not in hand. They will not be written from memory.
-Re-checked after the architect pointed at the 3GPP portal ZIPs (35.215-35.218, Rel-19 j00): each ZIP holds one
+Re-checked against the ETSI-published Rel-16 PDFs too (8 pages each, same one-line pointer; `snow3g/docs/sources.md`), and after the architect pointed at the 3GPP portal ZIPs (35.215-35.218, Rel-19 j00): each ZIP holds one
 .docx cover page and no C source or test data. Needs the architect: supply the SAGE documents (and confirm the licence is compatible with the
 OSI-approved-only rule), or approve a specific open-source implementation as a dependency.
 
