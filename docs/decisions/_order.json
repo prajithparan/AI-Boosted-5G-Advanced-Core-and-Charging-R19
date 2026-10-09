@@ -441,7 +441,8 @@
   "ADR-0475-li-increment-7a-the-udm-iri-poi-event-list-for-approval-ts.md",
   "ADR-0476-duplicate-json-member-names-are-rejected-in-the-sbi-server.md",
   "ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md",
-  "ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md"
+  "ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md",
+  "ADR-0479-sage-bring-your-own-package-framework-for-snow-3g-design.md"
  ],
  "split_commit": "0530e4f"
 }

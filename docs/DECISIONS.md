@@ -444,6 +444,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0476](decisions/ADR-0476-duplicate-json-member-names-are-rejected-in-the-sbi-server.md) Duplicate JSON member names are rejected in the SBI server before any handler (finding F3, TS 33.117 4.3.6.3)
 - [0477](decisions/ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md) NRF discovery authorization: allowedNfTypes/allowedPlmns/allowedNssais (finding F4)
 - [0478](decisions/ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md) Opt-in TLS 1.2 floor for SBI interop (finding F5, TS 33.210 6.2.1)
+- [0479](decisions/ADR-0479-sage-bring-your-own-package-framework-for-snow-3g-design.md) SAGE bring-your-own-package framework for SNOW 3G (design only)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
