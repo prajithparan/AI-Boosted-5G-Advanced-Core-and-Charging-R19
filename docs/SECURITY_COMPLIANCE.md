@@ -123,8 +123,9 @@ of an NF Service Producer allows an NF Service Consumer to discover the NF Servi
 response message, the NRF shall only return information of those NF Service Producer instances
 that the NF Service Consumer is authorized to discover."*
 
-`grep allowedNfTypes|allowedPlmns|allowedNssais|allowedNfDomains nfs/nrf/src/` returns nothing.
-Every consumer that can authenticate can discover every producer.
+**Status (ADR-0477):** `allowedNfTypes`, `allowedPlmns`, `allowedNssais` are now enforced at discovery
+(unit-tested; HTTP path compiled, not exercised end-to-end). `allowedNfDomains` and SNPN parameters are
+NOT evaluated -- spec leaves the FQDN-domain match undefined; awaiting the architect.
 
 ### F5. TLS 1.3 only -- TS 33.210 §6.2.1 (mandated by TS 33.501 §13.1.0)
 

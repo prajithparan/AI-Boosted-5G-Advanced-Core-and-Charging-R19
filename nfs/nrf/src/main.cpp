@@ -59,6 +59,7 @@
 // ADR-0193/ADR-0194: TS29510_Nnrf_Bootstrapping.yaml, the Tier-A gap that started the
 // full-project YAML coverage audit -- see docs/CAPABILITY_GAP_ANALYSIS.md's own ADR-0193 section.
 #include "TS29510_Nnrf_Bootstrapping.hpp"
+#include "discovery_authz.hpp"
 #include "registry.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
@@ -757,9 +758,33 @@ int main() {
                 return problem_response(
                     400, "Missing mandatory query parameter", "target-nf-type is required");
             }
+            // TS 33.501 13.3.1.3 / TS 29.510 6.2.3.2.3.1: requester info for the allowed* checks
+            // (ADR-0477). requester-plmn-list / requester-snssais are JSON-encoded arrays.
+            nrf::DiscoveryRequester requester;
+            if (qpos != std::string::npos) {
+                auto qs = parse_form_urlencoded(req.path.substr(qpos + 1));
+                if (auto it = qs.find("requester-nf-type"); it != qs.end()) {
+                    requester.nf_type = it->second;
+                }
+                for (const auto& [name, dst] :
+                     {std::pair<const char*, json*>{"requester-plmn-list", &requester.plmns},
+                      std::pair<const char*, json*>{"requester-snssais", &requester.snssais}}) {
+                    if (auto it = qs.find(name); it != qs.end()) {
+                        *dst = json::parse(it->second, nullptr, false);
+                        if (!dst->is_array()) {
+                            nfs_disc_fail_input_counter->Add(1);
+                            return problem_response(400,
+                                                    "Invalid query parameter",
+                                                    std::string(name) + " must be a JSON array");
+                        }
+                    }
+                }
+            }
             json instances = json::array();
             for (const auto& profile : nf_registry->search_by_type(target_type)) {
-                instances.push_back(profile);
+                if (nrf::profile_discoverable_by(profile, requester)) {
+                    instances.push_back(profile);
+                }
             }
             // Gap-closure: real searchId, cached so a later RetrieveStoredSearch/
             // RetrieveCompleteSearch (below) can re-fetch this same result.
