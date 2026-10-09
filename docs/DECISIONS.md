@@ -440,6 +440,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0472](decisions/ADR-0472-gui-nf-config-schemas-reviewed-yaml-overlay-replaces.md) GUI NF-config schemas: reviewed YAML overlay replaces example-inferred subtrees (PCF policy counters creatable with any session rule id)
 - [0473](decisions/ADR-0473-sbi-and-pfcp-bind-addresses-move-from-code-literals-to.md) SBI and PFCP bind addresses move from code literals to config/<nf>.json (sbi_bind_address, pfcp_bind_address)
 - [0474](decisions/ADR-0474-li-end-to-end-tests-keep-their-fixed-sleeps-they-are.md) LI end-to-end tests keep their fixed sleeps: they are negative-assertion windows
+- [0475](decisions/ADR-0475-li-increment-7a-the-udm-iri-poi-event-list-for-approval-ts.md) LI increment 7a -- the UDM IRI-POI: event list for approval (TS 33.127 7.2.2.4, TS 33.128 7.2.2.3)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
