@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fl_client.hpp"
+#include "fl_server.hpp"
 
 #include <gtest/gtest.h>
 
@@ -114,7 +115,9 @@ TEST(NwdafFlClient, RoundProducesModelNotificationWithGlobalModelAndAccuracy) {
     EXPECT_EQ(n.at("statusReport").at("mlModelAcc"), 87); // Uinteger, rounded
     std::string raw;
     ASSERT_TRUE(fl_base64_decode(n.at("mLModelInfos").at(0).at("mlFile"), raw));
-    EXPECT_EQ(json::parse(raw), ex.result->model);
+    auto expected_model = ex.result->model;
+    expected_model["n_samples"] = 40; // the FedAvg weight travels with the model
+    EXPECT_EQ(json::parse(raw), expected_model);
     EXPECT_EQ(n.at("mLModelInfos").at(0).at("event"), "NF_LOAD");
 }
 
@@ -188,4 +191,123 @@ TEST(NwdafFlClient, RealSidecarRoundOnRealSeries) {
     o.epochs = 50;
     const auto out = run_fl_round(fl_sub(), json{{"series", series}}, real, o);
     ASSERT_EQ(out.kind, FlRoundKind::Model) << out.detail;
+}
+
+// ---- FL server building blocks (fl_server.cpp) ------------------------------------------------
+
+namespace {
+
+json profile(const std::string& id, const std::string& cap, const json& ids, int port = 7797) {
+    json info{{"mlAnalyticsIds", ids}};
+    if (!cap.empty()) {
+        info["flCapabilityType"] = cap;
+    }
+    return json{
+        {"nfInstanceId", id},
+        {"nwdafInfo", json{{"mlAnalyticsList", json::array({info})}}},
+        {"nfServices",
+         json::array({json{{"serviceName", "nnwdaf-mlmodelprovision"}},
+                      json{{"serviceName", "nnwdaf-mlmodeltraining"},
+                           {"scheme", "https"},
+                           {"ipEndPoints",
+                            json::array({json{{"ipv4Address", "10.0.0.5"}, {"port", port}}})}}})}};
+}
+
+FlFederation federation() {
+    FlFederation f;
+    f.event = "NF_LOAD";
+    f.ml_corre_id = "fed-1";
+    f.rounds = 3;
+    f.min_clients = 2;
+    f.max_res_time_s = 90;
+    return f;
+}
+
+json client_notif(int round, const json& model_extra = json::object()) {
+    json model{{"model_type", "linear-fl-v1"}, {"bias", 1.0}, {"n_samples", 25}};
+    model.update(model_extra);
+    return json{
+        {"notifCorreId", "fed-1-r"},
+        {"mlCorreId", "fed-1"},
+        {"roundInd", round},
+        {"mLModelInfos",
+         json::array({json{{"event", "NF_LOAD"}, {"mlFile", fl_base64_encode(model.dump())}}})},
+        {"statusReport", json{{"mlModelAcc", 83}}}};
+}
+
+} // namespace
+
+TEST(NwdafFlServer, SelectsOnlyFlCapableOtherInstancesForTheEvent) {
+    const json found = json::array(
+        {profile("client-a", "FL_CLIENT", json::array({"NF_LOAD"}), 7801),
+         profile("client-b", "FL_SERVER_AND_CLIENT", json::array({"NF_LOAD", "UE_MOBILITY"})),
+         profile("server-only", "FL_SERVER", json::array({"NF_LOAD"})),
+         profile("no-fl", "", json::array({"NF_LOAD"})),
+         profile("wrong-event", "FL_CLIENT", json::array({"UE_MOBILITY"})),
+         profile("self", "FL_CLIENT", json::array({"NF_LOAD"}))});
+    const auto picked = select_fl_clients(found, "NF_LOAD", "self");
+    ASSERT_EQ(picked.size(), 2U);
+    EXPECT_EQ(picked[0].nf_instance_id, "client-a");
+    EXPECT_EQ(picked[0].base_url, "https://10.0.0.5:7801");
+    EXPECT_EQ(picked[1].nf_instance_id, "client-b");
+}
+
+TEST(NwdafFlServer, ClientWithoutATrainingEndpointIsNotSelected) {
+    json p = profile("c", "FL_CLIENT", json::array({"NF_LOAD"}));
+    p["nfServices"] = json::array({json{{"serviceName", "nnwdaf-mlmodelprovision"}}});
+    EXPECT_TRUE(select_fl_clients(json::array({p}), "NF_LOAD", "self").empty());
+}
+
+TEST(NwdafFlServer, FirstRoundSubscriptionHasNoGlobalModelLaterPatchCarriesIt) {
+    const auto fed = federation();
+    const auto sub = build_round_subscription(fed, 1, nullptr, "https://s/cb", "fed-1-r");
+    EXPECT_EQ(sub.at("mlCorreId"), "fed-1");
+    EXPECT_EQ(sub.at("roundInd"), 1);
+    EXPECT_EQ(sub.at("notifUri"), "https://s/cb");
+    EXPECT_EQ(sub.at("mLEventSubscs").at(0).at("mLEvent"), "NF_LOAD");
+    EXPECT_EQ(sub.at("mLTrainRepInfo").at("maxResTime"), 90);
+    EXPECT_EQ(sub.at("mLAccChkFlg"), true);
+    EXPECT_FALSE(sub.contains("mLModelInfos")); // minItems 1: omitted, not []
+
+    const json global{{"model_type", "linear-fl-v1"}, {"bias", 2.0}};
+    const auto patch = build_round_patch(fed, 2, global);
+    EXPECT_EQ(patch.at("roundInd"), 2);
+    EXPECT_EQ(patch.at("skipFlInd"), false);
+    EXPECT_FALSE(patch.contains("notifUri")); // a patch changes the round, not the callback
+    std::string raw;
+    ASSERT_TRUE(fl_base64_decode(patch.at("mLModelInfos").at(0).at("mlFile"), raw));
+    EXPECT_EQ(json::parse(raw), global);
+}
+
+TEST(NwdafFlServer, ParsesAnInterimModelWithItsWeightAndAccuracy) {
+    const auto u = parse_fl_notification(client_notif(2), federation(), 2, "fed-1-r");
+    ASSERT_TRUE(u.has_value()) << u.error();
+    EXPECT_EQ(u->n_samples, 25);
+    EXPECT_EQ(u->accuracy_of_global, 83);
+    EXPECT_EQ(u->model.at("bias"), 1.0);
+}
+
+TEST(NwdafFlServer, RefusesNotificationsThatAreNotAUsableUpdateForThisRound) {
+    const auto fed = federation();
+    EXPECT_FALSE(parse_fl_notification(client_notif(1), fed, 2, "fed-1-r")); // stale round
+    EXPECT_FALSE(parse_fl_notification(client_notif(2), fed, 2, "other"));   // other federation
+    auto wrong_fed = client_notif(2);
+    wrong_fed["mlCorreId"] = "fed-9";
+    EXPECT_FALSE(parse_fl_notification(wrong_fed, fed, 2, "fed-1-r"));
+
+    json delay{{"notifCorreId", "fed-1-r"},
+               {"mlCorreId", "fed-1"},
+               {"roundInd", 2},
+               {"delayEventNotif",
+                json{{"delayEventInd", true}, {"delayCause", "ML_MODEL_TRAIN_FAILURE"}}}};
+    const auto d = parse_fl_notification(delay, fed, 2, "fed-1-r");
+    ASSERT_FALSE(d.has_value());
+    EXPECT_NE(d.error().find("ML_MODEL_TRAIN_FAILURE"), std::string::npos);
+
+    EXPECT_FALSE(parse_fl_notification(client_notif(2, json{{"n_samples", 0}}), fed, 2, "fed-1-r"));
+    EXPECT_FALSE(
+        parse_fl_notification(client_notif(2, json{{"n_samples", "many"}}), fed, 2, "fed-1-r"));
+    auto no_model = client_notif(2);
+    no_model.erase("mLModelInfos");
+    EXPECT_FALSE(parse_fl_notification(no_model, fed, 2, "fed-1-r"));
 }

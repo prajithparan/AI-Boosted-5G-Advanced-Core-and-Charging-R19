@@ -182,6 +182,7 @@ gtest_discover_tests(nwdaf_ml_training_sub_integration_tests PROPERTIES TIMEOUT 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 add_executable(nwdaf_fl_client_tests test_nwdaf_fl_client.cpp
     ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/fl_client.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/fl_server.cpp
     ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/training_executor.cpp)
 target_include_directories(nwdaf_fl_client_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src)
 target_link_libraries(nwdaf_fl_client_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)

@@ -160,9 +160,12 @@ FlRoundOutcome run_fl_round(const json& sub,
         return out;
     }
 
+    // The FedAvg weight travels with the model (project convention, see fl_client.hpp).
+    json local_model = result->model;
+    local_model["n_samples"] = result->report.value("n_samples", 0);
     json info{{"event", event},
               {"notifCorreId", sub.value("notifCorreId", "")},
-              {"mlFile", fl_base64_encode(result->model.dump())}};
+              {"mlFile", fl_base64_encode(local_model.dump())}};
     notif["mLModelInfos"] = json::array({info});
     // mLAccChkFlg: accuracy of the supplied GLOBAL model on this client's data (a Uinteger).
     if (sub.value("mLAccChkFlg", false) && result->report.contains("accuracy_global_pct") &&

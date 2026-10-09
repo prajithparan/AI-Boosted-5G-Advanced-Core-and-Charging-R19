@@ -6,7 +6,8 @@
 // Project choices, NOT 3GPP requirements (3GPP leaves the model encoding open, ADR-0471):
 //   * the global model arrives in the subscription's mLModelInfos[0].mlFile and the interim local
 //     model leaves in the notification's mLModelInfos[0].mlFile, both as base64 of the
-//     linear-fl-v1 JSON (nfs/nwdaf/training/fl_local_round.py); mLFileAddr / ADRF exchange of the
+//     linear-fl-v1 JSON (nfs/nwdaf/training/fl_local_round.py) plus an added `n_samples`, the
+//     FedAvg weight; mLFileAddr / ADRF exchange of the
 //     interim model is NOT implemented.
 #pragma once
 
