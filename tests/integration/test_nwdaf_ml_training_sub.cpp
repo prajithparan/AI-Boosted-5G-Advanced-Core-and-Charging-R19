@@ -6,8 +6,10 @@
 // trainable; 400 for a missing notifCorreId), PUT (200 / 404), PATCH merge-patch (200, a member
 // outside NwdafMLModelTrainSubscPatch is 400), DELETE (204 / 404), UnsubscribeInfo (204, 400
 // without termCause, 404), and the model notification + immReport (increment 2: a model record
-// is SEEDED in Valkey, there is no ADRF or trainer in this lab). It does NOT cover delayEventNotif,
-// statusReport, termTrainReq or any federated-learning behaviour: none exists yet (ADR-0471).
+// is SEEDED in Valkey, there is no ADRF or trainer in this lab). Increment 3 adds the FL round
+// driven through the MTLF (delayEventNotif only, no ADRF data). It does NOT cover the
+// model/status-report success path, termTrainReq or FL-server behaviour: none exists yet
+// (ADR-0471).
 
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -384,5 +386,114 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
     EXPECT_EQ(body.at("immReport").at("mLModelInfos").at(0).at("modelUniqueId"), 4242);
 
     redis->del("nwdaf:mlmodel:NF_LOAD");
+    purge_subscriptions_to_the_test_receiver(*redis);
+}
+
+// ADR-0471 increment 3, through the real MTLF: a subscription with an mlCorreId gets ONE
+// notification per roundInd. This lab has no ADRF, so the client has no local data and the sidecar
+// refuses to train (it never fabricates a window): every round must therefore be reported to the FL
+// Server as DelayEventNotif / ML_MODEL_TRAIN_FAILURE. The success path (interim model +
+// statusReport) needs ADRF data and is covered only at unit level (nwdaf_fl_client_tests).
+// Needs numpy in the interpreter named by NWDAF_TEST_PYTHON (default python3).
+TEST(NwdafMlTrainingSub, FlRoundIsReportedOncePerRoundIndAndSkipTrainsNothing) {
+    const std::string redis_url =
+        std::getenv("NWDAF_REDIS_URL") ? std::getenv("NWDAF_REDIS_URL") : "tcp://127.0.0.1:6379";
+    std::unique_ptr<sw::redis::Redis> redis;
+    try {
+        redis = std::make_unique<sw::redis::Redis>(redis_url);
+        redis->ping();
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "no Valkey at " << redis_url << " (" << e.what()
+                     << ") -- skipped, not passed";
+    }
+    const std::string python =
+        std::getenv("NWDAF_TEST_PYTHON") ? std::getenv("NWDAF_TEST_PYTHON") : "python3";
+    // Without numpy the sidecar fails for the wrong reason and the assertions below would pass
+    // anyway; skip instead of passing vacuously.
+    if (std::system((python + " -c 'import numpy' >/dev/null 2>&1").c_str()) != 0) {
+        GTEST_SKIP() << "numpy not importable by " << python << " -- skipped, not passed";
+    }
+    purge_subscriptions_to_the_test_receiver(*redis);
+
+    Receiver receiver;
+    auto c = make_client();
+    nf_test::SpawnedProcess nrf(NRF_PATH);
+    ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
+    setenv("NWDAF_ROLE", "mtlf", 1);
+    setenv("NWDAF_PORT", "7797", 1);
+    setenv("NWDAF_METRICS_BIND_ADDRESS", "0.0.0.0:9486", 1);
+    setenv("NWDAF_SELF_BASE_URL", kMtlf, 1);
+    setenv("NWDAF_MTLF_CHECK_INTERVAL_SECONDS", "2", 1);
+    setenv("NWDAF_TRAINING_PYTHON", python.c_str(), 1);
+    nf_test::SpawnedProcess mtlf(NWDAF_PATH);
+    for (const char* k : {"NWDAF_ROLE",
+                          "NWDAF_PORT",
+                          "NWDAF_METRICS_BIND_ADDRESS",
+                          "NWDAF_SELF_BASE_URL",
+                          "NWDAF_MTLF_CHECK_INTERVAL_SECONDS",
+                          "NWDAF_TRAINING_PYTHON"}) {
+        unsetenv(k);
+    }
+    ASSERT_TRUE(wait_up(c, std::string(kMtlf) + kRoot + "/subscriptions", 30s));
+    const auto tok = token(c);
+    ASSERT_FALSE(tok.empty());
+    const auto call = [&](const std::string& method,
+                          const std::string& path,
+                          const json* body,
+                          const char* type = "application/json") {
+        sbi_core::http2::ClientRequest req;
+        req.method = method;
+        req.url = std::string(kMtlf) + path;
+        req.headers.emplace("authorization", "Bearer " + tok);
+        if (body != nullptr) {
+            req.headers.emplace("content-type", type);
+            req.body = body->dump();
+        }
+        return c.send(req);
+    };
+
+    json sub = subscription();
+    sub["mlCorreId"] = "fl-itest";
+    sub["roundInd"] = 1;
+    auto r = call("POST", std::string(kRoot) + "/subscriptions", &sub);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 201) << r->body;
+    const auto loc = r->headers.find("location");
+    ASSERT_NE(loc, r->headers.end());
+    const std::string item = loc->second.substr(loc->second.find(kRoot));
+
+    ASSERT_TRUE(receiver.wait_for_count(1, 60s)) << "no FL round notification";
+    {
+        const auto note = receiver.notes().at(0);
+        EXPECT_EQ(note.callback, "Nnwdaf_MLModelTraining_myNotification");
+        EXPECT_EQ(note.body.at("notifCorreId"), "corr-1");
+        EXPECT_EQ(note.body.at("mlCorreId"), "fl-itest");
+        EXPECT_EQ(note.body.at("roundInd"), 1);
+        EXPECT_EQ(note.body.at("delayEventNotif").at("delayCause"), "ML_MODEL_TRAIN_FAILURE");
+        EXPECT_FALSE(note.body.contains("mLModelInfos")); // oneOf
+    }
+    // Same roundInd, several delivery ticks later: still exactly one notification.
+    std::this_thread::sleep_for(7s); // negative window: no event to wait for
+    EXPECT_EQ(receiver.notes().size(), 1U) << "the same round was reported again";
+
+    // A new roundInd (merge-patch) is a new round.
+    json patch = {{"roundInd", 2}};
+    r = call("PATCH", item, &patch, "application/merge-patch+json");
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 200) << r->body;
+    ASSERT_TRUE(receiver.wait_for_count(2, 60s)) << "no notification for round 2";
+    EXPECT_EQ(receiver.notes().at(1).body.at("roundInd"), 2);
+
+    // skipFlInd: the round is skipped, nothing is trained and nothing is sent.
+    patch = {{"roundInd", 3}, {"skipFlInd", true}};
+    r = call("PATCH", item, &patch, "application/merge-patch+json");
+    ASSERT_TRUE(r.has_value()) << r.error();
+    ASSERT_EQ(r->status, 200) << r->body;
+    std::this_thread::sleep_for(7s); // negative window
+    EXPECT_EQ(receiver.notes().size(), 2U) << "a skipped round sent a notification";
+
+    r = call("DELETE", item, nullptr);
+    ASSERT_TRUE(r.has_value()) << r.error();
+    EXPECT_EQ(r->status, 204) << r->body;
     purge_subscriptions_to_the_test_receiver(*redis);
 }
