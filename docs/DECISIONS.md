@@ -439,6 +439,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0471](decisions/ADR-0471-nwdaf-nnwdaf-mlmodeltraining-subscription-crud-now.md) NWDAF Nnwdaf_MLModelTraining: subscription CRUD now, federated-learning round logic as the next increments
 - [0472](decisions/ADR-0472-gui-nf-config-schemas-reviewed-yaml-overlay-replaces.md) GUI NF-config schemas: reviewed YAML overlay replaces example-inferred subtrees (PCF policy counters creatable with any session rule id)
 - [0473](decisions/ADR-0473-sbi-and-pfcp-bind-addresses-move-from-code-literals-to.md) SBI and PFCP bind addresses move from code literals to config/<nf>.json (sbi_bind_address, pfcp_bind_address)
+- [0474](decisions/ADR-0474-li-end-to-end-tests-keep-their-fixed-sleeps-they-are.md) LI end-to-end tests keep their fixed sleeps: they are negative-assertion windows
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
