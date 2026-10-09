@@ -934,6 +934,28 @@ int main() {
     ml_consumer.attach_monitor(&accuracy);
     nwdaf::MlConsumer* ml = (is_anlf && ml_consumer.enabled()) ? &ml_consumer : nullptr;
     nwdaf::SubprocessExecutor trainer(train_opts);
+    // ADR-0471 increment 3: the federated-learning client round (fl_local_round.py), enabled by
+    // config/nwdaf.json mtlf.fl_client.enabled. The interpreter and working directory are the
+    // trainer's; the script defaults to the one beside train_nf_load.py.
+    const auto& fl_cfg = mtlf_cfg.at("fl_client");
+    nwdaf::SubprocessFlRoundExecutorOptions fl_exec_opts;
+    fl_exec_opts.python = train_opts.python;
+    fl_exec_opts.workdir = train_opts.workdir;
+    fl_exec_opts.timeout = train_opts.timeout;
+    fl_exec_opts.script = nf_config::require<std::string>(fl_cfg, "script", "NWDAF_FL_SCRIPT");
+    if (fl_exec_opts.script.empty()) {
+        fl_exec_opts.script = NWDAF_TRAINING_DIR "/fl_local_round.py";
+    }
+    nwdaf::FlClientOptions fl_opts;
+    fl_opts.epochs = nf_config::require<int>(fl_cfg, "epochs", "NWDAF_FL_EPOCHS");
+    fl_opts.learning_rate =
+        nf_config::require<double>(fl_cfg, "learning_rate", "NWDAF_FL_LEARNING_RATE");
+    fl_opts.accuracy_tolerance =
+        nf_config::require<double>(fl_cfg, "accuracy_tolerance", "NWDAF_FL_ACCURACY_TOLERANCE");
+    fl_opts.default_max_response = std::chrono::seconds(nf_config::require<std::int64_t>(
+        fl_cfg, "default_max_response_seconds", "NWDAF_FL_DEFAULT_MAX_RESPONSE_SECONDS"));
+    const bool fl_enabled = nf_config::require<bool>(fl_cfg, "enabled", "NWDAF_FL_CLIENT_ENABLED");
+    nwdaf::SubprocessFlRoundExecutor fl_executor(fl_exec_opts);
     nwdaf::Mtlf mtlf(mtlf_opts,
                      client,
                      client_mutex,
@@ -943,6 +965,9 @@ int main() {
                      verifier,
                      ml_store,
                      trainer);
+    if (fl_enabled) {
+        mtlf.set_fl_client(fl_executor, fl_opts);
+    }
 
     auto meter = sbi_core::get_meter("nwdaf");
     auto analytics_counter = meter->CreateUInt64Counter("nwdaf_analytics_requests_total",

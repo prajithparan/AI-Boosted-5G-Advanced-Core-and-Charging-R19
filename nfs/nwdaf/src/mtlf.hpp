@@ -42,6 +42,7 @@
 #include <string>
 #include <vector>
 
+#include "fl_client.hpp"
 #include "ml_store.hpp"
 #include "training_executor.hpp"
 
@@ -76,6 +77,13 @@ public:
          MlStore& store,
          TrainingExecutor& executor);
 
+    // Enables the federated-learning client (ADR-0471 increment 3). Without it a subscription with
+    // an mlCorreId is handled like any training subscription (the trained model is notified).
+    void set_fl_client(FlRoundExecutor& executor, FlClientOptions options) {
+        fl_executor_ = &executor;
+        fl_options_ = options;
+    }
+
     void install_routes(sbi_core::http2::Server& server);
     // Nnwdaf_MLModelTraining subscription CRUD (ADR-0471); called by install_routes.
     void install_training_routes(sbi_core::http2::Server& server);
@@ -107,6 +115,8 @@ private:
     void deliver(const std::string& sub_id, nlohmann::json sub);
     // Nnwdaf_MLModelTraining_Notify with the trained model (ADR-0471, increment 2).
     void deliver_training(const std::string& sub_id, nlohmann::json sub);
+    // One FL round for a subscription carrying an mlCorreId, once per roundInd (fl_client.hpp).
+    void deliver_fl_round(const std::string& sub_id, nlohmann::json sub);
     // The immediate report of a training subscription (immReport), when asked and available.
     nlohmann::json training_representation(const nlohmann::json& sub) const;
     nlohmann::json event_notif(const std::string& event,
@@ -128,6 +138,8 @@ private:
     sbi_core::jwt::Verifier& verifier_;
     MlStore& store_;
     TrainingExecutor& executor_;
+    FlRoundExecutor* fl_executor_ = nullptr;
+    FlClientOptions fl_options_;
     std::string adrf_base_cached_;
     std::string adrf_id_cached_;
     sbi_core::OAuth2Client oauth_anlf_monitor_;

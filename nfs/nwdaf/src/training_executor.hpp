@@ -57,4 +57,42 @@ private:
     SubprocessExecutorOptions options_;
 };
 
+// Federated-learning client step (ADR-0471 increment 3): one local round of the linear model
+// from the sidecar's fl_local_round.py, starting from the FL Server's global model.
+struct FlRoundJob {
+    std::string event;
+    nlohmann::json dataset;      // same document as TrainingJob::dataset (the "series")
+    nlohmann::json global_model; // null = start from zeros
+    int epochs = 0;
+    double learning_rate = 0;
+    double accuracy_tolerance = 0;
+};
+
+struct FlRoundResult {
+    nlohmann::json model;  // linear-fl-v1 local model
+    nlohmann::json report; // n_samples, accuracy_global_pct, accuracy_local_pct, loss, ...
+};
+
+class FlRoundExecutor {
+public:
+    virtual ~FlRoundExecutor() = default;
+    virtual tl::expected<FlRoundResult, std::string> train_round(const FlRoundJob& job) = 0;
+};
+
+struct SubprocessFlRoundExecutorOptions {
+    std::string python;
+    std::string script; // absolute path of fl_local_round.py
+    std::string workdir;
+    std::chrono::seconds timeout{600};
+};
+
+class SubprocessFlRoundExecutor final : public FlRoundExecutor {
+public:
+    explicit SubprocessFlRoundExecutor(SubprocessFlRoundExecutorOptions options);
+    tl::expected<FlRoundResult, std::string> train_round(const FlRoundJob& job) override;
+
+private:
+    SubprocessFlRoundExecutorOptions options_;
+};
+
 } // namespace nwdaf

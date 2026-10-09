@@ -583,6 +583,10 @@ json Mtlf::event_notif(const std::string& event,
 // (modelUpdateInd). Delay, status-report and termination notifications belong to the
 // federated-learning increments and are not sent (ADR-0471).
 void Mtlf::deliver_training(const std::string& sub_id, json sub) {
+    if (fl_executor_ != nullptr && sub.at("request").contains("mlCorreId")) {
+        deliver_fl_round(sub_id, std::move(sub));
+        return;
+    }
     json infos = json::array();
     json delivered = sub.value("delivered", json::object());
     for (const auto& es : sub.at("request").value("mLEventSubscs", json::array())) {
@@ -626,6 +630,58 @@ void Mtlf::deliver_training(const std::string& sub_id, json sub) {
                      req.url,
                      status);
     }
+}
+
+// One federated-learning round (TS 23.288 6.2C.2.2 steps 3-4, TS 29.520): run once per roundInd,
+// then notify the FL Server with the interim model or a DelayEventNotif. The round is bookkept
+// in the subscription ("flRoundDone"), so a re-delivery tick does not train the same round twice.
+// Simplification: the round runs on the delivery loop's thread, so a long round delays the other
+// deliveries of that tick (bounded by training.timeout_seconds).
+void Mtlf::deliver_fl_round(const std::string& sub_id, json sub) {
+    const auto& request = sub.at("request");
+    const auto round = request.value("roundInd", std::int64_t(0));
+    if (sub.value("flRoundDone", std::int64_t(-1)) == round) {
+        return;
+    }
+    std::string event;
+    for (const auto& es : request.value("mLEventSubscs", json::array())) {
+        event = es.value("mLEvent", "");
+        break;
+    }
+    std::int64_t windows = 0;
+    const auto dataset = training_dataset(event, windows);
+    const auto outcome = run_fl_round(request, dataset, *fl_executor_, fl_options_);
+    spdlog::info("nwdaf-mtlf: FL round {} of {} for {}: {} ({})",
+                 round,
+                 request.value("mlCorreId", ""),
+                 event,
+                 static_cast<int>(outcome.kind),
+                 outcome.detail);
+    if (!outcome.notification.is_null()) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = request.at("notifUri").get<std::string>();
+        req.headers.emplace("content-type", "application/json");
+        req.headers.emplace(sbi_core::headers::kCallback, kTrainingCallback);
+        req.body = outcome.notification.dump();
+        long status = -1;
+        {
+            const std::lock_guard<std::mutex> lock(client_mutex_);
+            if (auto resp = client_.send(req); resp) {
+                status = resp->status;
+            }
+        }
+        if (status < 200 || status >= 300) {
+            spdlog::warn("nwdaf-mtlf: FL notification for {} to {} failed ({}); round {} retried",
+                         sub_id,
+                         req.url,
+                         status,
+                         round);
+            return; // the round is retried on the next tick
+        }
+    }
+    sub["flRoundDone"] = round;
+    store_.replace_training_subscription(sub_id, sub);
 }
 
 json Mtlf::training_representation(const json& sub) const {

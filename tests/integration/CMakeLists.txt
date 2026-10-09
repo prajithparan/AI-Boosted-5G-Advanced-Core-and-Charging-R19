@@ -177,6 +177,19 @@ target_compile_definitions(nwdaf_ml_training_sub_integration_tests PRIVATE
 )
 gtest_discover_tests(nwdaf_ml_training_sub_integration_tests PROPERTIES TIMEOUT 200)
 
+# ADR-0471 increment 3: the FL client round logic. Compiles nfs/nwdaf's fl_client.cpp and
+# training_executor.cpp directly (the NWDAF is an executable, not a library); no ports, no NFs.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+add_executable(nwdaf_fl_client_tests test_nwdaf_fl_client.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/fl_client.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/training_executor.cpp)
+target_include_directories(nwdaf_fl_client_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src)
+target_link_libraries(nwdaf_fl_client_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(nwdaf_fl_client_tests PRIVATE
+    NWDAF_TRAINING_DIR="${CMAKE_SOURCE_DIR}/nfs/nwdaf/training"
+    FL_PYTHON="${Python3_EXECUTABLE}")
+gtest_discover_tests(nwdaf_fl_client_tests PROPERTIES TIMEOUT 120)
+
 # ADR-0372: the LI_X2/LI_X3 delivery client over real OpenSSL mTLS. Its own binary -- it needs no
 # NF processes (an in-process loopback TLS server stands in for the MDF), only li_core, OpenSSL,
 # and the lab certs. Binds an ephemeral port, so it does not collide with CI's fixed test ports.

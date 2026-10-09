@@ -76,7 +76,15 @@
     "retrain_interval_seconds": 0,
     "training_lease_seconds": 900,
     "accuracy_threshold": 80,
-    "retrain_cooldown_seconds": 60
+    "retrain_cooldown_seconds": 60,
+    "fl_client": {
+      "enabled": true,
+      "script": "",
+      "epochs": 200,
+      "learning_rate": 0.1,
+      "accuracy_tolerance": 10.0,
+      "default_max_response_seconds": 300
+    }
   },
   "training": {
     "python": "",

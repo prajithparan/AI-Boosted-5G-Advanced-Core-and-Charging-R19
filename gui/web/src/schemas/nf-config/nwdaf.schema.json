@@ -231,6 +231,30 @@
         },
         "retrain_cooldown_seconds": {
           "type": "integer"
+        },
+        "fl_client": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "script": {
+              "type": "string"
+            },
+            "epochs": {
+              "type": "integer"
+            },
+            "learning_rate": {
+              "type": "number"
+            },
+            "accuracy_tolerance": {
+              "type": "number"
+            },
+            "default_max_response_seconds": {
+              "type": "integer"
+            }
+          }
         }
       }
     },
@@ -328,6 +352,7 @@
     "ml_model_provision: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "ml_model_provision.nf_types: empty array, item type unknown",
     "mtlf: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "mtlf.fl_client: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "training: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "accuracy_monitoring: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "smf_base_url: present in the file but no source line visibly reads it",
@@ -335,8 +360,12 @@
     "accuracy_tolerance: read with require<> but absent from the file (env-only?)",
     "check_interval_seconds: read with require<> but absent from the file (env-only?)",
     "data_set_id: read with require<> but absent from the file (env-only?)",
+    "default_max_response_seconds: read with require<> but absent from the file (env-only?)",
     "default_threshold: read with require<> but absent from the file (env-only?)",
+    "enabled: read with require<> but absent from the file (env-only?)",
+    "epochs: read with require<> but absent from the file (env-only?)",
     "holder_heartbeat_seconds: read with require<> but absent from the file (env-only?)",
+    "learning_rate: read with require<> but absent from the file (env-only?)",
     "max_collected_events: read with require<> but absent from the file (env-only?)",
     "min_inferences: read with require<> but absent from the file (env-only?)",
     "min_report_interval_seconds: read with require<> but absent from the file (env-only?)",
