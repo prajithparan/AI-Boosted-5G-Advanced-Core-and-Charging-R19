@@ -90,12 +90,23 @@ FROM ubuntu:24.04 AS runtime
 # falls back to "PFCP control-plane signalling still works, but no uplink packet will actually be
 # decapsulated/forwarded". Running the datapath also needs capabilities this image cannot grant
 # itself: see the `upf` service in docker-compose.yml (cap_add) and deploy/helm/upf.
+# libxml2: the UPF links li_core (its LI POI, config/upf.json li_poi), which validates X1 documents
+# with libxml2 at runtime -- same as the AMF image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openssl ca-certificates libbpf1 libelf1 libcap2 iproute2 \
+    openssl ca-certificates libbpf1 libelf1 libcap2 iproute2 libxml2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY --from=builder /build/build/nfs/upf/upf /build/upf
+# li_core: found through the binary's build-tree RPATH, so it must sit at the same absolute path, and
+# it carries LI_ETSI_SCHEMA_DIR=/build/specs/etsi as a compile-time path (same two additions as
+# amf.Dockerfile and li-mdf.Dockerfile). The first container run of this image failed with
+# "libli_core.so: cannot open shared object file" (exit 127) without them.
+COPY --from=builder /build/build/libs/li-core/libli_core.so /build/build/libs/li-core/
+COPY --from=builder /build/specs/etsi /build/specs/etsi
+# x1-validation.xsd imports the 3GPP X1 extension schema from ../../3gpp/33128-attachments (ADR-0440).
+COPY --from=builder /build/specs/3gpp/33128-attachments/urn_3GPP_ns_li_3GPPX1Extensions.xsd \
+     /build/specs/3gpp/33128-attachments/
 # GTPU_BPF_OBJ_PATH is an absolute compile-time path (nfs/upf/CMakeLists.txt: the object's location
 # in the BUILD tree), so the object must sit at the same absolute path in this image.
 COPY --from=builder /build/build/nfs/upf/gtpu_decap.bpf.o /build/build/nfs/upf/gtpu_decap.bpf.o

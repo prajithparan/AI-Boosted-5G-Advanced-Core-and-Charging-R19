@@ -18,7 +18,7 @@ services:
     entrypoint:
       - /bin/bash
       - -c
-      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-mdf3 li-admf udsf keycloak oam-gui-bff"
+      - "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl >/dev/null && ./scripts/gen-lab-pki.sh nrf amf smf udm udr ausf pcf nssf bsf nef scp eir nsacf smsf gmlc lmf product-catalog balance-management chf subscriber-management roaming-interconnect nwdaf mfaf dccf adrf li-mdf li-mdf3 li-admf udsf keycloak oam-gui-bff upf"
 
   nrf:
     build:
@@ -97,7 +97,7 @@ services:
   # target needs DAC_OVERRIDE, loading XDP needs BPF + PERFMON); without them the UPF still starts and
   # serves PFCP, and logs that the datapath was not started. config/upf.json `advertised_ipv4: auto`
   # makes it register the address it uses to reach the NRF (this container's own), which is what the SMF
-  # sends PFCP to. Not yet run in Compose (image not built).
+  # sends PFCP to. First container run 2026-10-09: see ADR-0466 (libli_core, pki-init cert, datapath caps).
   upf:
     build:
       context: ../..
