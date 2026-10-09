@@ -115,6 +115,10 @@ services:
       - DAC_OVERRIDE
       - BPF
       - PERFMON
+    # ADR-0466: `ip netns add` needs mounts Docker's default AppArmor profile denies. Default keeps
+    # today's behaviour; after `scripts/apparmor/load-upf-profile.sh` set UPF_APPARMOR_PROFILE=5gc-upf.
+    security_opt:
+      - apparmor=${UPF_APPARMOR_PROFILE:-docker-default}
     volumes:
       - certs_data:/build/certs
       # ADR-0453 (mandatory, DoD item 7): config/upf.json is not in the image.

@@ -10,6 +10,10 @@ service:
 securityContext:
   capabilities:
     add: [NET_ADMIN, SYS_ADMIN, DAC_OVERRIDE, BPF, PERFMON]
+  # ADR-0466: to let `ip netns add` mount, load deploy/apparmor/5gc-upf on every node and set
+  # appArmorProfile: {type: Localhost, localhostProfile: 5gc-upf}. Default = runtime default.
+  appArmorProfile:
+    type: RuntimeDefault
 
 # Rendered to /build/config/upf.json (the image does not contain it -- ADR-0453). Same keys as
 # config/upf.json in the repository; `nrf_base_url` points at the in-cluster NRF Service.

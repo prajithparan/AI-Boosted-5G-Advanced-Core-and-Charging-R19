@@ -1,0 +1,44 @@
+# AppArmor profile for the UPF container (ADR-0466, user-approved option b, 2026-10-09).
+# Derived from the shape of Docker's runtime-default profile (network, capabilities, files, the
+# usual /proc and /sys write denials) plus ONLY the mounts `ip netns add` performs:
+#   mount --bind /run/netns /run/netns ; mount --make-shared /run/netns ;
+#   mount --bind /proc/self/ns/net /run/netns/<name> ; umount of /run/netns/<name>.
+# NOT yet loaded or exercised: loading needs root (`sudo scripts/apparmor/load-upf-profile.sh`).
+# If the UPF datapath still fails with the profile loaded, read `dmesg | grep DENIED` and add
+# the exact missing rule -- do not widen to a blanket `mount,`.
+#include <tunables/global>
+
+profile 5gc-upf flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+
+  mount options=(rw, bind)    /run/netns/ -> /run/netns/,
+  mount options=(rw, rbind)   /run/netns/ -> /run/netns/,
+  mount options=(rw, rshared) -> /run/netns/,
+  mount options=(rw, shared)  -> /run/netns/,
+  mount options=(rw, bind)    /proc/*/ns/net -> /run/netns/*,
+  mount options=(rw, bind)    /proc/*/task/*/ns/net -> /run/netns/*,
+
+  deny @{PROC}/* w,
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
+  deny @{PROC}/sys/[^k]** w,
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # eBPF/XDP datapath (bpf(2) is gated by capabilities BPF/PERFMON, granted in Compose/Helm).
+  # bpffs for pinned maps.
+  mount fstype=bpf,
+}
