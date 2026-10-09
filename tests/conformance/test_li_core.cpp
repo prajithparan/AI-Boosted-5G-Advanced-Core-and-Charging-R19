@@ -638,3 +638,35 @@ TEST(Xiri, AmfIdentifierDeassociationRoundTripsWithAndWithoutLocation) {
     ASSERT_TRUE(with_loc_decoded.has_value()) << with_loc_decoded.error();
     EXPECT_EQ(std::get<xiri::AmfIdentifierDeassociation>(with_loc_decoded->event), deassoc);
 }
+
+// ADR-0475 slice 1: UDMServingSystemMessage (TS 33.128 7.2.2.3, event 1 of the approved UDM list).
+TEST(Xiri, UdmServingSystemMessageRoundTripsMandatoryOnlyAndWithOptionalMembers) {
+    xiri::UdmServingSystemMessage minimal;
+    minimal.supi = xiri::Imsi{"001010000000001"};
+    minimal.serving_system_method = xiri::UdmServingSystemMethod::Amf3GppAccessRegistration;
+    auto enc = xiri::encode_xiri_payload(minimal);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(std::holds_alternative<xiri::UdmServingSystemMessage>(dec->event));
+    EXPECT_EQ(std::get<xiri::UdmServingSystemMessage>(dec->event), minimal);
+
+    xiri::UdmServingSystemMessage full = minimal;
+    full.serving_system_method = xiri::UdmServingSystemMethod::AmfNon3GppAccessRegistration;
+    full.pei = xiri::Imeisv{"1234567890123456"};
+    full.gpsi = xiri::Msisdn{"491701234567"};
+    full.plmn_id = xiri::Plmnid{"001", "01"};
+    full.roaming_indicator = true;
+    auto enc2 = xiri::encode_xiri_payload(full);
+    ASSERT_TRUE(enc2.has_value()) << enc2.error();
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value()) << dec2.error();
+    EXPECT_EQ(std::get<xiri::UdmServingSystemMessage>(dec2->event), full);
+}
+
+TEST(Xiri, UdmServingSystemMessageRejectsMalformedPlmn) {
+    xiri::UdmServingSystemMessage bad;
+    bad.supi = xiri::Imsi{"001010000000001"};
+    bad.plmn_id = xiri::Plmnid{"00", "01"};
+    EXPECT_FALSE(xiri::encode_xiri_payload(bad).has_value());
+}

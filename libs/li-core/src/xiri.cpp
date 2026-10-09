@@ -1148,6 +1148,80 @@ tl::expected<SmfUnsuccessfulProcedure, std::string> extract(const SMFUnsuccessfu
     return u;
 }
 
+tl::expected<void, std::string> fill(UDMServingSystemMessage_t& out,
+                                     const UdmServingSystemMessage& src) {
+    out.servingSystemMethod = static_cast<long>(src.serving_system_method);
+    if (auto r = fill_supi(out.sUPI, src.supi); !r) {
+        return r;
+    }
+    if (src.pei) {
+        out.pEI = alloc_optional<PEI_t>();
+        if (out.pEI == nullptr) {
+            return tl::unexpected("PEI allocation failed");
+        }
+        if (auto r = fill_pei(*out.pEI, *src.pei); !r) {
+            return r;
+        }
+    }
+    if (src.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        if (auto r = fill_gpsi(*out.gPSI, *src.gpsi); !r) {
+            return r;
+        }
+    }
+    if (src.plmn_id) {
+        out.pLMNID = alloc_optional<PLMNID_t>();
+        if (out.pLMNID == nullptr) {
+            return tl::unexpected("PLMNID allocation failed");
+        }
+        if (auto r = fill_plmnid(*out.pLMNID, *src.plmn_id); !r) {
+            return r;
+        }
+    }
+    if (src.roaming_indicator) {
+        out.roamingIndicator = alloc_optional<RoamingIndicator_t>();
+        if (out.roamingIndicator == nullptr) {
+            return tl::unexpected("RoamingIndicator allocation failed");
+        }
+        *out.roamingIndicator = *src.roaming_indicator ? 1 : 0;
+    }
+    return {};
+}
+
+tl::expected<UdmServingSystemMessage, std::string> extract(const UDMServingSystemMessage_t& src) {
+    UdmServingSystemMessage out;
+    out.serving_system_method = static_cast<UdmServingSystemMethod>(src.servingSystemMethod);
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    if (src.pEI != nullptr) {
+        auto pei = extract_pei(*src.pEI);
+        if (!pei) {
+            return tl::unexpected(pei.error());
+        }
+        out.pei = *pei;
+    }
+    if (src.gPSI != nullptr) {
+        auto gpsi = extract_gpsi(*src.gPSI);
+        if (!gpsi) {
+            return tl::unexpected(gpsi.error());
+        }
+        out.gpsi = *gpsi;
+    }
+    if (src.pLMNID != nullptr) {
+        out.plmn_id = extract_plmnid(*src.pLMNID);
+    }
+    if (src.roamingIndicator != nullptr) {
+        out.roaming_indicator = *src.roamingIndicator != 0;
+    }
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1184,6 +1258,9 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, AmfIdentifierDeassociation>) {
                 payload->event.present = XIRIEvent_PR_aMFIdentifierDeassociation;
                 return fill(payload->event.choice.aMFIdentifierDeassociation, variant_event);
+            } else if constexpr (std::is_same_v<T, UdmServingSystemMessage>) {
+                payload->event.present = XIRIEvent_PR_servingSystemMessage;
+                return fill(payload->event.choice.servingSystemMessage, variant_event);
             } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
                 payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
                 return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
@@ -1296,6 +1373,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
                 return tl::unexpected(deassoc.error());
             }
             out.event = *deassoc;
+            return out;
+        }
+        case XIRIEvent_PR_servingSystemMessage: {
+            auto udm = extract(payload->event.choice.servingSystemMessage);
+            if (!udm) {
+                return tl::unexpected(udm.error());
+            }
+            out.event = *udm;
             return out;
         }
         case XIRIEvent_PR_pDUSessionEstablishment: {
