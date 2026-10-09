@@ -2,6 +2,7 @@
   "port": 7804,
   "advertised_ipv4": "127.0.0.1",
   "self_base_url": "https://127.0.0.1:7804",
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9490",
   "nrf_base_url": "https://127.0.0.1:7777",
   "redis_url": "tcp://127.0.0.1:6379",

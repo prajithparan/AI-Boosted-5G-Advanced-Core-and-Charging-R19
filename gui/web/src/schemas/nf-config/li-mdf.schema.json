@@ -15,6 +15,11 @@
       "x-env-override": "LI_MDF_X2X3_PORT",
       "x-cpp-type": "std::uint16_t"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "LI_MDF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "LI_MDF_METRICS_BIND_ADDRESS",
@@ -107,6 +112,7 @@
     "metrics_bind_address",
     "ne_identifier",
     "redis_url",
+    "sbi_bind_address",
     "x1_port",
     "x2x3_port"
   ],

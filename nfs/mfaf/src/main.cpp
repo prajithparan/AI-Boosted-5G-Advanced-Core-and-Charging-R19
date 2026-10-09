@@ -310,6 +310,8 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port", "MFAF_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "MFAF_METRICS_BIND_ADDRESS");
+    const auto sbi_bind_address =
+        nf_config::require<std::string>(config, "sbi_bind_address", "MFAF_SBI_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "MFAF_NRF_BASE_URL");
     const auto advertised_ipv4 =
@@ -388,7 +390,7 @@ int main() {
     const std::string fetch_uri = self_base + kInboundPrefix + "/fetch";
 
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
     if (const auto tps_limit = sbi_core::read_tps_limit(config); tps_limit.enabled()) {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }

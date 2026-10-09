@@ -10,6 +10,11 @@
       "x-env-override": "CHF_PORT",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "CHF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "CHF_METRICS_BIND_ADDRESS",
@@ -152,7 +157,8 @@
     "quota_model_path",
     "rating_database_url",
     "rating_db_pool_size",
-    "redis_url"
+    "redis_url",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/chf.json",
   "x-source": [

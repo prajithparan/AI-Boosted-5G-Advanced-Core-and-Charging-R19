@@ -15,6 +15,11 @@
       "x-env-override": "MFAF_ADVERTISED_IPV4",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "MFAF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "MFAF_METRICS_BIND_ADDRESS",
@@ -78,7 +83,8 @@
     "nrf_base_url",
     "nrf_heartbeat_seconds",
     "port",
-    "redis_url"
+    "redis_url",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/mfaf.json",
   "x-source": [

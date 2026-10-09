@@ -1,6 +1,7 @@
 {
   "port": 7779,
   "upf_pfcp_port": 8805,
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9466",
   "nrf_base_url": "https://127.0.0.1:7777",
   "self_base_url": "https://127.0.0.1:7779",

@@ -435,7 +435,8 @@
   "ADR-0469-ci-skip-build-and-sanitizer-jobs-for-docs-only-changes-lint.md",
   "ADR-0470-nwdaf-optional-llm-extension-seam-out-of-scope-now-plug-in.md",
   "ADR-0471-nwdaf-nnwdaf-mlmodeltraining-subscription-crud-now.md",
-  "ADR-0472-gui-nf-config-schemas-reviewed-yaml-overlay-replaces.md"
+  "ADR-0472-gui-nf-config-schemas-reviewed-yaml-overlay-replaces.md",
+  "ADR-0473-sbi-and-pfcp-bind-addresses-move-from-code-literals-to.md"
  ],
  "split_commit": "0530e4f"
 }

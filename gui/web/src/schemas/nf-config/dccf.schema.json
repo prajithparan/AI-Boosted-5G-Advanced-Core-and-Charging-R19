@@ -15,6 +15,11 @@
       "x-env-override": "DCCF_ADVERTISED_IPV4",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "DCCF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "DCCF_METRICS_BIND_ADDRESS",
@@ -72,6 +77,7 @@
     "nwdaf_base_url",
     "port",
     "redis_url",
+    "sbi_bind_address",
     "user_consent_policy"
   ],
   "x-config-file": "config/dccf.json",

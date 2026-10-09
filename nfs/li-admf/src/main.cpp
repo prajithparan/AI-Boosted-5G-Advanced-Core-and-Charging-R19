@@ -51,6 +51,8 @@ int main() {
     const auto hi1_port = nf_config::require<std::uint16_t>(config, "hi1_port", "LI_ADMF_HI1_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "LI_ADMF_METRICS_BIND_ADDRESS");
+    const auto sbi_bind_address =
+        nf_config::require<std::string>(config, "sbi_bind_address", "LI_ADMF_SBI_BIND_ADDRESS");
     const auto database_url =
         nf_config::require<std::string>(config, "database_url", "LI_ADMF_DATABASE_URL");
     const auto pool_size =
@@ -163,7 +165,7 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", hi1_port, tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, hi1_port, tls);
     for (const char* path : kHi1Paths) {
         server.add_route("POST", path, [&, path](const sbi_core::http2::Request& request) {
             requests->Add(1);

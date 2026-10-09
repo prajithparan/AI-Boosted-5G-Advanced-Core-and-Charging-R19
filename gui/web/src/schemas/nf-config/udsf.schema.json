@@ -15,6 +15,11 @@
       "x-env-override": "UDSF_ADVERTISED_IPV4",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "UDSF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "UDSF_METRICS_BIND_ADDRESS",
@@ -96,6 +101,7 @@
     "port",
     "redis_pool_size",
     "redis_url",
+    "sbi_bind_address",
     "storages"
   ],
   "x-config-file": "config/udsf.json",

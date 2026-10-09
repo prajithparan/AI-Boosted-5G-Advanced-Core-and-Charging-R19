@@ -1,6 +1,7 @@
 {
   "port": 7797,
   "advertised_ipv4": "127.0.0.1",
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9484",
   "nrf_base_url": "https://127.0.0.1:7777",
   "eac_activation_percent": 80,

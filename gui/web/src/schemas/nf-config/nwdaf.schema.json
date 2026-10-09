@@ -15,6 +15,11 @@
       "x-env-override": "NWDAF_ADVERTISED_IPV4",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "NWDAF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "NWDAF_METRICS_BIND_ADDRESS",
@@ -307,6 +312,7 @@
     "port",
     "redis_url",
     "role",
+    "sbi_bind_address",
     "self_base_url",
     "user_consent_policy"
   ],

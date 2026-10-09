@@ -1,5 +1,6 @@
 {
   "port": 7783,
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9470",
   "nrf_base_url": "https://127.0.0.1:7777",
   "udr_base_url": "https://127.0.0.1:7781",

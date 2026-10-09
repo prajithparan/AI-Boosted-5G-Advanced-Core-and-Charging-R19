@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -25,7 +29,8 @@
   "required": [
     "metrics_bind_address",
     "nrf_base_url",
-    "port"
+    "port",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/smsf.json",
   "x-source": [

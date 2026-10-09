@@ -1,5 +1,6 @@
 {
   "port": 7781,
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9468",
   "nrf_base_url": "https://127.0.0.1:7777",
   "database_url": "postgresql://udr:udr@localhost:5437/udr",

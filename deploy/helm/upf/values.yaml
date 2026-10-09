@@ -16,6 +16,8 @@ securityContext:
 config:
   port: 7796
   pfcp_bind_port: 8805
+  pfcp_bind_address: "0.0.0.0"
+  sbi_bind_address: "0.0.0.0"
   metrics_bind_address: "0.0.0.0:9471"
   nrf_base_url: "https://nrf:7777"
   # "auto": the address this pod uses to reach the NRF (ADR-0466) -- the pod IP, which is what the SMF must

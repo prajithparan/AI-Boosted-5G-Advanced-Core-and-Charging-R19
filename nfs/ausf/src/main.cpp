@@ -212,6 +212,7 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AUSF_NRF_BASE_URL");
     const auto udm_base =
@@ -277,7 +278,7 @@ int main() {
 
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -1055,7 +1056,7 @@ int main() {
     std::thread(run_nrf_lifecycle, ausf_instance_id, nrf_base).detach();
 
     server.start();
-    spdlog::info("ausf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("ausf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("ausf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     return 0;

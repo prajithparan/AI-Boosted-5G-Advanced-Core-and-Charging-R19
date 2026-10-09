@@ -683,6 +683,8 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port", "NWDAF_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "NWDAF_METRICS_BIND_ADDRESS");
+    const auto sbi_bind_address =
+        nf_config::require<std::string>(config, "sbi_bind_address", "NWDAF_SBI_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "NWDAF_NRF_BASE_URL");
     const auto advertised_ipv4 =
@@ -995,7 +997,7 @@ int main() {
         &ee_state);
 
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
     // real; the federated-training coordination the subscriptions would drive is Phase D
@@ -2180,7 +2182,7 @@ int main() {
     });
 
     server.start();
-    spdlog::info("nwdaf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("nwdaf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("nwdaf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     running = false;

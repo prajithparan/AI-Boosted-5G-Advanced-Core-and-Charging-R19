@@ -314,6 +314,7 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
 
     sbi_core::init_logging("nrf");
     sbi_core::init_tracing("nrf");
@@ -446,7 +447,7 @@ int main() {
     // since Docker's port mapping targets the container's external interface, not its loopback.
     // See docs/DECISIONS.md ADR-0014. Still reachable at 127.0.0.1 for anything running on the
     // same host/network namespace (hello-nf's local dev usage is unaffected).
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -888,7 +889,7 @@ int main() {
                      });
 
     server.start();
-    spdlog::info("nrf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("nrf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("nrf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     return 0;

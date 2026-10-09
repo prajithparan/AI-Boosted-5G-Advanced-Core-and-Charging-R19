@@ -419,6 +419,7 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
 // AMF's own NGAP thread (ADR-0030/ADR-0031) -- blocks forever via its own ioc.run(), never
 // returns.
 void run_sbi_server(unsigned short port,
+                    std::string sbi_bind_address,
                     upf::EventSubscriptionStore& event_subs,
                     sbi_core::TpsLimitConfig tps_limit) {
     sbi_core::http2::TlsConfig server_tls{
@@ -441,7 +442,7 @@ void run_sbi_server(unsigned short port,
 
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as every other NF's own bind (ADR-0014).
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -558,7 +559,8 @@ void run_sbi_server(unsigned short port,
         });
 
     server.start();
-    spdlog::info("upf: SBI server listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info(
+        "upf: SBI server listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     sbi_core::run_multi_threaded(ioc); // blocks forever
 }
 
@@ -1503,8 +1505,19 @@ void run_pfcp_lifecycle(std::time_t start_time,
                         SeidToTeidStore& seid_to_teid_store,
                         upf::UpfLiPoi* li_poi,
                         std::uint16_t pfcp_bind_port,
+                        const std::string& pfcp_bind_address,
                         const upf::Ipv4& node_ipv4) {
     boost::asio::io_context ioc;
+    // pfcp_bind_address (config/upf.json `pfcp_bind_address`, env UPF_PFCP_BIND_ADDRESS): the local
+    // IPv4 PFCP listens on; 0.0.0.0 means every interface. An unparsable value is fatal at start.
+    boost::system::error_code bind_ec;
+    const auto pfcp_bind_ip = boost::asio::ip::make_address_v4(pfcp_bind_address, bind_ec);
+    if (bind_ec) {
+        spdlog::critical("upf: pfcp_bind_address '{}' is not an IPv4 address: {}",
+                         pfcp_bind_address,
+                         bind_ec.message());
+        std::exit(1);
+    }
     // ADR-0357: this is the thread main() blocks in, and it blocks in a SYNCHRONOUS receive_from
     // below, which ioc.stop() cannot interrupt -- the io_context here only constructs the socket.
     // So the shutdown callback raises a flag and sends the socket one datagram from the loopback:
@@ -1512,23 +1525,28 @@ void run_pfcp_lifecycle(std::time_t start_time,
     // by watching UPF log "signal 15 received" and then sit in __skb_wait_for_more_packets until
     // SIGKILL.
     std::atomic<bool> stop_requested{false};
-    sbi_core::on_shutdown_signal([&stop_requested, pfcp_bind_port] {
+    sbi_core::on_shutdown_signal([&stop_requested, pfcp_bind_port, pfcp_bind_ip] {
         stop_requested.store(true);
         try {
             boost::asio::io_context nudge_ioc;
             boost::asio::ip::udp::socket nudge(nudge_ioc, boost::asio::ip::udp::v4());
             const std::uint8_t zero = 0;
             nudge.send_to(boost::asio::buffer(&zero, 1),
-                          boost::asio::ip::udp::endpoint(boost::asio::ip::make_address("127.0.0.1"),
-                                                         pfcp_bind_port));
+                          boost::asio::ip::udp::endpoint(
+                              // Loopback reaches a socket bound to every interface; a socket bound
+                              // to one address is only reachable at that address.
+                              pfcp_bind_ip.is_unspecified()
+                                  ? boost::asio::ip::make_address_v4("127.0.0.1")
+                                  : pfcp_bind_ip,
+                              pfcp_bind_port));
         } catch (const std::exception&) {
             // Nothing useful to do during shutdown; the flag alone ends the loop on the next
             // packet.
         }
     });
     boost::asio::ip::udp::socket socket(
-        ioc, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), pfcp_bind_port));
-    spdlog::info("upf: listening for PFCP/N4 (UDP) on 0.0.0.0:{}", pfcp_bind_port);
+        ioc, boost::asio::ip::udp::endpoint(pfcp_bind_ip, pfcp_bind_port));
+    spdlog::info("upf: listening for PFCP/N4 (UDP) on {}:{}", pfcp_bind_address, pfcp_bind_port);
 
     // ADR-0466: the PFCP Node ID is the address advertised to the NRF (was a hardcoded 127.0.0.1).
     const std::array<std::uint8_t, 4>& kNodeIpv4 = node_ipv4;
@@ -1692,6 +1710,7 @@ int main() {
     const auto config = nf_config::load("upf", CONFIG_DIR);
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base_url =
         nf_config::require<std::string>(config, "nrf_base_url", "UPF_NRF_BASE_URL");
     // ADR-0203: UPF's first-ever real inbound SBI server port.
@@ -1851,8 +1870,11 @@ int main() {
     // NgapShutdownCoordinator). run_sbi_server already self-registers its own io_context for
     // SIGTERM-triggered stop via run_multi_threaded -- it just needs to be joined, not detached,
     // so main()'s own `return 0` below waits for it to actually finish first.
-    std::thread sbi_server_thread(
-        run_sbi_server, sbi_port, std::ref(event_subs), sbi_core::read_tps_limit(config));
+    std::thread sbi_server_thread(run_sbi_server,
+                                  sbi_port,
+                                  sbi_bind_address,
+                                  std::ref(event_subs),
+                                  sbi_core::read_tps_limit(config));
     run_pfcp_lifecycle(
         start_time,
         datapath.has_value() ? &*datapath : nullptr,
@@ -1860,6 +1882,7 @@ int main() {
         seid_to_teid_store,
         li_poi.get(),
         nf_config::require<std::uint16_t>(config, "pfcp_bind_port", "UPF_PFCP_BIND_PORT"),
+        nf_config::require<std::string>(config, "pfcp_bind_address", "UPF_PFCP_BIND_ADDRESS"),
         *advertised_ipv4); // blocks forever
     sbi_server_thread.join();
     return 0;
