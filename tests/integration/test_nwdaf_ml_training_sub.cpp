@@ -19,6 +19,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -83,6 +84,23 @@ json subscription(const json& events = json::array({json{{"mLEvent", "NF_LOAD"},
 }
 
 constexpr int kReceiverPort = 19994;
+
+// Training subscriptions live in the shared lab Valkey and outlive a test process. A leftover that
+// points at this test's receiver sends its own copy of every model notification and breaks the
+// counts below, so the test removes exactly those records (matched on its receiver port) before
+// it starts and when it ends. Records of any other consumer are left alone.
+void purge_subscriptions_to_the_test_receiver(sw::redis::Redis& redis) {
+    std::vector<std::string> ids;
+    redis.smembers("nwdaf:mltrainsub:subs", std::back_inserter(ids));
+    const std::string mine = "127.0.0.1:" + std::to_string(kReceiverPort);
+    for (const auto& id : ids) {
+        const auto raw = redis.get("nwdaf:mltrainsub:sub:" + id);
+        if (raw && raw->find(mine) != std::string::npos) {
+            redis.del("nwdaf:mltrainsub:sub:" + id);
+            redis.srem("nwdaf:mltrainsub:subs", id);
+        }
+    }
+}
 
 // An HTTP/2 + mTLS endpoint standing in for the consumer's notifUri.
 class Receiver {
@@ -192,6 +210,10 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
     r = call("POST", std::string(kRoot) + "/subscriptions", &untrainable);
     ASSERT_TRUE(r.has_value()) << r.error();
     EXPECT_EQ(r->status, 500) << r->body;
+    // TS 29.520 table 5.5.7.3-1: the Training service's own cause, not Provision's.
+    EXPECT_EQ(json::parse(r->body).value("cause", ""),
+              "UNAVAILABLE_ML_MODEL_TRAINING_FOR_ALLEVENTS")
+        << r->body;
 
     const json mixed = subscription(
         json::array({json{{"mLEvent", "NF_LOAD"}, {"mLEventFilter", json::object()}},
@@ -199,7 +221,11 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
     r = call("POST", std::string(kRoot) + "/subscriptions", &mixed);
     ASSERT_TRUE(r.has_value()) << r.error();
     ASSERT_EQ(r->status, 201) << r->body;
-    EXPECT_EQ(json::parse(r->body).at("failEventReports").size(), 1U) << r->body;
+    const auto fails = json::parse(r->body).at("failEventReports");
+    ASSERT_EQ(fails.size(), 1U) << r->body;
+    // FailureEventInfoForMLModelTrain: both members are required by the YAML.
+    EXPECT_EQ(fails[0].value("mLTrainEvent", ""), "UE_MOBILITY") << r->body;
+    EXPECT_EQ(fails[0].value("failureCodeTrain", ""), "UNAVAILABLE_ML_MODEL_TRAIN") << r->body;
     const auto loc = r->headers.find("location");
     ASSERT_NE(loc, r->headers.end());
     const std::string item = loc->second.substr(loc->second.find(kRoot));
@@ -282,6 +308,7 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
     };
     // A model must be absent when the subscription is created (immReport empty), then appear.
     redis->del("nwdaf:mlmodel:NF_LOAD");
+    purge_subscriptions_to_the_test_receiver(*redis);
 
     Receiver receiver;
     auto c = make_client();
@@ -336,7 +363,16 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
     // Re-trained (version bump): a second notification flagged as an update.
     seed(2);
     ASSERT_TRUE(receiver.wait_for_count(2, 30s)) << "no re-train notification";
-    EXPECT_EQ(receiver.notes().at(1).body.at("mLModelInfos").at(0).at("modelUpdateInd"), true);
+    {
+        const auto all = receiver.notes();
+        std::string dump;
+        for (const auto& n : all) {
+            dump += n.body.dump() + "\n";
+        }
+        EXPECT_EQ(all.at(1).body.at("mLModelInfos").at(0).at("modelUpdateInd"), true)
+            << "notifications received so far:\n"
+            << dump;
+    }
 
     // A new subscription with immRep now gets the report in the 201 body.
     r = post(sub);
@@ -348,4 +384,5 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
     EXPECT_EQ(body.at("immReport").at("mLModelInfos").at(0).at("modelUniqueId"), 4242);
 
     redis->del("nwdaf:mlmodel:NF_LOAD");
+    purge_subscriptions_to_the_test_receiver(*redis);
 }

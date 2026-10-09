@@ -1196,15 +1196,29 @@ void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
             if (!event.empty() && trains(event)) {
                 ++accepted;
             } else {
-                failures.push_back(json{{"event", event.empty() ? json() : json(event)}});
+                // FailureEventInfoForMLModelTrain: mLTrainEvent and failureCodeTrain are both
+                // required by the YAML. mLTrainEvent is a NwdafEvent, so an absent mLEvent has
+                // nothing to put there and is a 400 instead.
+                if (event.empty()) {
+                    err = problem(400,
+                                  "Bad Request",
+                                  "MLEventSubscription requires mLEvent (NwdafMLModelTrainSubsc)",
+                                  "MANDATORY_IE_MISSING");
+                    return;
+                }
+                failures.push_back(json{
+                    {"mLTrainEvent", event},
+                    {"failureCodeTrain", sbi_gen::FailureCodeTrain::UNAVAILABLE_ML_MODEL_TRAIN}});
             }
         }
         if (accepted == 0) {
+            // TS 29.520 table 5.5.7.3-1 (Nnwdaf_MLModelTraining): not the Provision service's
+            // UNAVAILABLE_ML_MODEL_FOR_ALLEVENTS.
             err = problem(500,
                           "Internal Server Error",
                           "this MTLF trains no model for any requested event; it trains " +
                               json(options_.events).dump(),
-                          "UNAVAILABLE_ML_MODEL_FOR_ALLEVENTS");
+                          "UNAVAILABLE_ML_MODEL_TRAINING_FOR_ALLEVENTS");
             return;
         }
         request.erase("failEventReports");
