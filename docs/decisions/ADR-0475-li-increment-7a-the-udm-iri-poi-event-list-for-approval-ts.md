@@ -1,6 +1,6 @@
 ## ADR-0475: LI increment 7a -- the UDM IRI-POI: event list for approval (TS 33.127 7.2.2.4, TS 33.128 7.2.2.3)
 
-**Date:** 2026-10-09. **Status:** Proposed -- AWAITING USER APPROVAL of the event list (programme rule, ADR-0364: show the event list first). No code written.
+**Date:** 2026-10-09. **Status:** Event list APPROVED by the user on 2026-10-09 ("Approved", given for the list as proposed: events 1-4 build, 5 and 7 stay open, 6 and 8 out of scope). No code written yet. Questions (b)-(d) were not answered individually; the proposal text is taken as approved, so event 4 still requires reading Table 7.2.2.3.8-1 in full before coding and event 5 stays deferred.
 
 **Context.** The LI plan (ADR-0364) step 7 starts with the UDM. TS 33.127 V19.7.0 clause 7.2.2.4 lists the events the UDM/UDR IRI-POI generates xIRI for; TS 33.128 V19.7.0 clause 7.2.2.3 gives each event's record and its M/C/O fields. The UDM is reached by the ADMF over LI_X1 (target identities SUPI, PEI, GPSI, IMPU/IMPI per 7.2.2.2) and sends xIRI over LI_X2 to MDF2, exactly like the AMF POI (ADR-0378/0457) on the shared `libs/li-poi` runtime.
 
