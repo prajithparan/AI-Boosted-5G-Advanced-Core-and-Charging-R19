@@ -191,6 +191,11 @@ target_compile_definitions(nwdaf_fl_client_tests PRIVATE
     FL_PYTHON="${Python3_EXECUTABLE}")
 gtest_discover_tests(nwdaf_fl_client_tests PROPERTIES TIMEOUT 120)
 
+# ADR-0476: the duplicate-JSON-member detector (no ports, no NFs).
+add_executable(sbi_json_duplicate_keys_tests test_sbi_json_duplicate_keys.cpp)
+target_link_libraries(sbi_json_duplicate_keys_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+gtest_discover_tests(sbi_json_duplicate_keys_tests PROPERTIES TIMEOUT 60)
+
 # ADR-0372: the LI_X2/LI_X3 delivery client over real OpenSSL mTLS. Its own binary -- it needs no
 # NF processes (an in-process loopback TLS server stands in for the MDF), only li_core, OpenSSL,
 # and the lab certs. Binds an ephemeral port, so it does not collide with CI's fixed test ports.

@@ -114,6 +114,8 @@ payload carrying a key twice can pass one value to whatever validated the first 
 different value to whatever consumed the last. Fixable in one place (a parser callback that
 rejects a repeated key) since all SBI bodies go through `sbi_core::http2::parse_json_body`.
 
+**Status 2026-10-09 (ADR-0476):** detector and a server-level rejection (400 INVALID_MSG_FORMAT, in `sbi_core`'s server, not `parse_json_body` -- many handlers parse directly) are coded; the detector is unit-tested, the server hook is compile-checked only.
+
 ### F4. NRF does not authorize discovery -- TS 33.501 §13.3.1.3
 
 *"The NRF shall check that the values of the authorization parameters in the NF (Service) Profile
