@@ -49,35 +49,15 @@ import sys
 
 import mlflow
 import numpy as np
+from nf_load_features import FEATURE_NAMES, windows_from_series
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
 
-# The ONNX model's input contract. nfs/nwdaf/src/model_runtime.hpp's kNfLoadFeatureNames MUST
+# The ONNX model's input contract (FEATURE_NAMES, defined in nf_load_features.py).
+# nfs/nwdaf/src/model_runtime.hpp's kNfLoadFeatureNames MUST
 # match this list exactly -- it is one contract with two spellings, not two decisions.
-LAGS = 4
-FEATURE_NAMES = ["load_lag3", "load_lag2", "load_lag1", "load_lag0", "load_mean", "registered_share"]
 MODEL_TYPE = "RandomForestRegressor(n_estimators=30, max_depth=6)"
-
-
-def windows_from_series(series):
-    """Sliding windows over each instance's ordered observations. A window needs LAGS + 1
-    consecutive observations that all carry a load; a DEREGISTERED observation carries none and
-    breaks the run (an instance that left the NRF has no load to learn from)."""
-    xs, ys, instances = [], [], 0
-    for _, obs in series.items():
-        used = False
-        for i in range(LAGS, len(obs)):
-            win = obs[i - LAGS:i + 1]
-            if any(o.get("load") is None for o in win):
-                continue
-            loads = [float(o["load"]) for o in win[:-1]]
-            registered = sum(1 for o in win[:-1] if o.get("status", "REGISTERED") == "REGISTERED")
-            xs.append(loads + [sum(loads) / LAGS, registered / LAGS])
-            ys.append(float(win[-1]["load"]))
-            used = True
-        instances += 1 if used else 0
-    return np.array(xs, dtype=np.float64), np.array(ys, dtype=np.float64), instances
 
 
 def synthetic_bootstrap(seed=42, instances=8, steps=200):

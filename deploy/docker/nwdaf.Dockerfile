@@ -77,7 +77,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl ca-certificates python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY nfs/nwdaf/training/train_nf_load.py nfs/nwdaf/training/requirements.txt /opt/nwdaf-training/
+# nf_load_features.py is imported by train_nf_load.py and the federated-learning modules
+# (fl_local_round.py, fl_aggregate.py; ADR-0471): every module the entry points import must be copied
+# or the container's training fails at import time, which no host-side test would show.
+COPY nfs/nwdaf/training/train_nf_load.py nfs/nwdaf/training/nf_load_features.py \
+     nfs/nwdaf/training/fl_local_round.py nfs/nwdaf/training/fl_aggregate.py \
+     nfs/nwdaf/training/requirements.txt /opt/nwdaf-training/
 RUN python3 -m venv /opt/nwdaf-training/.venv \
     && /opt/nwdaf-training/.venv/bin/pip install --no-cache-dir -q -r /opt/nwdaf-training/requirements.txt
 
