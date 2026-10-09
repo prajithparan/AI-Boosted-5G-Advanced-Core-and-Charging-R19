@@ -99,6 +99,13 @@ whose security capability offers only 128-NEA1/NIA1 cannot complete Security Mod
 this AMF. ZUC's absence is conformant. NEA0 (null ciphering) is also required and absent; NIA0
 "shall be disabled" outside unauthenticated-emergency deployments, so its absence is conformant.
 
+**Blocker (2026-10-09):** the 3GPP documents that carry SNOW 3G (TS 35.215, 35.216, 35.217, fetched
+Rel-19) are cover pages only: "The technical provisions ... are contained in the SAGE Specification"
+(ETSI SAGE UEA2/UIA2 Documents 1-3, subject to ETSI licensing conditions). The S-boxes, LFSR/FSM, and
+f8/f9 construction and test vectors are therefore not in hand. They will not be written from memory.
+Needs the architect: supply the SAGE documents (and confirm the licence is compatible with the
+OSI-approved-only rule), or approve a specific open-source implementation as a dependency.
+
 ### F3. Duplicate JSON keys are silently accepted -- TS 33.117 §4.3.6.3
 
 *"The occurrence of the same name (or key) twice within such a structure leads to an error and the
