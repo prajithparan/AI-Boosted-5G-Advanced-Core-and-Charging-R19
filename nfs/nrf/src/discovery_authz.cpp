@@ -1,5 +1,7 @@
 #include "discovery_authz.hpp"
 
+#include <regex>
+
 namespace nrf {
 namespace {
 
@@ -40,6 +42,26 @@ bool allowed(const nlohmann::json& service,
         bool hit = false;
         for (const auto& t : *types) {
             hit = hit || (t.is_string() && t.get<std::string>() == *r.nf_type);
+        }
+        if (!hit) {
+            return false;
+        }
+    }
+    if (const auto* domains = list_of(service, profile, "allowedNfDomains"); domains != nullptr) {
+        if (!r.fqdn) {
+            return false;
+        }
+        bool hit = false;
+        for (const auto& d : *domains) {
+            if (!d.is_string()) {
+                continue;
+            }
+            try {
+                hit = hit || std::regex_search(
+                                 *r.fqdn, std::regex(d.get<std::string>(), std::regex::ECMAScript));
+            } catch (const std::regex_error&) {
+                // Invalid pattern: grants nothing.
+            }
         }
         if (!hit) {
             return false;

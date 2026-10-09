@@ -20,8 +20,11 @@ Malformed `requester-plmn-list`/`requester-snssais` (not a JSON array) -> 400. T
 `nrf_discovery_authz_tests` (5, pure logic, run locally).
 
 **Disclosed gaps / not verified.**
-- `allowedNfDomains` / `requester-nf-instance-fqdn` NOT evaluated: the spec does not say which part of
-  the FQDN the ECMA-262 pattern is matched against. Needs the architect's decision; not invented.
+- `allowedNfDomains` (architect decision 2026-10-09): each entry is an ECMA-262 regex, matched with search
+  semantics against the WHOLE `requester-nf-instance-fqdn`, no hostname/domain splitting. Absent FQDN with
+  a present list -> not returned; invalid pattern grants nothing. Not applied: TS 29.510's "ignore the FQDN
+  for a requester in another PLMN" rule (NRF cannot tell). std::regex ECMAScript is close to, not
+  identical to, ECMA-262 (no lookbehind, etc.).
 - `allowedSnpns` / SNPN requester parameters not evaluated.
 - Handler wiring (query parsing, 400) compiles but was NOT exercised end-to-end over HTTP; no NF in this
   repo registers any `allowed*` attribute today, so no consumer behaviour changes yet.

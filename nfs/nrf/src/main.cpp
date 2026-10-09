@@ -766,6 +766,9 @@ int main() {
                 if (auto it = qs.find("requester-nf-type"); it != qs.end()) {
                     requester.nf_type = it->second;
                 }
+                if (auto it = qs.find("requester-nf-instance-fqdn"); it != qs.end()) {
+                    requester.fqdn = it->second;
+                }
                 for (const auto& [name, dst] :
                      {std::pair<const char*, json*>{"requester-plmn-list", &requester.plmns},
                       std::pair<const char*, json*>{"requester-snssais", &requester.snssais}}) {

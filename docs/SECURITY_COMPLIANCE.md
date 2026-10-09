@@ -103,7 +103,8 @@ this AMF. ZUC's absence is conformant. NEA0 (null ciphering) is also required an
 Rel-19) are cover pages only: "The technical provisions ... are contained in the SAGE Specification"
 (ETSI SAGE UEA2/UIA2 Documents 1-3, subject to ETSI licensing conditions). The S-boxes, LFSR/FSM, and
 f8/f9 construction and test vectors are therefore not in hand. They will not be written from memory.
-Needs the architect: supply the SAGE documents (and confirm the licence is compatible with the
+Re-checked after the architect pointed at the 3GPP portal ZIPs (35.215-35.218, Rel-19 j00): each ZIP holds one
+.docx cover page and no C source or test data. Needs the architect: supply the SAGE documents (and confirm the licence is compatible with the
 OSI-approved-only rule), or approve a specific open-source implementation as a dependency.
 
 ### F3. Duplicate JSON keys are silently accepted -- TS 33.117 §4.3.6.3
@@ -131,8 +132,8 @@ response message, the NRF shall only return information of those NF Service Prod
 that the NF Service Consumer is authorized to discover."*
 
 **Status (ADR-0477):** `allowedNfTypes`, `allowedPlmns`, `allowedNssais` are now enforced at discovery
-(unit-tested; HTTP path compiled, not exercised end-to-end). `allowedNfDomains` and SNPN parameters are
-NOT evaluated -- spec leaves the FQDN-domain match undefined; awaiting the architect.
+(unit-tested; HTTP path compiled, not exercised end-to-end). `allowedNfDomains` is enforced as a regex over the whole
+requester FQDN (architect decision 2026-10-09); SNPN parameters are NOT evaluated.
 
 ### F5. TLS 1.3 only -- TS 33.210 §6.2.1 (mandated by TS 33.501 §13.1.0)
 

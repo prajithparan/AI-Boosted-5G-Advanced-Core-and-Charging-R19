@@ -9,15 +9,18 @@
 // TS 29.510 6.1.6.2.2 / 6.1.6.2.3 allowedNfTypes / allowedPlmns / allowedNssais, and
 // 6.2.3.2.3.1 requester-nf-type / requester-plmn-list / requester-snssais). Private to nfs/nrf.
 //
-// Simplification, disclosed: allowedNfDomains (+ requester-nf-instance-fqdn) is NOT evaluated --
-// the spec does not say which part of the FQDN is "the domain" the ECMA-262 pattern is matched
-// against; asked, not invented. allowedSnpns / allowedNfDomains therefore never restrict.
+// allowedNfDomains: each entry is an ECMA-262 regex matched (search semantics, as ECMAScript
+// RegExp.test) against the WHOLE requester-nf-instance-fqdn; no hostname/domain splitting
+// (architect decision 2026-10-09). An invalid pattern matches nothing. Simplification, disclosed:
+// the "ignore the FQDN for a requester in a different PLMN" rule is not applied, and allowedSnpns
+// never restricts.
 namespace nrf {
 
 struct DiscoveryRequester {
     std::optional<std::string> nf_type; // requester-nf-type
     nlohmann::json plmns;               // requester-plmn-list (array of PlmnId) or null
     nlohmann::json snssais;             // requester-snssais (array of Snssai) or null
+    std::optional<std::string> fqdn;    // requester-nf-instance-fqdn
 };
 
 // Absent allowed* list = unrestricted. Present list + requester info missing = not allowed

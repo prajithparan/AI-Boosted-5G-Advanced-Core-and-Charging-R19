@@ -64,3 +64,13 @@ TEST(NrfDiscoveryAuthz, ServiceListPrevailsAndAnyServiceSuffices) {
     EXPECT_TRUE(profile_discoverable_by(p, req("AMF")));
     EXPECT_FALSE(profile_discoverable_by(p, req("SMF")));
 }
+
+TEST(NrfDiscoveryAuthz, AllowedNfDomainsMatchesWholeFqdnWithRegex) {
+    const json p = {{"allowedNfDomains", {R"(.*\.epc\.mnc012\.mcc345\.3gppnetwork\.org$)", "("}}};
+    auto r = req("AMF");
+    r.fqdn = "amf1.amfset2.core.epc.mnc012.mcc345.3gppnetwork.org";
+    EXPECT_TRUE(profile_discoverable_by(p, r));
+    r.fqdn = "amf1.epc.mnc999.mcc345.3gppnetwork.org";
+    EXPECT_FALSE(profile_discoverable_by(p, r));          // the invalid "(" pattern grants nothing
+    EXPECT_FALSE(profile_discoverable_by(p, req("AMF"))); // no FQDN supplied
+}
