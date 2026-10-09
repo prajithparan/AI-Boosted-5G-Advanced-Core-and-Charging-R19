@@ -1222,6 +1222,51 @@ tl::expected<UdmServingSystemMessage, std::string> extract(const UDMServingSyste
     return out;
 }
 
+tl::expected<void, std::string> fill(UDMStartOfInterceptionWithRegisteredTarget_t& out,
+                                     const UdmStartOfInterceptionWithRegisteredTarget& src) {
+    if (auto r = fill_supi(out.sUPI, src.supi); !r) {
+        return r;
+    }
+    if (src.gpsi) {
+        out.gPSI = alloc_optional<GPSI_t>();
+        if (out.gPSI == nullptr) {
+            return tl::unexpected("GPSI allocation failed");
+        }
+        if (auto r = fill_gpsi(*out.gPSI, *src.gpsi); !r) {
+            return r;
+        }
+    }
+    if (OCTET_STRING_fromBuf(&out.uDMSubscriptionDataSets.sBIReference,
+                             src.sbi_reference.data(),
+                             static_cast<int>(src.sbi_reference.size())) != 0 ||
+        OCTET_STRING_fromBuf(&out.uDMSubscriptionDataSets.sBIValue,
+                             src.sbi_value.data(),
+                             static_cast<int>(src.sbi_value.size())) != 0) {
+        return tl::unexpected("SBIType allocation failed");
+    }
+    return {};
+}
+
+tl::expected<UdmStartOfInterceptionWithRegisteredTarget, std::string>
+extract(const UDMStartOfInterceptionWithRegisteredTarget_t& src) {
+    UdmStartOfInterceptionWithRegisteredTarget out;
+    auto supi = extract_supi(src.sUPI);
+    if (!supi) {
+        return tl::unexpected(supi.error());
+    }
+    out.supi = *supi;
+    if (src.gPSI != nullptr) {
+        auto gpsi = extract_gpsi(*src.gPSI);
+        if (!gpsi) {
+            return tl::unexpected(gpsi.error());
+        }
+        out.gpsi = *gpsi;
+    }
+    out.sbi_reference = octet_string_to_std(src.uDMSubscriptionDataSets.sBIReference);
+    out.sbi_value = octet_string_to_std(src.uDMSubscriptionDataSets.sBIValue);
+    return out;
+}
+
 #undef LI_TRY
 
 } // namespace
@@ -1261,6 +1306,10 @@ tl::expected<std::vector<std::uint8_t>, std::string> encode_xiri_payload(const E
             } else if constexpr (std::is_same_v<T, UdmServingSystemMessage>) {
                 payload->event.present = XIRIEvent_PR_servingSystemMessage;
                 return fill(payload->event.choice.servingSystemMessage, variant_event);
+            } else if constexpr (std::is_same_v<T, UdmStartOfInterceptionWithRegisteredTarget>) {
+                payload->event.present = XIRIEvent_PR_uDMStartOfInterceptionWithRegisteredTarget;
+                return fill(payload->event.choice.uDMStartOfInterceptionWithRegisteredTarget,
+                            variant_event);
             } else if constexpr (std::is_same_v<T, SmfPduSessionEstablishment>) {
                 payload->event.present = XIRIEvent_PR_pDUSessionEstablishment;
                 return fill(payload->event.choice.pDUSessionEstablishment, variant_event);
@@ -1377,6 +1426,14 @@ tl::expected<DecodedXiri, std::string> decode_xiri_payload(std::span<const std::
         }
         case XIRIEvent_PR_servingSystemMessage: {
             auto udm = extract(payload->event.choice.servingSystemMessage);
+            if (!udm) {
+                return tl::unexpected(udm.error());
+            }
+            out.event = *udm;
+            return out;
+        }
+        case XIRIEvent_PR_uDMStartOfInterceptionWithRegisteredTarget: {
+            auto udm = extract(payload->event.choice.uDMStartOfInterceptionWithRegisteredTarget);
             if (!udm) {
                 return tl::unexpected(udm.error());
             }

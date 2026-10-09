@@ -670,3 +670,25 @@ TEST(Xiri, UdmServingSystemMessageRejectsMalformedPlmn) {
     bad.plmn_id = xiri::Plmnid{"00", "01"};
     EXPECT_FALSE(xiri::encode_xiri_payload(bad).has_value());
 }
+
+// ADR-0475 slice 2: UDMStartOfInterceptionWithRegisteredTarget (TS 33.128 7.2.2.3, event 2).
+TEST(Xiri, UdmStartOfInterceptionWithRegisteredTargetRoundTrips) {
+    xiri::UdmStartOfInterceptionWithRegisteredTarget rec;
+    rec.supi = xiri::Imsi{"001010000000001"};
+    rec.sbi_reference = "/nudm-sdm/v2/{supi}/am-data";
+    rec.sbi_value = R"({"gpsis":["msisdn-491701234567"]})";
+    auto enc = xiri::encode_xiri_payload(rec);
+    ASSERT_TRUE(enc.has_value()) << enc.error();
+    auto dec = xiri::decode_xiri_payload(*enc);
+    ASSERT_TRUE(dec.has_value()) << dec.error();
+    ASSERT_TRUE(
+        std::holds_alternative<xiri::UdmStartOfInterceptionWithRegisteredTarget>(dec->event));
+    EXPECT_EQ(std::get<xiri::UdmStartOfInterceptionWithRegisteredTarget>(dec->event), rec);
+
+    rec.gpsi = xiri::Msisdn{"491701234567"};
+    auto enc2 = xiri::encode_xiri_payload(rec);
+    ASSERT_TRUE(enc2.has_value());
+    auto dec2 = xiri::decode_xiri_payload(*enc2);
+    ASSERT_TRUE(dec2.has_value());
+    EXPECT_EQ(std::get<xiri::UdmStartOfInterceptionWithRegisteredTarget>(dec2->event), rec);
+}
