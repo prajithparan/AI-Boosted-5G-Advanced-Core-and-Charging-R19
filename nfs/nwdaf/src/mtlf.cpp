@@ -138,7 +138,14 @@ bool Mtlf::trains(const std::string& event) const {
 json Mtlf::nrf_profile_info() const {
     // TS 29.510 MlAnalyticsInfo: "ML Analytics Filter information supported by the
     // Nnwdaf_MLModelProvision service".
-    return json{{"mlAnalyticsList", json::array({json{{"mlAnalyticsIds", options_.events}}})}};
+    json info{{"mlAnalyticsIds", options_.events}};
+    // TS 29.510 MlAnalyticsInfo.flCapabilityType: this NWDAF can act as a federated-learning client
+    // (ADR-0471 increment 5). FL_SERVER is not advertised -- there is no FL server yet.
+    // flTimeInterval (when the capability is available) is optional and not set.
+    if (fl_executor_ != nullptr) {
+        info["flCapabilityType"] = "FL_CLIENT";
+    }
+    return json{{"mlAnalyticsList", json::array({info})}};
 }
 
 Mtlf::Call Mtlf::call(sbi_core::OAuth2Client& oauth,
