@@ -434,7 +434,8 @@
   "ADR-0468-ci-lint-on-pull-request-events-diff-against-the-pr-base.md",
   "ADR-0469-ci-skip-build-and-sanitizer-jobs-for-docs-only-changes-lint.md",
   "ADR-0470-nwdaf-optional-llm-extension-seam-out-of-scope-now-plug-in.md",
-  "ADR-0471-nwdaf-nnwdaf-mlmodeltraining-subscription-crud-now.md"
+  "ADR-0471-nwdaf-nnwdaf-mlmodeltraining-subscription-crud-now.md",
+  "ADR-0472-gui-nf-config-schemas-reviewed-yaml-overlay-replaces.md"
  ],
  "split_commit": "0530e4f"
 }

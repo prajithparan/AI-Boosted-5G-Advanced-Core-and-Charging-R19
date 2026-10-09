@@ -124,6 +124,66 @@ def value_schema(value, path: str, review: list[str]) -> dict:
     raise SystemExit(f"{path}: unsupported JSON value {value!r}")
 
 
+OVERLAY = Path(__file__).with_name("overlay-nf-config.json")
+
+
+def resolve_yaml_ref(specs: Path, ref: str) -> dict:
+    """Inline a 3GPP OpenAPI schema (all $refs, across files) into one self-contained JSON Schema.
+    YAML is prime for API shape (ADR-0250): where a config value IS a 3GPP data type, its schema comes
+    from the YAML, never from one example in the config file. Descriptions and examples are dropped
+    (size); a reference cycle is cut to an open object so the result stays finite."""
+    import yaml  # local: only the overlay path needs it
+
+    cache: dict = {}
+
+    def load(name):
+        if name not in cache:
+            cache[name] = yaml.safe_load((specs / name).read_text(encoding="utf-8"))
+        return cache[name]
+
+    def walk(node, cur, stack):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                name, _, ptr = node["$ref"].partition("#")
+                name = name or cur
+                key = (name, ptr)
+                if key in stack:
+                    return {}
+                target = load(name)
+                for part in ptr.lstrip("/").split("/"):
+                    target = target[part]
+                return walk(target, name, stack | {key})
+            return {k: walk(v, cur, stack) for k, v in node.items()
+                    if k not in ("description", "example", "examples")}
+        if isinstance(node, list):
+            return [walk(x, cur, stack) for x in node]
+        return node
+
+    name, _, ptr = ref.partition("#")
+    return walk({"$ref": f"{name}#{ptr}"}, name, frozenset())
+
+
+def apply_overlay(repo: Path, nf: str, props: dict, review: list[str]) -> None:
+    """Reviewed replacements (overlay-nf-config.json): {nf: {"key[].sub": "<yaml file>#<pointer>"}}.
+    Each replaces a subtree the deriver could only guess from the current file values."""
+    if not OVERLAY.is_file():
+        return
+    for path, ref in json.loads(OVERLAY.read_text()).get(nf, {}).items():
+        *parents, leaf = path.split(".")
+        container = {"properties": props}
+        for part in parents:
+            if part.endswith("[]"):
+                container = container["properties"][part[:-2]]["items"]
+            else:
+                container = container["properties"][part]
+        if leaf not in container["properties"]:
+            raise SystemExit(f"overlay {nf}: {path} does not exist in config/{nf}.json")
+        resolved = resolve_yaml_ref(repo / "specs" / "5G_APIs-REL-19", ref)
+        resolved["x-yaml"] = ref
+        container["properties"][leaf] = resolved
+        review[:] = [r for r in review if not r.startswith(path)]
+
+
 def derive_one(repo: Path, cfg: Path) -> tuple[dict, dict]:
     name = cfg.stem
     doc = json.loads(cfg.read_text())
@@ -141,6 +201,7 @@ def derive_one(repo: Path, cfg: Path) -> tuple[dict, dict]:
         if key not in read:
             review.append(f"{key}: present in the file but no source line visibly reads it")
         props[key] = s
+    apply_overlay(repo, name, props, review)
     missing = sorted(k for k in required if k not in doc)
     for k in missing:
         review.append(f"{k}: read with require<> but absent from the file (env-only?)")

@@ -1,0 +1,5 @@
+{
+ "pcf": {
+  "policy_counter_actions[].smPolicyDecision": "TS29512_Npcf_SMPolicyControl.yaml#/components/schemas/SmPolicyDecision"
+ }
+}
