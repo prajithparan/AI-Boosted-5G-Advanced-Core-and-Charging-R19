@@ -460,6 +460,7 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          LI_MDF3_REDIS_URL: tcp://127.0.0.1:16379
           # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
           UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
@@ -892,6 +893,7 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          LI_MDF3_REDIS_URL: tcp://127.0.0.1:16379
           # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
           UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
