@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/hero-diagram.png"
+  <img src="docs/assets/hero-diagram.svg"
        alt="Sovereign AI stack: own it, trust nothing, spec in core out, sell anything, see it coming, what's next, around an AI-built 5G tower, with the promise AI-built, sovereign by design, spec-bound, human-governed" width="920">
 </p>
 
