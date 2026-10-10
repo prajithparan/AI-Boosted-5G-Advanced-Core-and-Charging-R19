@@ -1,4 +1,9 @@
 <p align="center">
+  [![CI](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
+  [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+</p>
+
+<p align="center">
   <img src="docs/assets/hero-diagram.svg"
        alt="Sovereign AI stack: own it, trust nothing, spec in core out, sell anything, see it coming, what's next, around an AI-built 5G tower, with the promise AI-built, sovereign by design, spec-bound, human-governed" width="920">
 </p>
@@ -43,8 +48,6 @@ Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg packa
 short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
 architectural choice made (and rejected) along the way.
 
-[![CI](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 <h2 align="center">Architecture</h2>
 

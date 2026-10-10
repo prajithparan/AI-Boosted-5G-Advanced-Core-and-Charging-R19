@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 60" width="1100" height="60"
      role="img" aria-label="AI-built. Sovereign by design. Spec-bound. Human-governed.">
   <title>AI-built. Sovereign by design. Spec-bound. Human-governed.</title>
-  <!-- Four clauses, cyan, blue, ink, ink with a cyan underline (the artifact's hero headline), matching the four steps of "The promise" in
+  <!-- Four clauses, cyan, blue, ink, purple (the artifact's hero headline), matching the four steps of "The promise" in
        docs/assets/hero-diagram.svg (AI-built, Sovereign by design, Spec-bound, Human-governed). -->
   <style>
     .m { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -9,6 +9,6 @@
          font-size: 34px; font-weight: 700; letter-spacing: -0.3px; }
   </style>
   <text class="m" x="550" y="42" text-anchor="middle">
-    <tspan fill="#22D3EE">AI-built.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#60A5FA">Sovereign by design.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#E7EEF6">Spec-bound.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#E7EEF6" text-decoration="underline" style="text-decoration-color:#22D3EE;text-decoration-thickness:2px;text-underline-offset:5px">Human-governed.</tspan>
+    <tspan fill="#22D3EE">AI-built.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#60A5FA">Sovereign by design.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#E7EEF6">Spec-bound.</tspan><tspan fill="#94A3B8"> </tspan><tspan fill="#A78BFA">Human-governed.</tspan>
   </text>
 </svg>
