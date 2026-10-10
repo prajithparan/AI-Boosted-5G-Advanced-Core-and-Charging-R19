@@ -1,6 +1,7 @@
 {
   "port": 7778,
   "advertised_ipv4": "127.0.0.1",
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9465",
   "nrf_base_url": "https://127.0.0.1:7777",
   "ausf_base_url": "https://127.0.0.1:7782",
@@ -29,5 +30,8 @@
     "x1_keepalive_p2_seconds": 180,
     "x1_keepalive_p3_seconds": 300,
     "x1_allow_deactivate_all": true
+  },
+  "nas_security": {
+    "alg_providers": []
   }
 }

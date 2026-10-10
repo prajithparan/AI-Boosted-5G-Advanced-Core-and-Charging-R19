@@ -20,6 +20,11 @@
       "x-env-override": "ADRF_SELF_BASE_URL",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "ADRF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "ADRF_METRICS_BIND_ADDRESS",
@@ -136,6 +141,7 @@
     "nwdaf_base_url",
     "port",
     "redis_url",
+    "sbi_bind_address",
     "self_base_url"
   ],
   "x-config-file": "config/adrf.json",

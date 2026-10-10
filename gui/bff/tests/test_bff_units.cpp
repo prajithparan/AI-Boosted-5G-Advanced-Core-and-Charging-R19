@@ -99,6 +99,7 @@ TEST(NfConfig, ValidatorAcceptsTheRealFileAndRejectsDrift) {
     const json good = {{"port", 7785},
                        {"db_pool_size", 16},
                        {"advertised_ipv4", "127.0.0.1"},
+                       {"sbi_bind_address", "0.0.0.0"},
                        {"metrics_bind_address", "0.0.0.0:9473"},
                        {"database_url", "postgresql://postgres@127.0.0.1:5434/charging"}};
     EXPECT_TRUE(NfConfigManager::validate(schema, good).empty());

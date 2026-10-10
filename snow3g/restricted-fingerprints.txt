@@ -1,0 +1,2 @@
+# sha256 fingerprints (one per line) of files from your licensed SAGE package that must never be committed.
+# Ships empty: this repository holds no such material (ADR-0479).

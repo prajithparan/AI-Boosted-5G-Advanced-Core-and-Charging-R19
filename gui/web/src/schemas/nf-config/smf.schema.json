@@ -14,6 +14,10 @@
       "x-env-override": "SMF_UPF_PFCP_PORT",
       "x-cpp-type": "std::uint16_t"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -128,6 +132,7 @@
     "nsacf_base_url",
     "pcf_base_url",
     "port",
+    "sbi_bind_address",
     "self_base_url",
     "udr_base_url",
     "upf_pfcp_port"

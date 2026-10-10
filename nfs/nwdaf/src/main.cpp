@@ -683,6 +683,8 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port", "NWDAF_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "NWDAF_METRICS_BIND_ADDRESS");
+    const auto sbi_bind_address =
+        nf_config::require<std::string>(config, "sbi_bind_address", "NWDAF_SBI_BIND_ADDRESS");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "NWDAF_NRF_BASE_URL");
     const auto advertised_ipv4 =
@@ -932,6 +934,56 @@ int main() {
     ml_consumer.attach_monitor(&accuracy);
     nwdaf::MlConsumer* ml = (is_anlf && ml_consumer.enabled()) ? &ml_consumer : nullptr;
     nwdaf::SubprocessExecutor trainer(train_opts);
+    // ADR-0471 increment 3: the federated-learning client round (fl_local_round.py), enabled by
+    // config/nwdaf.json mtlf.fl_client.enabled. The interpreter and working directory are the
+    // trainer's; the script defaults to the one beside train_nf_load.py.
+    const auto& fl_cfg = mtlf_cfg.at("fl_client");
+    nwdaf::SubprocessFlRoundExecutorOptions fl_exec_opts;
+    fl_exec_opts.python = train_opts.python;
+    fl_exec_opts.workdir = train_opts.workdir;
+    fl_exec_opts.timeout = train_opts.timeout;
+    fl_exec_opts.script = nf_config::require<std::string>(fl_cfg, "script", "NWDAF_FL_SCRIPT");
+    if (fl_exec_opts.script.empty()) {
+        fl_exec_opts.script = NWDAF_TRAINING_DIR "/fl_local_round.py";
+    }
+    nwdaf::FlClientOptions fl_opts;
+    fl_opts.epochs = nf_config::require<int>(fl_cfg, "epochs", "NWDAF_FL_EPOCHS");
+    fl_opts.learning_rate =
+        nf_config::require<double>(fl_cfg, "learning_rate", "NWDAF_FL_LEARNING_RATE");
+    fl_opts.accuracy_tolerance =
+        nf_config::require<double>(fl_cfg, "accuracy_tolerance", "NWDAF_FL_ACCURACY_TOLERANCE");
+    fl_opts.default_max_response = std::chrono::seconds(nf_config::require<std::int64_t>(
+        fl_cfg, "default_max_response_seconds", "NWDAF_FL_DEFAULT_MAX_RESPONSE_SECONDS"));
+    const bool fl_enabled = nf_config::require<bool>(fl_cfg, "enabled", "NWDAF_FL_CLIENT_ENABLED");
+    nwdaf::SubprocessFlRoundExecutor fl_executor(fl_exec_opts);
+    // ADR-0471 increment 4: the federated-learning server (federations listed in config).
+    const auto& fls_cfg = mtlf_cfg.at("fl_server");
+    nwdaf::SubprocessFlAggregatorOptions fl_agg_opts;
+    fl_agg_opts.python = train_opts.python;
+    fl_agg_opts.workdir = train_opts.workdir;
+    fl_agg_opts.timeout = train_opts.timeout;
+    fl_agg_opts.script =
+        nf_config::require<std::string>(fls_cfg, "aggregate_script", "NWDAF_FL_AGGREGATE_SCRIPT");
+    if (fl_agg_opts.script.empty()) {
+        fl_agg_opts.script = NWDAF_TRAINING_DIR "/fl_aggregate.py";
+    }
+    nwdaf::Mtlf::FlServerOptions fl_server_opts;
+    fl_server_opts.round_grace_seconds = nf_config::require<std::int64_t>(
+        fls_cfg, "round_grace_seconds", "NWDAF_FL_ROUND_GRACE_SECONDS");
+    fl_server_opts.repeat_interval_seconds = nf_config::require<std::int64_t>(
+        fls_cfg, "repeat_interval_seconds", "NWDAF_FL_REPEAT_INTERVAL_SECONDS");
+    for (const auto& f : fls_cfg.at("federations")) {
+        nwdaf::FlFederation fed;
+        fed.event = f.at("event").get<std::string>();
+        fed.ml_corre_id = f.at("ml_corre_id").get<std::string>();
+        fed.rounds = f.at("rounds").get<int>();
+        fed.min_clients = f.at("min_clients").get<int>();
+        fed.max_res_time_s = f.at("max_res_time_seconds").get<long>();
+        fl_server_opts.federations.push_back(std::move(fed));
+    }
+    const bool fl_server_enabled =
+        nf_config::require<bool>(fls_cfg, "enabled", "NWDAF_FL_SERVER_ENABLED");
+    nwdaf::SubprocessFlAggregator fl_aggregator(fl_agg_opts);
     nwdaf::Mtlf mtlf(mtlf_opts,
                      client,
                      client_mutex,
@@ -941,6 +993,12 @@ int main() {
                      verifier,
                      ml_store,
                      trainer);
+    if (fl_enabled) {
+        mtlf.set_fl_client(fl_executor, fl_opts);
+    }
+    if (fl_server_enabled) {
+        mtlf.set_fl_server(fl_aggregator, std::move(fl_server_opts));
+    }
 
     auto meter = sbi_core::get_meter("nwdaf");
     auto analytics_counter = meter->CreateUInt64Counter("nwdaf_analytics_requests_total",
@@ -995,7 +1053,7 @@ int main() {
         &ee_state);
 
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
     // real; the federated-training coordination the subscriptions would drive is Phase D
@@ -2097,6 +2155,7 @@ int main() {
     }
     if (is_mtlf) {
         service_names.push_back("nnwdaf-mlmodelprovision");
+        service_names.push_back("nnwdaf-mlmodeltraining");
         if (!is_anlf) {
             service_names.push_back("nnwdaf-mlmodelmonitor");
         }
@@ -2179,7 +2238,7 @@ int main() {
     });
 
     server.start();
-    spdlog::info("nwdaf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("nwdaf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("nwdaf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     running = false;

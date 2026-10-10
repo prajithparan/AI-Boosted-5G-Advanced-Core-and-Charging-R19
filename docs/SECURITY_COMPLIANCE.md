@@ -39,19 +39,22 @@ receiving server and delivery client, LI_HI2 mediation with a TS 102 232-1 PS-PD
 IRI-POI (`nfs/amf/src/li_poi.hpp`) with its Registration/IdentifierAssociation/LocationUpdate hooks
 wired (default-off).
 
-**What is verified still missing, checked directly in this pass, not assumed from the above:**
-`grep -rli "li_poi\|lawful.intercept"` against `nfs/chf`, `nfs/smf`, `nfs/udm`, `nfs/nrf`, `nfs/nef`
-source returns **nothing** -- none of these NFs has an IRI-POI yet, including **CHF's clause 7.22
-IRI-POI**, which this document's own table below still correctly identifies as the requirement that
-matters most to this project's commercial core. AMF's own POI coverage is itself partial (per
-project memory: Registration hook done, five further AMF event hooks and a POI functional test
-still open). NRF's SIRF, and UDM/SMSF/NEF/NWDAF IRI-POIs, remain unbuilt.
+**Re-checked 2026-10-06 (docs-sweep before a push), same grep:** `grep -rli "li_poi\|lawful.intercept"` over
+`nfs/*/src` now matches `nfs/amf`, `nfs/smf` and `nfs/upf` and **nothing in `nfs/chf`, `nfs/udm`, `nfs/nrf`, `nfs/nef`,
+`nfs/smsf` or `nfs/nwdaf`**. Built since the paragraph above was written: the ADMF (`nfs/li-admf`, ADR-0462, HI1 +
+LIPF + the lifecycle workflows), the SMF IRI-POI (ADR-0463), and a content-of-communication chain -- CC-TF in the SMF,
+CC-POI in the UPF, X3 and `nfs/li-mdf3` (ADR-0464). The AMF IRI-POI covers registration, deregistration, location
+update, identifier association/deassociation and start of interception, each proven through the real AMF process
+(README LI row). **Still missing:** the **CHF clause 7.22 IRI-POI** (the one this document's table below rates most
+important), UDM, SMSF, NEF and NWDAF POIs, NRF's SIRF, and **real packet capture**: the UPF's CC-POI `on_packet()` is a
+seam fed by tests and nothing in the datapath calls it (ADR-0464), so `cc_capable` stays false for the UPF in any real
+deployment and no real user-plane content is intercepted.
 
-**Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI2 transport +
-MDF2 + one NF's partial POI coverage), not "no LI exists" and not "LI is done" -- the real remaining
-gap is per-NF POI coverage, CHF's most of all.** This is still a production blocker (same TS 33.126
-§4 / commercialization-mandate reasoning the original F1 gave), just not for the reason originally
-stated.
+**Accurate status, replacing "entirely absent": partially built (X1/X2/X3/HI1/HI2/HI3 transport, ADMF, MDF2, MDF3,
+AMF and SMF IRI-POIs, a test-proven but not datapath-wired UPF CC-POI), not "no LI exists" and not "LI is done" -- the real
+remaining gap is per-NF POI coverage, CHF's most of all, plus real capture in the UPF.** This is still a production
+blocker (same TS 33.126 §4 / commercialization-mandate reasoning the original F1 gave), just not for the reason
+originally stated.
 
 TS 33.127 V19.7.0 places LI requirements on **every control-plane NF this project has**; the table
 below is unchanged from the original pass and should be read against the corrected status above,
@@ -96,6 +99,14 @@ whose security capability offers only 128-NEA1/NIA1 cannot complete Security Mod
 this AMF. ZUC's absence is conformant. NEA0 (null ciphering) is also required and absent; NIA0
 "shall be disabled" outside unauthenticated-emergency deployments, so its absence is conformant.
 
+**Blocker (2026-10-09):** the 3GPP documents that carry SNOW 3G (TS 35.215, 35.216, 35.217, fetched
+Rel-19) are cover pages only: "The technical provisions ... are contained in the SAGE Specification"
+(ETSI SAGE UEA2/UIA2 Documents 1-3, subject to ETSI licensing conditions). The S-boxes, LFSR/FSM, and
+f8/f9 construction and test vectors are therefore not in hand. They will not be written from memory.
+Re-checked against the ETSI-published Rel-16 PDFs too (8 pages each, same one-line pointer; `snow3g/docs/sources.md`), and after the architect pointed at the 3GPP portal ZIPs (35.215-35.218, Rel-19 j00): each ZIP holds one
+.docx cover page and no C source or test data. Framework for an operator-supplied package built (F1/F2, ADR-0479); still no algorithm. Needs the architect: supply the SAGE documents (and confirm the licence is compatible with the
+OSI-approved-only rule), or approve a specific open-source implementation as a dependency.
+
 ### F3. Duplicate JSON keys are silently accepted -- TS 33.117 §4.3.6.3
 
 *"The occurrence of the same name (or key) twice within such a structure leads to an error and the
@@ -111,6 +122,8 @@ payload carrying a key twice can pass one value to whatever validated the first 
 different value to whatever consumed the last. Fixable in one place (a parser callback that
 rejects a repeated key) since all SBI bodies go through `sbi_core::http2::parse_json_body`.
 
+**Status 2026-10-09 (ADR-0476):** detector and a server-level rejection (400 INVALID_MSG_FORMAT, in `sbi_core`'s server, not `parse_json_body` -- many handlers parse directly) are coded; the detector is unit-tested, the server hook is compile-checked only.
+
 ### F4. NRF does not authorize discovery -- TS 33.501 §13.3.1.3
 
 *"The NRF shall check that the values of the authorization parameters in the NF (Service) Profile
@@ -118,8 +131,9 @@ of an NF Service Producer allows an NF Service Consumer to discover the NF Servi
 response message, the NRF shall only return information of those NF Service Producer instances
 that the NF Service Consumer is authorized to discover."*
 
-`grep allowedNfTypes|allowedPlmns|allowedNssais|allowedNfDomains nfs/nrf/src/` returns nothing.
-Every consumer that can authenticate can discover every producer.
+**Status (ADR-0477):** `allowedNfTypes`, `allowedPlmns`, `allowedNssais` are now enforced at discovery
+(unit-tested; HTTP path compiled, not exercised end-to-end). `allowedNfDomains` is enforced as a regex over the whole
+requester FQDN (architect decision 2026-10-09); SNPN parameters are NOT evaluated.
 
 ### F5. TLS 1.3 only -- TS 33.210 §6.2.1 (mandated by TS 33.501 §13.1.0)
 
@@ -127,6 +141,8 @@ Every consumer that can authenticate can discover every producer.
 supported."* `http2_client.cpp:114` pins `CURL_SSLVERSION_TLSv1_3`. A profile-conformant peer that
 offers only TLS 1.2 cannot connect. This is the one finding where the non-conformant choice is the
 *more* secure one; it is recorded as a decision for the architect, not silently changed.
+
+**Status (ADR-0478):** opt-in TLS 1.2 floor implemented (`tls_min_version`, default stays 1.3); unit-tested with a TLS 1.2-only peer, not run in any NF; full TS 33.210 1.2 profile not verified.
 
 ### F6. SNI is never sent -- TS 33.501 §13.1.0
 

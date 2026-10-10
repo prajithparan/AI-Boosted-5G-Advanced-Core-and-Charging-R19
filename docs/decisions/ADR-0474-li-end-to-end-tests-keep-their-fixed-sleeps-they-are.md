@@ -1,0 +1,9 @@
+## ADR-0474: LI end-to-end tests keep their fixed sleeps: they are negative-assertion windows
+
+**Date:** 2026-10-09. **Status:** Proposed.
+
+**Context.** The LI end-to-end tests (`tests/integration/test_li_*.cpp`) contain 49 `sleep_for` calls, 20 of them in `test_li_amf_e2e.cpp`. The question was whether replacing them with event-driven waits would shorten the suite. Reading them (2026-10-09): most of the long ones (500 ms to 3 s) are NEGATIVE-assertion windows -- "wait, then assert that nothing extra arrived" (for example `test_li_amf_e2e.cpp:514` "let any stray extra PDU land before counting", `:1057`, 3 s before asserting no record reached the LEMF after the warrant was cancelled; `:1048` is a 1 s settle before the baseline count, not a negative window). A negative assertion has no event to wait for; the sleep is the observation window, and removing it makes the assertion vacuous. The short ones (50-100 ms) are poll intervals inside bounded retry loops, which already exit on the event. Total sleep in the AMF e2e file is about 8-10 s of a local suite that takes about 25 minutes.
+
+**Decision.** No change. The sleeps stay. Measured claim: the upper bound on what an event-driven rewrite could save is the 8-10 s above, under 1% of the suite; not worth making negative assertions weaker. One candidate remains, `test_li_amf_e2e.cpp:766` (2 s "let every Deregistration/Deassociation xIRI land"): it is a positive wait and could poll for the expected PDU count, but it is followed by a count assertion, so a poll would need the expected total from the test; deferred, not done.
+
+**Rejected alternatives.** Replacing every sleep with a condition-variable wait (fails for negative assertions, saves under 1%). Shortening the windows (raises flake risk on the shared single runner, which is the failure the project is trying to remove).

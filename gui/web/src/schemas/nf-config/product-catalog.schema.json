@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "db_pool_size": {
       "type": "integer",
       "x-env-override": "PRODUCT_CATALOG_DB_POOL_SIZE",
@@ -35,7 +39,8 @@
     "database_url",
     "db_pool_size",
     "metrics_bind_address",
-    "port"
+    "port",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/product-catalog.json",
   "x-source": [

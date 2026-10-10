@@ -113,6 +113,18 @@ def main(argv: list[str]) -> int:
            run("derive_tmf620_schema.py", str(t), str(t / "out.json")))
     shutil.rmtree(t)
 
+    # The PCF's policy counters must be creatable in the GUI with ANY session rule id. TS 29.512
+    # SmPolicyDecision.sessRules is a map keyed by sessRuleId; a schema inferred from the one example
+    # in config/pcf.json allowed exactly the key "spending-limit-rule" and refused every other rule.
+    pcf = json.loads((Path(argv[1]) / "gui/web/src/schemas/nf-config/pcf.schema.json").read_text())
+    decision = pcf["properties"]["policy_counter_actions"]["items"]["properties"]["smPolicyDecision"]
+    sess_rules = decision.get("properties", {}).get("sessRules", {})
+    is_map = isinstance(sess_rules.get("additionalProperties"), dict) and "properties" in sess_rules[
+        "additionalProperties"]
+    expect("pcf policy counter schema: sessRules is a map of YAML SessionRule, derived from the YAML",
+           0 if is_map and decision.get("x-yaml", "").startswith("TS29512_Npcf_SMPolicyControl.yaml") else 1,
+           want_fail=False)
+
     print(f"{failures} failure(s)")
     return 1 if failures else 0
 

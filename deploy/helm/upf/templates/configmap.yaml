@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-upf-config
+  labels:
+    app.kubernetes.io/name: upf
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  upf.json: |
+    {{- .Values.config | toPrettyJson | nindent 4 }}

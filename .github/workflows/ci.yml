@@ -55,8 +55,54 @@ env:
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
 
 jobs:
+  # ADR-0469: decide whether the change touches anything but documentation. Docs-only pushes (this
+  # repo updates docs on every push) skip `build` and `sanitize` -- ~2 h of tests on the single lab
+  # runner -- while `lint` still runs because it checks the README architecture diagram. A skipped
+  # job counts as passing for a required status check, unlike a workflow-level `paths-ignore`, which
+  # leaves the check pending forever. Any doubt (no base commit, a failed diff, schedule/manual
+  # runs) means "code changed". Runs on a GitHub-hosted runner so it never queues behind the
+  # single lab runner.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          code=true
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+          esac
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "$base^{commit}" 2>/dev/null \
+             && git diff --name-only "$base" "$GITHUB_SHA" > changed.txt; then
+            echo "changed files:"; cat changed.txt
+            # Documentation only: anything under docs/, Markdown anywhere, LICENSE, issue/PR templates.
+            if [ -s changed.txt ] && ! grep -vE '^(docs/|LICENSE$|\.github/(ISSUE_TEMPLATE/|PULL_REQUEST_TEMPLATE\.md$))|\.md$' changed.txt | grep -q .; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code changed: $code (event=$EVENT)"
+
   build:
+    # ADR-0469: after `lint` (fast, catches formatting/tidy/diagram drift first) and only when code changed.
+    needs: [changes, lint]
+    if: needs.changes.outputs.code == 'true'
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
+    # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.
+    timeout-minutes: 240
     # Real datastores for the integration tests. Since ADR-0384..0388 every charging/BSS service
     # persists in ONE consolidated PostgreSQL (postgres-chf: databases `charging` + `orchestration`,
     # created by deploy/db/init-domain-dbs.sh); the per-service product-catalog / balance /
@@ -414,6 +460,7 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          LI_MDF3_REDIS_URL: tcp://127.0.0.1:16379
           # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
           UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
@@ -463,7 +510,13 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 120
 
   sanitize:
+    # ADR-0469: the two sanitizer legs are ~85 min of the run; do not start them if `build` or `lint` failed.
+    needs: [changes, lint, build]
+    if: needs.changes.outputs.code == 'true'
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: bounded well under GitHub's 6 h default so a stuck job fails fast. Measured on the lab
+    # runner: ~34 min (build), ~40 min (sanitize legs); 240 leaves room for a cold ccache/vcpkg cache.
+    timeout-minutes: 240
     strategy:
       # fail-fast: false (ADR-0222) -- real, observed waste: default fail-fast:true cancelled a
       # still-running, unrelated `tsan` leg the moment `asan-ubsan` failed from a GitHub-infra-level
@@ -840,6 +893,7 @@ jobs:
           DCCF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_REDIS_URL: tcp://127.0.0.1:16379
           LI_MDF_REDIS_URL: tcp://127.0.0.1:16379
+          LI_MDF3_REDIS_URL: tcp://127.0.0.1:16379
           # ADR-0400: the UDSF suite spawns two UDSF replicas on the CI Valkey (own realm per run).
           UDSF_REDIS_URL: tcp://127.0.0.1:16379
           ADRF_DATA_STORE_HOST: 127.0.0.1
@@ -887,6 +941,11 @@ jobs:
 
   lint:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
+    # ADR-0468: a push or PR lints only changed files (~40 min measured); the weekly/on-demand full
+    # sweep takes 4.5-5.5 h (ADR-0371) and must keep the 6 h maximum. Push/PR cap raised 90 -> 240
+    # on 2026-10-09: a push touching ~35 .cpp (26 NF mains at ~27 min of clang-tidy each) hit 90.
+    # 240 -> 480 on 2026-10-10: a PR lints its whole diff vs main (ADR-0468); that cumulative diff took >240 min (run 38014325604 cancelled at the cap).
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 480 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -932,6 +991,43 @@ jobs:
         run: |
           find libs nfs tests -name '*.hpp' -o -name '*.cpp' | xargs clang-format-18 --dry-run --Werror
 
+      - name: No restricted algorithm material in git (ADR-0479)
+        run: |
+          python3 scripts/test_check_no_restricted.py
+          python3 scripts/check_no_restricted.py
+          python3 tools/sage-import/test_sage_import.py
+
+      - name: Select .cpp files to lint (ADR-0468 semantics; empty list skips the toolchain setup below)
+        id: sel
+        env:
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          FULL_LINT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_lint) }}
+        run: |
+          # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
+          # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
+          # ADR-0468: `github.event.before` is empty only on the first pull_request event (opened); on
+          # every later push to the PR (synchronize) it is the PREVIOUS PR head, so "changed since
+          # before" lints only the last push. That let a push that failed lint be followed by a
+          # docs-only push that went green (run 37712070781: clang-tidy took 0 s with two .cpp files
+          # still unlinted). For any pull_request, lint everything the PR changes against its base
+          # (fetched shallow: a diff only needs the two trees).
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$PR_BASE" ]; then
+            git fetch --quiet --no-tags --depth=1 origin "$PR_BASE" || true
+            BEFORE="$PR_BASE"
+          fi
+          if [ "$FULL_LINT" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "lint: full sweep (event=${GITHUB_EVENT_NAME}, before=${BEFORE:-none})"
+            find libs nfs -name '*.cpp' -print0 > files.lst
+          else
+            git diff --name-only --diff-filter=ACMR "$BEFORE" "$GITHUB_SHA" -- 'libs/**/*.cpp' 'nfs/**/*.cpp' \
+              | tr '\n' '\0' > files.lst
+            echo "lint: $(tr -cd '\0' < files.lst | wc -c) file(s) changed since $BEFORE"
+          fi
+          if [ -s files.lst ]; then echo "count=$(tr -cd '\0' < files.lst | wc -c)" >> "$GITHUB_OUTPUT"
+          else echo "count=0" >> "$GITHUB_OUTPUT"; echo "lint: no .cpp to analyse -- skipping toolchain setup and clang-tidy"; fi
+
       - name: Cache vcpkg binary cache
         if: runner.environment == 'github-hosted'
         uses: actions/cache@v6
@@ -942,6 +1038,7 @@ jobs:
             vcpkg-bincache-${{ runner.os }}-
 
       - name: Bootstrap vcpkg
+        if: steps.sel.outputs.count != '0'
         run: |
           # Same as the build job: clone once, check out vcpkg.json's builtin-baseline so the
           # binary cache key matches the lab machine's own vcpkg.
@@ -959,6 +1056,7 @@ jobs:
           fi
 
       - name: Install sbi-codegen Python deps
+        if: steps.sel.outputs.count != '0'
         run: pip install -q -r tools/sbi-codegen/requirements.txt
 
       - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
@@ -969,15 +1067,18 @@ jobs:
           key: asn1c-${{ runner.os }}-${{ hashFiles('scripts/setup-asn1c.sh', 'scripts/patches/asn1c-aligned-per.patch') }}
 
       - name: Build asn1c toolchain (idempotent -- no-ops if the cache above already has it)
+        if: steps.sel.outputs.count != '0'
         run: ./scripts/setup-asn1c.sh
 
       - name: Configure (for compile_commands.json)
+        if: steps.sel.outputs.count != '0'
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
           -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: clang-tidy
+        if: steps.sel.outputs.count != '0'
         # Parallelised across the runner's cores. This step was measured at 2h27m -- roughly 60% of
         # the whole workflow's wall-clock, and more than the asan-ubsan sanitizer leg -- because the
         # single `xargs clang-tidy-18` invocation analysed all 137 .cpp files (~69k lines) SERIALLY.
@@ -998,23 +1099,5 @@ jobs:
         # increments were never linted in CI. A push now lints the .cpp files it changed (the
         # diff from the push's base commit; the whole tree when there is no base, e.g. a new
         # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
-        env:
-          BEFORE: ${{ github.event.before }}
-          FULL_LINT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_lint) }}
         run: |
-          # -P capped at CI_JOBS on the self-hosted runner (ADR-0363): eight parallel clang-tidy on
-          # the 15 GB lab box thrashed (0 B free, single files at 55 min) -- same lesson as the -j.
-          if [ "$FULL_LINT" = "true" ] || [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "lint: full sweep (event=${GITHUB_EVENT_NAME}, before=${BEFORE:-none})"
-            find libs nfs -name '*.cpp' -print0 > files.lst
-          else
-            git diff --name-only --diff-filter=ACMR "$BEFORE" "$GITHUB_SHA" -- 'libs/**/*.cpp' 'nfs/**/*.cpp' \
-              | tr '\n' '\0' > files.lst
-            echo "lint: $(tr -cd '\0' < files.lst | wc -c) file(s) changed since $BEFORE"
-          fi
-          if [ ! -s files.lst ]; then
-            echo "lint: no .cpp changed by this push -- nothing to analyse"
-            exit 0
-          fi
           xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build < files.lst

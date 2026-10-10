@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "db_pool_size": {
       "type": "integer",
       "x-env-override": "BALANCE_MANAGEMENT_DB_POOL_SIZE",
@@ -35,6 +39,7 @@
     "db_pool_size",
     "metrics_bind_address",
     "port",
+    "sbi_bind_address",
     "self_base_url"
   ],
   "x-config-file": "config/balance-management.json",

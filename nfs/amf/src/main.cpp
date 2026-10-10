@@ -106,6 +106,7 @@
 #include "TS29518_Namf_MBSCommunication.hpp"
 #include "TS29518_Namf_MT.hpp"
 #include "li_poi.hpp"
+#include "nas_alg_provider/loader.hpp"
 #include "nf_config/nf_config.hpp"
 #include "nf_config/redis.hpp"
 #include "nf_config/redis_router.hpp"
@@ -325,6 +326,36 @@ void run_nrf_lifecycle(const std::string& amf_instance_id,
 
 } // namespace
 
+// ADR-0479: operator-supplied NAS algorithm providers (e.g. a locally built 128-EEA1/EIA1 library).
+// Fail closed: a provider that fails any loader gate is logged and ignored, never partially used.
+// NOTE: loading is all this does today. NAS algorithm SELECTION in the AMF is still fixed to
+// 128-NEA2/128-NIA2 (nas_codec.cpp, ngap_task.cpp); wiring a loaded provider into selection from
+// the UE security capabilities is a separate, not-yet-approved increment.
+static std::vector<std::unique_ptr<nas_alg_provider::Provider>>
+load_nas_alg_providers(const nlohmann::json& config) {
+    std::vector<std::unique_ptr<nas_alg_provider::Provider>> out;
+    if (!config.contains("nas_security") || !config.at("nas_security").contains("alg_providers")) {
+        return out;
+    }
+    for (const auto& entry : config.at("nas_security").at("alg_providers")) {
+        nas_alg_provider::ProviderConfig pc{
+            entry.value("path", ""), entry.value("sha256", ""), entry.value("vectors", "")};
+        auto loaded = nas_alg_provider::load(pc);
+        if (!loaded) {
+            spdlog::error("amf: NAS algorithm provider {} NOT loaded: {}", pc.path, loaded.error());
+            continue;
+        }
+        spdlog::info("amf: NAS algorithm provider loaded: id={} package={} algorithms=0x{:x} "
+                     "selftest_passed={}",
+                     (*loaded)->provider_id(),
+                     (*loaded)->package_id(),
+                     (*loaded)->algorithms(),
+                     (*loaded)->selftest_passed());
+        out.push_back(std::move(*loaded));
+    }
+    return out;
+}
+
 int main() {
     sbi_core::init_logging("amf");
     sbi_core::init_tracing("amf");
@@ -335,9 +366,11 @@ int main() {
     // deployment-time substitution (e.g. AMF_REDIS_URL, matching every other NF's own existing
     // override convention).
     const auto config = nf_config::load("amf", CONFIG_DIR);
+    const auto nas_alg_providers = load_nas_alg_providers(config);
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto nrf_base =
         nf_config::require<std::string>(config, "nrf_base_url", "AMF_NRF_BASE_URL");
     auto redis_url = nf_config::require<std::string>(config, "redis_url", "AMF_REDIS_URL");
@@ -490,7 +523,7 @@ int main() {
 
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -1385,7 +1418,7 @@ int main() {
     if (config.contains("li_poi") && config.at("li_poi").value("enabled", false)) {
         const auto& lp = config.at("li_poi");
         amf::LiPoi::Config poi_cfg;
-        poi_cfg.x1_bind_address = lp.value("x1_bind_address", std::string{"0.0.0.0"});
+        poi_cfg.x1_bind_address = lp.at("x1_bind_address").get<std::string>();
         poi_cfg.x1_port = lp.at("x1_port").get<std::uint16_t>();
         poi_cfg.ne_identifier = lp.value("ne_identifier", std::string{"amf-poi"});
         poi_cfg.network_function_id = lp.value("network_function_id", amf_instance_id);
@@ -1438,7 +1471,7 @@ int main() {
                             li_poi.get());
 
     server.start();
-    spdlog::info("amf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("amf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("amf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     ngap_thread.join();

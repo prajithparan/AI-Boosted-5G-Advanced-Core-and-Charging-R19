@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <optional>
+#include <string_view>
 
 // Shared request-body helpers for NF request handlers: build a ProblemDetails error response, and
 // parse a JSON (or multipart/related-wrapped JSON) request body into a generated sbi_gen DTO.
@@ -22,6 +23,13 @@
 namespace sbi_core::http2 {
 
 Response problem_response(int status, const std::string& title, const std::string& detail);
+
+// True when `body` is well-formed JSON in which some object repeats a member name. nlohmann::json
+// (like most parsers) keeps the last value silently, so a request such as
+// {"supi":"imsi-1","supi":"imsi-2"} would be read as the second while a validating front end may
+// have read the first -- the ambiguity TS 33.117 (as recorded in ADR-0354) requires an
+// implementation to reject. Malformed JSON returns false: the handler's own parse reports it.
+bool json_has_duplicate_keys(std::string_view body);
 
 // Parses req.body as JSON into T (a generated sbi_gen DTO). On success returns the value; on
 // failure writes a 400 ProblemDetails into err_out and returns nullopt.

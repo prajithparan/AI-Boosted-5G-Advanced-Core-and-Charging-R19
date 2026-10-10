@@ -183,3 +183,35 @@ accurate reason.
 
 **Every one of the 328 paths is now either implemented or an explicit, reasoned deferral. This
 audit has no open findings.**
+
+## Update (2026-10-07): re-measured with `tools/specs/nf_api_coverage.py` -- and a correction to "no open findings"
+
+The audit above had no script in the repository, only a method description. `tools/specs/nf_api_coverage.py` now
+reproduces it: every path of an NF's R19 YAML (`TS*_N<nf>_*.yaml`) against the built binary (`build/nfs/<nf>/<nf>`),
+reading files only (no process started, no port opened). **Rule:** a path counts as routed when some path-like string
+in the binary *ends with it* (placeholder names ignored). Two simpler rules were tried first and rejected: substring
+matching counts `/pdu-sessions` as routed because `/pdu-sessions/{ref}/deliver` is (this is the flaw this document
+already admitted under ADR-0253), and exact matching reports `/nf-instances` as unrouted because the compiler stored it
+only as the tail of a longer string.
+
+**Measured 2026-10-07 on `build/` at `6b9725d`: 23 NFs, 89 spec files, 424 paths, 34 flagged.** The 16 NFs of the original audit
+give 359 paths (the original counted 328 -- the difference is not explained here, so the two totals are not comparable).
+Not audited: `li-admf`, `li-mdf`, `li-mdf3` (no TS 29-series YAML) and the `hello-nf` template.
+
+| Flagged | Count | Where | What it is |
+|---|---:|---|---|
+| Run-time-assembled route, so a string scan cannot see it | 18 | udm 4 (`-ack` loop), udr 8 (`provisioned-data/*` built from `provisioned_data_path_pattern`, `smf-registrations/{pduSessionId}`), udsf 6 (`records`/`timers` built from `root + ...`) | Tool limit, not a gap. Each was read in source; the individual operations were not each exercised here. |
+| Deferral already disclosed in source or ADRs | 16 | ausf 1, nrf 5, udm 1 (`update-sor`), udr 2 (`service-specific-authorization-data`, `/subscription-data/shared-data` = GetSharedData), smf 4 (`/pdu-sessions` I-SMF collection: modify, release, retrieve, create), dccf 1 (`/transfer-data-sub`), mfaf 1 (`/mfaf-data-analytics`), nwdaf 1 (`/subscriptions/{subscriptionId}/unsubscribe-info`: the whole `Nnwdaf_MLModelTraining` API is disclosed as Phase D in `nfs/nwdaf/src/main.cpp`) | Real, known, reasoned. |
+| Not disclosed anywhere | 0 | -- | None found among the 34. A first draft of this section listed the NWDAF path as undisclosed; that was wrong, the source header names the API. |
+
+**Tool limit that hides gaps in the other direction.** A short path shared by several of an NF's APIs (`/subscriptions`,
+`/subscriptions/{subscriptionId}`) is counted as routed as soon as *any* of that NF's services registers it. NWDAF shows this: only
+`unsubscribe-info`, the one path unique to `Nnwdaf_MLModelTraining`, is flagged, although that API's `/subscriptions` and
+`/subscriptions/{subscriptionId}` are equally unbuilt. So a clean row means "no unique path is missing", not "every operation
+exists"; the same can hold for any NF with several services (NEF 14, PCF 10, UDM 10, NWDAF 10). Closing that needs a per-service
+check, which this tool does not do.
+
+**Correction.** The 2 Sep conclusion "every one of the 328 paths is implemented or an explicit, reasoned deferral; this
+audit has no open findings" is not supported by this measurement. Five of the paths above appear to have been counted as routed by the old
+substring heuristic (inferred from its published table, not re-run) although they are deferred: the four SMF `/pdu-sessions` operations and UDR GetSharedData. They are
+disclosed in source, so the claim "zero undisclosed gaps" held then, but "no open findings" did not. NWDAF was not among the original 16 NFs. Counts are paths, not path x method operations.

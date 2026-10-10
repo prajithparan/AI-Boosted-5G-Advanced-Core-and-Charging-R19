@@ -1,0 +1,11 @@
+## ADR-0478: Opt-in TLS 1.2 floor for SBI interop (finding F5, TS 33.210 6.2.1)
+
+**Date:** 2026-10-09. **Status:** Proposed.
+
+**Context.** Finding F5: TS 33.210 6.2.1 (via TS 33.501 13.1) says TLS 1.2 "shall be supported" alongside TLS 1.3; sbi_core pinned TLS 1.3 only (CLAUDE.md: TLS 1.3, mTLS). The architect asked whether 1.2 is really needed when all our code speaks 1.3. Answer: only for conformance/interop with a peer (third-party NF, roaming SEPP) that offers nothing newer than 1.2. The user said "GO" (2026-10-09) on the proposal below.
+
+**Decision.** TLS 1.3 stays the default everywhere. An operator may set `"tls_min_version": "1.2"` in `config/<nf>.json`. `nf_config::load` exports it as `SBI_TLS_MIN_VERSION` (setenv without overwrite, so a deployment-set env var wins); `sbi_core::http2::min_tls_version()` reads it. With 1.2: the server uses a generic TLS server context with SSLv2/3 and TLS 1.0/1.1 disabled and min protocol 1.2; the client (libcurl) uses `CURL_SSLVERSION_TLSv1_2` (1.2 or newer). TLS 1.2 cipher suites are limited to `ECDHE+AESGCM:ECDHE+CHACHA20`; mTLS stays mandatory. Any other value throws (a typo cannot silently change the floor). Tests: `sbi_tls_min_version_tests` (3, in-process, ephemeral port): default rejects a TLS 1.2-only peer; opt-in accepts it with an ECDHE+GCM/CHACHA20 suite; invalid value throws.
+
+**Disclosed.** The setting is process-wide, not per peer (the floor cannot be 1.2 for one SEPP and 1.3 for the rest). The key is read at config load, not hot-reloaded. The key is not present in any shipped config/*.json, so the GUI schemas are unchanged. No NF was started with it; only the sbi_core unit test ran. Whether TS 33.210's mandatory 1.2 profile (cipher suites, certificate profile) is fully met was NOT checked against the TS text in this change; the cipher list is a conservative subset chosen here. The 1.2 path loses forward-secret-only guarantees of 1.3 only to the extent the cipher list allows (ECDHE only), and has no 0-RTT/PSK differences relevant here.
+
+**Rejected alternatives.** Making 1.2 the default (weakens every internal hop for no benefit). Per-NF edits to ~40 mains (the env hand-off needs none). Unconditional 1.2 support without a switch (enlarges attack surface for deployments that need none).

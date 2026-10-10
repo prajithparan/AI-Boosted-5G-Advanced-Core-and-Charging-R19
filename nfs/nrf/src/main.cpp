@@ -59,6 +59,7 @@
 // ADR-0193/ADR-0194: TS29510_Nnrf_Bootstrapping.yaml, the Tier-A gap that started the
 // full-project YAML coverage audit -- see docs/CAPABILITY_GAP_ANALYSIS.md's own ADR-0193 section.
 #include "TS29510_Nnrf_Bootstrapping.hpp"
+#include "discovery_authz.hpp"
 #include "registry.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
@@ -314,6 +315,7 @@ int main() {
     const auto port = nf_config::require<unsigned short>(config, "port");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
 
     sbi_core::init_logging("nrf");
     sbi_core::init_tracing("nrf");
@@ -446,7 +448,7 @@ int main() {
     // since Docker's port mapping targets the container's external interface, not its loopback.
     // See docs/DECISIONS.md ADR-0014. Still reachable at 127.0.0.1 for anything running on the
     // same host/network namespace (hello-nf's local dev usage is unaffected).
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -756,9 +758,36 @@ int main() {
                 return problem_response(
                     400, "Missing mandatory query parameter", "target-nf-type is required");
             }
+            // TS 33.501 13.3.1.3 / TS 29.510 6.2.3.2.3.1: requester info for the allowed* checks
+            // (ADR-0477). requester-plmn-list / requester-snssais are JSON-encoded arrays.
+            nrf::DiscoveryRequester requester;
+            if (qpos != std::string::npos) {
+                auto qs = parse_form_urlencoded(req.path.substr(qpos + 1));
+                if (auto it = qs.find("requester-nf-type"); it != qs.end()) {
+                    requester.nf_type = it->second;
+                }
+                if (auto it = qs.find("requester-nf-instance-fqdn"); it != qs.end()) {
+                    requester.fqdn = it->second;
+                }
+                for (const auto& [name, dst] :
+                     {std::pair<const char*, json*>{"requester-plmn-list", &requester.plmns},
+                      std::pair<const char*, json*>{"requester-snssais", &requester.snssais}}) {
+                    if (auto it = qs.find(name); it != qs.end()) {
+                        *dst = json::parse(it->second, nullptr, false);
+                        if (!dst->is_array()) {
+                            nfs_disc_fail_input_counter->Add(1);
+                            return problem_response(400,
+                                                    "Invalid query parameter",
+                                                    std::string(name) + " must be a JSON array");
+                        }
+                    }
+                }
+            }
             json instances = json::array();
             for (const auto& profile : nf_registry->search_by_type(target_type)) {
-                instances.push_back(profile);
+                if (nrf::profile_discoverable_by(profile, requester)) {
+                    instances.push_back(profile);
+                }
             }
             // Gap-closure: real searchId, cached so a later RetrieveStoredSearch/
             // RetrieveCompleteSearch (below) can re-fetch this same result.
@@ -888,7 +917,7 @@ int main() {
                      });
 
     server.start();
-    spdlog::info("nrf: listening on https://0.0.0.0:{} (TLS 1.3 + mTLS)", port);
+    spdlog::info("nrf: listening on https://{}:{} (TLS 1.3 + mTLS)", sbi_bind_address, port);
     spdlog::info("nrf: Prometheus metrics at http://{}/metrics", metrics_bind_address);
     sbi_core::run_multi_threaded(ioc);
     return 0;

@@ -1,16 +1,18 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/title-dark.svg">
-    <img src="docs/assets/SovereignAIBased.jpeg"
-         alt="AI-boosted open 5G stack for affordable rural connectivity + AI-driven charging for emerging markets" width="920">
-  </picture>
+  <a href="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml"><img src="https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/hero-diagram.svg"
+       alt="Sovereign AI stack: own it, trust nothing, spec in core out, sell anything, see it coming, what's next, around an AI-built 5G tower, with the promise AI-built, sovereign by design, spec-bound, human-governed" width="920">
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/motto-dark.svg">
-    <img src="docs/assets/motto.svg" alt="Built by AI. Built for Sovereign AI. Bound by the spec."
-         width="760">
+    <img src="docs/assets/motto.svg" alt="AI-built. Sovereign by design. Spec-bound. Human-governed."
+         width="900">
   </picture>
 </p>
 
@@ -29,14 +31,14 @@ deliberately not used as the title — TS 32.296 defines that as its own network
 not implement it, and a title should not need a footnote to be true.
 
 **Why this matters:**
-- 70% of world still lacks affordable 5G. Vendor cores cost $500k+. This is Apache 2.0.
+- Much of the world still has no affordable 5G, and commercial cores are priced for the largest operators. This one is **Apache 2.0**: read it, run it, fork it, own it.
 - Built in modern C++ with CMake+vcpkg, with full spec traceability from 3GPP R19 YAML specs.
-- Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with real eBPF/XDP fast path, CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
+- Real telco-grade features: NRF/AMF/SMF/UDM/UDR/AUSF/PCF, N4/PFCP, UPF with an eBPF/XDP uplink GTP-U decapsulation path (a lab veth/netns fixture, not a gNB-facing N3), CHF converged charging (TS 32.290) with Gy/Sy/CAP, TMF620/632/651/654 BSS, NWDAF AnLF/MTLF with ONNX Runtime.
 
 **Sovereign AI-Boosted**:
 - NWDAF AnLF: NF_LOAD, ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE per S-NSSAI.
 - CHF: AI-driven rating & spending-limit policies, anomaly detection for fraud/overuse.
-- Can be Powered locally by any LLMs(Sovereign AI) like  Meta's Muse Glimmer 30B (Apache 2.0) for LLM-as-judge, policy reasoning, and offline operation - no cloud dependency for rural deployments.
+- **Sovereign by design:** the AI layer is built to run on a locally hosted open-weight LLM (any model whose licence you have vetted) for LLM-as-judge and policy reasoning, so a rural or air-gapped deployment needs no cloud dependency. The ML pipelines that ship today (NWDAF, CHF anomaly detection) are classical models, trained in a Python sidecar and run in-process; the LLM agents are on the roadmap, not in this tree yet.
 - 100% open infrastructure: Apache Doris, Kafka (KRaft), PostgreSQL 16, Valkey 8 (replaces Redis per OSI compliance), MLflow, scikit-learn.
 
 This targets a **production-grade, spec-traceable reference implementation** (raised from an
@@ -46,8 +48,6 @@ Repo slug (`5gc-r19`) and technical identifiers (CMake project name, vcpkg packa
 short slugs; this is the display name. See [`docs/DECISIONS.md`](docs/DECISIONS.md) for every
 architectural choice made (and rejected) along the way.
 
-[![CI](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml/badge.svg)](https://github.com/prajithparan/AI-Boosted-5G-Advanced-Core-and-Charging-R19/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 <h2 align="center">Architecture</h2>
 
@@ -77,12 +77,12 @@ spec text. Full conventions are in [`CLAUDE.md`](CLAUDE.md).
 | 0 | Foundations: CMake+vcpkg skeleton, `libs/sbi-core` (HTTP/2, OAuth2, ProblemDetails, headers, logging, tracing), TLS 1.3 + mTLS | Done |
 | 1 | Codegen spine: `tools/sbi-codegen`, generated DTOs/serializers from the R19 YAML | Done |
 | 2 | Control-plane core: NRF, AMF, SMF, UDM, UDR, AUSF, PCF; UE registration + PDU session establishment end-to-end | Done |
-| 3 | User plane: N4/PFCP, UPF datapath (including a real eBPF/XDP fast path) | Done |
+| 3 | User plane: N4/PFCP, UPF datapath (an eBPF/XDP uplink GTP-U decapsulation path; lab veth/netns fixture, not a gNB-facing N3; no downlink and no LI hook) | Done for what is stated |
 | 4 | Charging + TM Forum SID/BSS layer | Live-verified end to end |
-| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); next roaming / HFL (ADR-0359 step 6) |
+| 5 | NWDAF + AI/ML pipelines | In progress — AnLF (Nnwdaf_AnalyticsInfo + EventsSubscription + DataManagement; NF_LOAD from data collected via the DCCF, predicted with the MTLF's model in-process via ONNX Runtime; ABNORMAL_BEHAVIOUR from real charging data, SERVICE_EXPERIENCE from the SMF QOS_MON feed aggregated per S-NSSAI, ADR-0358/0360/0368/0369/0379), MTLF (Nnwdaf_MLModelProvision, Python training sidecar + MLflow, models through the ADRF, ADR-0369), MFAF (ADR-0365), DCCF (ADR-0366), ADRF (ADR-0367) on the no-in-process-state architecture of ADR-0359; Nnwdaf_MLModelMonitor accuracy loop (ADR-0370); the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription surface (ADR-0380); Nnwdaf_MLModelTraining subscription CRUD and model notification (ADR-0471, FL round logic next); an optional LLM extension seam is specified but not built (ADR-0470); next roaming / HFL (ADR-0359 step 6) |
 | 6 | R19 feature NFs (Tier 2/3) | In progress — 10 of 16 Tier 2 NFs built (5G-EIR, SMSF, GMLC, LMF, NSACF, NWDAF-AnLF, MFAF, DCCF, ADRF, UDSF); Tier 3 not started |
-| 7 | GUI / operations console | **Started** — React + JSON Forms operator GUI behind a C++ backend-for-frontend (`gui/`, ADR-0420..0425): OIDC login against a real, self-hosted Keycloak realm (ADR-0441 — authorization-code + PKCE, real TOTP MFA gating a real `acr` claim via Keycloak step-up; back-channel logout and per-action step-up still deferred), shop-scoped RBAC + maker-checker + hash-chained audit in the `operator_iam` DB, customer onboarding, TMF620 catalog proposals, approvals, and NF configuration (schemas derived for all 31 components; four-eyes editing live for `product-catalog` only). `oam-gui-bff` is now containerized for compose (Dockerfile, `docker-compose.yml` service, ADR-0442) — the login proof runs a real, compiled `oam-gui-bff` binary in a real container against a real, containerized Keycloak, both sharing the lab CA; the Node/`gui/web` build stage ran and was verified inside Docker, but the C++ builder stage (`vcpkg`, `asn1c`, `cmake --build`) never completed inside Docker in this session — three attempts were all defeated by host network conditions before finishing, disclosed in full in ADR-0442, which also has the exact command for whoever next has a working link to build and reverify the real image. The Helm chart also lands with this ADR but is lint/template-verified only — it does not start in a real cluster yet (no chart in this repo provisions `operator_iam`'s PostgreSQL in-cluster). Dear ImGui engineering console: later track. Scope still fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
-| 8 | Lab packaging (`make lab-up`) | Partial — Docker + Compose for all 22 NF/BSS components; Helm for 7 of 18 NFs; no `make lab-up` yet |
+| 7 | GUI / operations console | **Started** — React + JSON Forms operator GUI behind a C++ backend-for-frontend (`gui/`, ADR-0420..0425): OIDC login against a real, self-hosted Keycloak realm (ADR-0441 — authorization-code + PKCE, real TOTP MFA gating a real `acr` claim via Keycloak step-up; back-channel logout and per-action step-up still deferred), shop-scoped RBAC + maker-checker + hash-chained audit in the `operator_iam` DB, customer onboarding, TMF620 catalog proposals, approvals, and NF configuration (schemas derived for all 34 components; four-eyes editing live for `product-catalog` only). `oam-gui-bff` is now containerized for compose (Dockerfile, `docker-compose.yml` service, ADR-0442) — the login proof runs a real, compiled `oam-gui-bff` binary in a real container against a real, containerized Keycloak, both sharing the lab CA; the Node/`gui/web` build stage ran and was verified inside Docker, but the C++ builder stage (`vcpkg`, `asn1c`, `cmake --build`) never completed inside Docker in this session — three attempts were all defeated by host network conditions before finishing, disclosed in full in ADR-0442, which also has the exact command for whoever next has a working link to build and reverify the real image. The Helm chart also lands with this ADR but is lint/template-verified only — it does not start in a real cluster yet (no chart in this repo provisions `operator_iam`'s PostgreSQL in-cluster). Dear ImGui engineering console: later track. Scope still fixed: **all** product/tariff/policy configuration must be GUI-editable (ADR-0289) |
+| 8 | Lab packaging (`make lab-up`) | Partial (counted 2026-10-08) — Compose builds 33 services from this repo's Dockerfiles: 27 NF services (including the UPF, added by ADR-0466, and the `nwdaf-mtlf` variant), `oam-gui-bff`, `postgres-chf`, and 4 BSS services; Helm charts exist for 9 NFs (amf, ausf, li-admf, nrf, pcf, smf, udm, udr, upf) plus keycloak and oam-gui-bff. **UPF packaging (ADR-0466): the image was built and the container run once on 2026-10-09 (it registers with the NRF over TLS 1.3 + mTLS and serves PFCP; that run found and fixed a missing `libli_core`/`libxml2` and a missing `pki-init` certificate), but the eBPF/XDP datapath does not start in the container (`mount --make-shared /run/netns: Permission denied`, cause not yet determined), no SMF PFCP association was tried, and the Helm chart was never applied to a cluster; the UPF now advertises its auto-detected address (`advertised_ipv4: auto`) instead of `127.0.0.1`, covered by unit tests but not yet exercised SMF-to-UPF in a container.** No `make lab-up` yet (there is no Makefile) |
 | P4.12 | Telco-grade hardening (TPS governance, chaos, business alarming, retention, autoscaling) | Done except P11, which is deferred — see [`docs/COMPLIANCE_P1_P15.md`](docs/COMPLIANCE_P1_P15.md) |
 
 **Phase 2** — all 7 NFs implemented; both target procedures (TS 23.502 §4.2.2.2.2 UE Registration,
@@ -119,8 +119,8 @@ wired end-to-end. See [`docs/CHARGING_MAPPING.md`](docs/CHARGING_MAPPING.md) for
 mapping.
 
 **P4.12 (telco-grade hardening)** — per-protocol TPS spike protection across **all three** protocol
-front doors (SBI on all 22 servers, Diameter, and SS7/M3UA — ADR-0280/0285/0288, each off unless
-configured); chaos tests that kill CHF mid-session and partition the balance store, asserting no
+front doors (SBI on the 22 servers that existed then, Diameter, and SS7/M3UA — ADR-0280/0285/0288, each off unless
+configured; 24 of today's 27 NF configs carry a `tps` setting, and `nrf`, `li-mdf` and `li-mdf3` do not, which has not been investigated); chaos tests that kill CHF mid-session and partition the balance store, asserting no
 lost usage and no double-charge (ADR-0281); business-level alarming wired to real exported metrics
 with Prometheus rules (ADR-0282); CDR retention that archives before it deletes (ADR-0283).
 
@@ -183,18 +183,16 @@ Stated at the honest level of detail — what is really expressible today, and w
 | **Shared / family / group bundle** | **Supported** | a TMF654 `Bucket` with `isShared: true` whose `relatedParty` names its members: every member's usage reserves and debits against that one bucket, so a family genuinely draws down a single allowance (ADR-0307). No new resource and no schema change were needed — `isShared` and `relatedParty` are the standard's own fields and both columns already existed. An expired or suspended shared bucket is refused in the store rather than at each call site, and a subscriber never resolves to a bucket they are not a member of |
 | **Postpaid billing / invoicing** | **Partial — bill generation done, delivery not** | real TS 32.298 BER-encoded CDRs land in Doris with retention and archival (ADR-0283), and `billing::run_bill` aggregates TMF678 `AppliedCustomerBillingRate` line items into a real `CustomerBill` with derived totals, marking items billed so a re-run cannot double-charge (ADR-0310). Line items are produced from real Release CDRs by `chf::cdrs_to_billing_items` and the chain is covered end to end by `test_cdr_billing_chain.cpp`. **Still absent**: a bill-cycle scheduler, delivery, dunning and payment. Mixed-currency accounts and zero-activity bills omit the amount rather than stating a wrong or fabricated one |
 
-**Every `Partial` and `Not supported` row above is committed work, not a permanent state**
-(ADR-0300, user-directed): a standard telco has to be able to sell all of them, and slice-based
-products — which do not exist as a concept here at all yet — need a commercial rating model too.
-The model is **attribute-based**: any attribute arriving at CHF on N40 or N28 -- `sNssai`,
-`uPFID`, `dnn`, `ratType`, `servingNetworkId` -- must be usable both to rate and to scope a
-product, so "10 GB on slice 1, 5 GB on slice 10, or an allowance tied to a UPF" are configurations
-of one mechanism rather than separate features. That mechanism is the first thing to build,
-because roaming rating, group scoping and time-based grants are all expressed in it.
-TAP IN and TAP OUT file processing are in scope (`libs/tap3-core` already implements GSMA TD.57
-TAP 3.12 in both directions -- 112 encode/decode functions, all nine `CallEventDetail` variants --
-so what is missing is the batch/ingest processing around it, not the format). RAP (TD.32) and
-NRTRDE (TD.35) remain unstarted and would need those documents.
+**Every `Partial` row above is committed work, not a permanent state** (ADR-0300, user-directed): a
+standard telco has to be able to sell all of them. The attribute-based mechanism that paragraph
+planned is built (ADR-0303): any attribute arriving at CHF on N40 or N28 -- `sNssai`, `uPFID`, `dnn`,
+`ratType`, `servingNetworkId` -- can both rate and scope a product, so "10 GB on slice 1, 5 GB on
+slice 10, or an allowance tied to a UPF" are configurations of one mechanism. What is still open
+are the three `Partial` rows: unit pooling across voice and data, roaming settlement, and postpaid
+bill delivery. TAP OUT batch construction and TAP IN validation are built (ADR-0306,
+`bss/roaming-interconnect`, on top of `libs/tap3-core`, GSMA TD.57 TAP 3.12); real roaming CDR file
+ingestion and settlement are not. RAP (TD.32) and NRTRDE (TD.35) remain unstarted and would need
+those documents.
 
 AI-assisted quota sizing (ONNX, in-process) adjusts **volume** grants only; service-specific-unit
 grants are deliberately excluded (ADR-0248's own disclosed scope).
@@ -224,8 +222,12 @@ Full phase plan: [`PROMPT.md`](PROMPT.md).
 - **Duplicate-safe by construction.** TS 29.500 clause 5.2.8 idempotency keys are claimed
   atomically *before* a charging request is processed, so a retransmitted Release cannot
   double-charge or orphan a session.
-- **3,000,000 CDRs across 75,000 subscribers**, driven through the real N40 path — *charged*, not
-  inserted — with zero failures, zero dropped writes and zero sequence-gap alarms.
+- **5,000,000 CDR rows driven through the real N40 path and rated** (ADR-0455, 2026-10-05): 1,240,000
+  sessions plus 10,000 warm-up over 99,999 distinct subscribers (Consumer and Enterprise), four CHFs,
+  host Release binaries on a single host, `failed=0` and no error or critical log lines on any CHF,
+  at 35.7 sessions/s. The earlier 3.3M-row corpus granted nothing and cost nothing, so it is not a
+  charging result. Not measured: the feature table against the raw CDRs beyond row and subscriber
+  counts, and anything on more than one host.
 
 **On AI — advisory, auditable, and switchable off.**
 
@@ -243,26 +245,26 @@ Full phase plan: [`PROMPT.md`](PROMPT.md).
 
 <h2 align="center">AI capabilities</h2>
 
-One AI feature is built and running in the charging path. Everything else on this list is not
-built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
+One AI feature runs in the charging path (default OFF). The NWDAF analytics and drift monitoring
+below are built and still in progress; the remaining items on this list are not built. Both halves are stated because an "AI-native" claim is easy to make and this table is what
 backs it.
 
 | Capability | Status | What backs it |
 |---|---|---|
 | **Dynamic GSU / predictive quota sizing** (grant size adapts to the subscriber's own usage history) | **Built, default OFF** | real ONNX Runtime **in-process C++ inference** (`chf::AiQuotaSizer`) -- never a Python call at runtime. A Python sidecar (`nfs/chf/training/train_quota_sizing.py`) trains, MLflow tracks the run, and CHF loads only the exported `.onnx` artifact (ADR-0074) |
-| **Per-subscriber feature store** | **Built** | `chf::QuotaFeatureStore` in Redis keeps a rolling usage window per `SUPI`+`ratingGroup`, updated when real `usedUnitContainer` figures are reported |
+| **Per-subscriber feature store** | **Built** | `chf::QuotaFeatureStore` in Valkey (Redis protocol) keeps a rolling usage window per `SUPI`+`ratingGroup`, updated when real `usedUnitContainer` figures are reported |
 | **Model governance / auditability** | **Built** | every AI-influenced rating decision records an `aiAdvisory`: model id, model version, the exact input feature vector, the model's output, and **which deterministic bound actually applied**. A decision the model did not influence records no advisory, which is a real state rather than a gap |
 | **Deterministic guardrails** | **Built** | the model *suggests*; the rating engine *decides*. The grant is always the price-configured base multiplied by a clamp to **[0.5x, 2.0x]** -- never the raw prediction. Plus a kill switch (`CHF_AI_QUOTA_SIZING_ENABLED`, **default OFF**), a per-inference latency budget, model-version pinning, and a cold-start path that falls back to the plain deterministic grant |
-| **NWDAF (AnLF + MTLF)** | **Built** (in progress) | `nfs/nwdaf`, one binary with `role` anlf / mtlf / both (ADR-0359/0369). AnLF: `Nnwdaf_AnalyticsInfo`, `EventsSubscription`, `DataManagement`, data collected via DCCF/MFAF (ADR-0358/0360/0368). MTLF: `Nnwdaf_MLModelProvision`, trains through `nfs/nwdaf/training/train_nf_load.py` (MLflow-tracked), stores models through the ADRF, the AnLF retrieves them and infers **in-process with ONNX Runtime** (ADR-0369). NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes still answer **501** -- not yet wired to it (ADR-0324) |
+| **NWDAF (AnLF + MTLF)** | **Built** (in progress) | `nfs/nwdaf`, one binary with `role` anlf / mtlf / both (ADR-0359/0369). AnLF: `Nnwdaf_AnalyticsInfo`, `EventsSubscription`, `DataManagement`, data collected via DCCF/MFAF (ADR-0358/0360/0368). MTLF: `Nnwdaf_MLModelProvision`; `Nnwdaf_MLModelTraining` subscription CRUD, unsubscribe-info, model notification and `immReport` plus federated learning (a linear model trained by the Python sidecar): the CLIENT round (interim model, status report, delay notification) and a config-driven SERVER (client discovery, round loop, FedAvg, FL_FINISHED) -- both coded and unit-tested only, never run end-to-end; the server's callback is unauthenticated and its result is not used by the AnLF yet; no 403 causes or `termTrainReq` (ADR-0471); trains through `nfs/nwdaf/training/train_nf_load.py` (MLflow-tracked), stores models through the ADRF, the AnLF retrieves them and infers **in-process with ONNX Runtime** (ADR-0369). NEF's `AnalyticsExposure` / `ReportingNetworkStatus` routes still answer **501** -- not yet wired to it (ADR-0324) |
 | **The three mandated analytics** (NF load prediction, anomaly detection, slice SLA / service experience) | **All three built** | NF load: statistics over collected NRF observations and **predictions** from the MTLF's model for a future period, with confidence (ADR-0368/0369). Anomaly detection: `ABNORMAL_BEHAVIOUR` from real charging data, two of nine exception ids (ADR-0358). Slice SLA / service experience: `SERVICE_EXPERIENCE` aggregates the SMF's `QOS_MON` per-slice latency into a per-S-NSSAI `svcExprc` (ADR-0379, SMF producer -> NWDAF collect -> aggregate); the MOS is a disclosed lab mapping over synthesized SMF latency, not a calibrated model |
 | **Energy-efficiency analytics, federated learning (VFL)** | **Both built** | VFL: the NWDAF `Nnwdaf_VFLTraining` / `Nnwdaf_VFLInference` subscription surface is built (ADR-0380); the federated-training coordination behind it is Phase D. Energy-efficiency (ADR-0381): the frozen R19 Nnwdaf SBI has **no** energy `NwdafEvent`/DTO (energy is OAM / TS 28.552-sourced per TS 23.288 6.16), so it is built the faithful way -- the **TS 28.554 6.7.1 Energy-Efficiency KPI** (data volume / energy) per S-NSSAI, exposed as the OAM-style Prometheus metric `nwdaf_slice_energy_efficiency_bit_per_joule` rather than a fabricated Nnwdaf surface; volume from the SMF QOS_MON `ulDataRate`/`dlDataRate` (real TS 29.508 fields), energy from a disclosed configurable power model standing in for the TS 28.552 PEEC feed the lab has no telemetry for |
 | **Drift monitoring** (`Nnwdaf_MLModelMonitor`) | **Built** | the AnLF registers the model it uses at the MTLF, the MTLF subscribes for its accuracy, the AnLF judges every prediction against the load then observed (correct within a tolerance, TS 23.288 5C.1) and notifies below threshold; the MTLF re-trains and re-provisions with `modelUpdateInd` (ADR-0370). MTLF-side accuracy from ADRF-stored inference data (6.2E.2) is not built |
 | **ARPU / RPU-driven charging models, churn propensity, next-best-offer** | **Not built** | no model, and in several cases no collected training data either |
 | **Agentic / MCP layer over NF state** | **Corrected 2026-10-02 (docs-audit): started, not "never started"** | `tools/mcp-server` + `config/mcp-server.json` exist. Read-only MCP tool server built with PII governance from commit one (ADR-0331, fixing two routed-to-nonexistent-endpoint tools in ADR-0332); `agents/customer-agent` built and fully feasible (ADR-0333); `agents/ops-agent` built but deliberately half-deliverable -- its analytics half is blocked on NEF's `FetchAnalyticsInfo` (`nfs/nef/src/main.cpp`), which still hardcodes `501` rather than calling NWDAF, not on NWDAF's own existence (ADR-0335) |
 
-**Honest summary:** the platform has *one* production AI capability -- dynamic grant sizing -- and
-it ships disabled. The architecture around it is the part that is genuinely reusable: train in
-Python, serve ONNX in-process from C++, keep features in Redis, clamp the model's influence to a
+**Honest summary:** the platform has *one* AI capability in the charging path -- dynamic grant sizing -- and
+it ships disabled; the NWDAF analytics are built separately and still in progress. The architecture around it is the part that is genuinely reusable: train in
+Python, serve ONNX in-process from C++, keep features in Valkey, clamp the model's influence to a
 bounded multiplier on a deterministic decision, and log every advisory with the bound that applied.
 That shape is what additional models plug into. Calling the system "AI-powered" today would be
 overstating a single clamped regressor behind a default-off switch.
@@ -272,14 +274,14 @@ overstating a single clamped regressor behind a default-off switch.
 Assessed against the specifications fetched from the official 3GPP archive
 (`tools/specs/fetch_3gpp_specs.py`; versions in `specs/3gpp/MANIFEST.tsv`). Full findings with
 clause citations and code evidence: [`docs/SECURITY_COMPLIANCE.md`](docs/SECURITY_COMPLIANCE.md).
-**Stated honestly: this is a partial-compliance picture with one hard gap, not a certification.**
+**Stated honestly: this is a partial-compliance picture with hard gaps, not a certification: Lawful Interception coverage (per-NF POIs and real packet capture) and the mandatory SNOW 3G NAS algorithms are the blocking ones.** Last cross-checked against `docs/SECURITY_COMPLIANCE.md` and the code on 2026-10-08.
 
 | TS | Subject | Applies here | Status |
 |---|---|---|---|
-| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing**, NRF discovery authorization missing, no SEPP/N32 |
+| 33.501 | 5G security architecture | **Core** | **Partial** — mTLS, signed OAuth2, 5G-AKA, EAP-AKA′, SUCI/SIDF, NAS security, SoR, UPU implemented; **SNOW 3G (mandatory 128-NEA1/NIA1) missing** (and NEA0), NRF discovery authorization missing, no SEPP/N32; SNI never exercised in the lab (IP-literal base URLs) and the SBA certificate profile (TS 33.310 §6.1.3c) not assessed, per F6/F7 |
 | 33.210 | NDS/IP, TLS profile | **Core** | **Partial** — TLS 1.3 only; profile requires TLS 1.2 support too |
 | 33.117 | SCAS general catalogue | **Core** | **Partial** — overload, fuzzing, safe JSON parsing ✓; **duplicate JSON keys silently accepted** (§4.3.6.3); management-plane baseline not yet assessed |
-| 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Partial — still a deployment blocker.** Built and tested: the **ADMF** (`nfs/li-admf`, ADR-0462: the LI_HI1 receiver for the LEA per ETSI TS 103 120 with the six LI lifecycle workflows of Annex H.5, warrants in its own PostgreSQL, an append-only audit trail, and the LIPF that provisions the POIs and MDF2 over LI_X1 incl. keepalives and NE reports), the MDF2 mediation & delivery path (`nfs/li-mdf`: LI_X1 provisioning, LI_X2 xIRI intake, LI_HI2 delivery to the LEMF; ADR-0373–0377) and the **AMF IRI-POI** (`nfs/amf` `li_poi`: Registration, Deregistration, LocationUpdate, IdentifierAssociation/Deassociation and StartOfInterception-with-registered-UE xIRIs, each proven through the real AMF process, ADR-0378/0393/0440/0457/0460/0461). Still missing: the AMF's PathSwitchRequest LocationUpdate end-to-end test and Unsuccessful-procedure event, the POIs 33.127 requires in SMF, UPF, UDM, SMSF, NEF, NWDAF and **§7.22 the CHF**, the NRF SIRF, HI1 JSON/signing, MDF3/HI3 (content of communication) — so no content interception is possible, and an ADMF task that needs CC is refused rather than downgraded. A licensed operator still cannot deploy without these. |
+| 33.126 / 33.127 / 33.128 | Lawful Interception | **Core** | **Partial — still a deployment blocker.** Built and tested: the **ADMF** (`nfs/li-admf`, ADR-0462: the LI_HI1 receiver for the LEA per ETSI TS 103 120 with the six LI lifecycle workflows of Annex H.5, warrants in its own PostgreSQL, an append-only audit trail, and the LIPF that provisions the POIs and MDF2 over LI_X1 incl. keepalives and NE reports), the MDF2 mediation & delivery path (`nfs/li-mdf`: LI_X1 provisioning, LI_X2 xIRI intake, LI_HI2 delivery to the LEMF; ADR-0373–0377) and the **AMF IRI-POI** (`nfs/amf` `li_poi`: Registration, Deregistration, LocationUpdate, IdentifierAssociation/Deassociation and StartOfInterception-with-registered-UE xIRIs, each proven through the real AMF process, ADR-0378/0393/0440/0457/0460/0461), the **SMF IRI-POI** (`nfs/smf` `li_poi`: PDU-session establishment, modification, release, start-of-interception and unsuccessful xIRIs, ADR-0463) and the **content-of-communication chain** (ADR-0464: the SMF's CC-TF triggers a CC-POI in the UPF over LI_X1, packets leave as LI_X3 PDUs, `nfs/li-mdf3` delivers HI3 CC to the LEMF), proven by `LiCcChain.*` with test-fed packets. **Not real interception yet:** nothing in the UPF datapath calls the CC-POI (the eBPF program is uplink decapsulation only and cannot attach in CI), so `cc_capable` stays false for the UPF in any real deployment. Still missing: the AMF's PathSwitchRequest LocationUpdate end-to-end test and Unsuccessful-procedure event, the POIs 33.127 requires in UDM, SMSF, NEF, NWDAF and **§7.22 the CHF**, the UPF datapath hook and a privileged-host packet-capture verification (ADR-0463 stage 4), the LI_MDF packet-header-report approach (TS 33.127 6.2.3.9.1 approach 2), the NRF SIRF and HI1 JSON/signing — so no real user-plane content is intercepted, and an ADMF task that needs CC is refused for any element that is not `cc_capable` rather than downgraded. A licensed operator still cannot deploy without these. |
 | 33.528 | SCAS for PCF | Core | Unapproved shell — the document itself says "shall not be implemented"; defers to 33.117 |
 | 33.535 | AKMA | In scope (AAnF, Tier 2) | Not built yet |
 | 33.122 | CAPIF security | In scope (Tier 3) | Not built yet |
@@ -297,191 +299,8 @@ against free5GC's and open5GS's own actual source (not just their docs) — ever
 live-verified, and tracked as its own ADR rather than just unit-tested. NRF, AMF, SMF, AUSF, PCF,
 UDM, CHF, and UPF have each closed multiple real procedure/resource gaps this way (N2 handover,
 5G ProSe authentication, TS 32.298 CDR encoding, the full PFCP Association lifecycle, and more).
-UDR is the largest single target: it now implements the large majority of free5GC's real
-`Nudr_DataRepository` resource types, plus a distinct `Nudr_GroupIDmap` resource.
 
-The same effort has also added whole new NFs beyond the original Phase 2 seven: **NSSF**
-(`Nnssf_NSSelection` + `Nnssf_NSSAIAvailability`, all 8 real operations, ADR-0183), **BSF**
-(`Nbsf_Management`, all 15 real operations, ADR-0184), **NEF** (`Nnef_PFDmanagement`, 6 real
-operations — 1 of NEF's own 14 real YAML files; the other 13 remain unbuilt, ADR-0185), and **SCP**
-(`Nscp_EventExposure`, all 3 real operations, ADR-0186) — closing the original "still not done"
-`nssf`/`nef`/`scp`/`bsf` list, though SCP's own real defining role (an inline HTTP/2
-message-forwarding proxy, TS 29.500 §§6.10-6.11) is a real architectural departure from every
-other NF here and remains entirely undesigned — a real, explicit scope decision made via
-`AskUserQuestion`, not a silent gap. As of ADR-0184, this project moves to the next NF/subsystem
-continuously as each one completes rather than waiting on a fresh per-NF decision each time — the
-same quality bar (live verification, zero-warning builds, full doc trail) still applies to each.
-Tier 2 has now begun with **5G-EIR** (`N5g-eir_EquipmentIdentityCheck`, its entire real API — 1
-operation, `GetEquipmentStatus` — fully implemented, not a partial slice, ADR-0187); the real
-provisioning/write path for equipment status is genuinely out of 3GPP's own SBI framework scope
-here (OAM/GSMA IMEI database sync), disclosed rather than built as unreachable code. And **SMSF**
-(`Nsmsf_SMService`, all 5 real operations, including real `multipart/related` handling, ADR-0188)
-— no real downstream SMS-GMSC/IWMSC or TS 24.011 SMS-over-NAS relay exists in this project, so
-`SendSMS`/`SendMtSMS` report SMSF-level acceptance only, disclosed rather than fabricated. And
-**GMLC** (`Ngmlc_Location`, all 5 real operations, ADR-0189) — 3 of the 5 are real, complete,
-independent of any other NF; the other 2 (`RequestLocation`/`CancelLocation`) genuinely require
-this project's own LMF, so they honestly report `501`/`404` rather than fabricate UE positioning
-data. And **LMF** (`Nlmf_Location` + `Nlmf_Broadcast` + `Nlmf_DataExposure`, 11 real operations,
-ADR-0191/ADR-0196) — 8 are real, complete, RF-independent (including `Nlmf_Broadcast`'s
-`CipheringKeyData`, which honestly always reports no key data available since its own YAML has no
-provisioning path, and `Nlmf_DataExposure`'s full subscription CRUD lifecycle);
-`DetermineLocation`/`LocationMeasure`/`CancelLocation` genuinely need real LPP (TS 37.355) UE
-positioning or PRU/NRPPa measurement data this project doesn't have, so they honestly report
-`501`/`404` (GMLC->LMF wiring itself remains a real, disclosed, deferred step), and
-`Nlmf_DataExposure`'s own notification path shares that same disclosed gap. Building LMF also
-found and fixed 2 real defects — a vendored-spec transcription typo and a real
-`tools/sbi-codegen` allOf-merge field-deduplication bug (ADR-0190).
-And **UDSF** (`Nudsf_DataRepository` + `Nudsf_Timer`, all 27 real operations of TS 29.598's two
-R19 YAMLs plus the 4 notifications the UDSF originates, ADR-0400..0402) — records as
-`multipart/mixed` with opaque blocks, tag search (EQ/NEQ/GT/GTE/LT/LTE, AND/OR/NOT, record-id
-lists), conditional requests, record/subscription/timer expiry; all state in Valkey, so replicas
-are stateless. Disclosed rather than guessed: two R19 YAML defects (RecordMeta's `schemaId` is
-swallowed by a folded `example:` scalar; `GetMetaSchema`'s 200 names the multipart Record body) and
-the features not advertised (Meta Schema, AdvancedCounting).
-
-A separate, project-wide audit (ADR-0193) checked every real `N<nf>_*` YAML against every NF's
-actual wiring — whole files never added to the sbi-codegen pilot set ("Tier-A" gaps) and, for
-wired files, individual operations that were stubbed or silently missing ("Tier-B" gaps). Closed so
-far: **NRF** `Nnrf_Bootstrapping` (ADR-0194), **AUSF** `Nausf_UPUProtection` (ADR-0195), **UDR**'s
-own two documentation-bug fixes plus a hand-written-DTO replacement (ADR-0197/ADR-0198), **AMF**
-`Namf_Location`+`Namf_EventExposure` (ADR-0199) and `Namf_AIoT`/`Namf_MBSBroadcast`/
-`Namf_MBSCommunication`/`Namf_MT` (ADR-0200), **SMF** `Nsmf_EventExposure`+`Nsmf_NIDD` (ADR-0201),
-**UDM** `Nudm_MT`/`Nudm_NIDDAU`/`Nudm_RSDS`/`Nudm_SSAU`/`Nudm_UEID` (ADR-0202, including a real,
-working TS 33.501 SUCI de-concealment endpoint, not a stub), and **UPF**
-`Nupf_EventExposure`+`Nupf_GetUEPrivateIPaddrAndIdentifiers` (ADR-0203 — also corrected a real
-documentation bug: UPF's own file header had incorrectly claimed no `Nupf_*` API existed at all;
-UPF's real primary control interface remains N4/PFCP per TS 23.501, unchanged), and **PCF** — all
-7 Tier-A files across three slices: `Npcf_EventExposure`+`Npcf_UEPolicyControl` (ADR-0204),
-`Npcf_AMPolicyAuthorization`+`Npcf_MBSPolicyAuthorization`+`Npcf_MBSPolicyControl` (ADR-0205), and
-`Npcf_PDTQPolicyControl`+`Npcf_BDTPolicyControl` (ADR-0206), and **NEF** — all 13 of its own
-Tier-A files across four slices: `Nnef_SMService`/`Nnef_UEId`/`Nnef_DNAIMapping`/`Nnef_EASDeployment`
-(ADR-0207); `Nnef_SMContext`/`Nnef_Authentication`/`Nnef_ECSAddress` (ADR-0208 — also found and
-fixed real cross-NF codegen name collisions this slice introduced into SMF/AMF/AUSF's own
-already-shipping code, a new consequence class, disclosed in full in the ADR); `Nnef_EventExposure`
-(ADR-0209 — also fixed a real `tools/sbi-codegen` allOf-narrowing limitation, and the fix's own
-real, project-wide common-data-group-rename consequence, both disclosed in full in the ADR); and
-`Nnef_TrafficInfluenceData`/`Nnef_Inference`/`Nnef_Training`/`Nnef_VFLInference`/`Nnef_VFLTraining`
-(ADR-0210, task #164 now complete — no NEF Tier-A gaps remain). **Every NF's real Tier-A gaps are
-now closed project-wide** — with the scope correction ADR-0294 made to that claim: the audit
-matched `N<nf>_*` filenames only, so NEF's AF-facing `TS29122_*`/`TS29522_*` surface (58 of 60
-spec files present on disk, unwired) was never inside it. That is a real, open gap, and free5GC
-implements two of those APIs. Tier-B closure has begun: **NRF** `OptionsNFInstances`+
-`RetrieveStoredSearch`/`RetrieveCompleteSearch`+`RetrieveKeyRequest` (ADR-0211, the smallest
-remaining Tier-B item), and **UDR**'s Individual Authentication Status (Document) +
-`QueryProvisionedData` (ADR-0212 — also corrected a stale claim in the audit doc itself: a
-previously-recorded "`subs-to-notify` bulk-DELETE" gap does not correspond to any real operation in
-the spec, and that resource was already fully implemented), and **UDR**'s remaining
-`Policy_Data.yaml` backlog in full (ADR-0213 — `ReadPolicyData` aggregate, Usage Monitoring
-Information, `ReadBdtData` collection GET, and the `Policy_Data`-specific Policy Data
-Subscriptions family). **UDR now has zero known Tier-B gaps.** UDM is now the only remaining real
-Tier-B item project-wide; a background audit produced the first real per-operation breakdown
-(`Nudm_UECM` ~24, `Nudm_SDM` ~33, `Nudm_PP` 11 already flagged deferred in ADR-0082) and closed
-nine slices: **UDM** `Nudm_UEAU`'s 3 operations — `GetRgAuthData`, `GenerateAv` (real HSS
-EPS/IMS/GBA-domain vectors, real `501` for the one branch needing a KDF not yet in
-`libs/aka-crypto`), `GenerateGbaAv` (ADR-0214) — `Nudm_UECM`'s `PeiUpdate` +
-`UpdateRoamingInformation` (ADR-0215), `Nudm_UECM`'s AMF non-3GPP-access registration group
-(`Non3GppRegistration`/`GetNon3GppRegistration`/`UpdateNon3GppRegistration`, ADR-0216, mirrors the
-already-built `amf-3gpp-access` group), `Nudm_UECM`'s SMSF registration groups (both
-3GPP-access and non-3GPP-access, ADR-0217, sharing the identical `SmsfRegistration` schema),
-`Nudm_UECM`'s IP-SM-GW registration resource (`IpSmGwRegistration`/`GetIpSmGwRegistration`/
-`IpSmGwDeregistration`, ADR-0218 — genuinely no PATCH exists for this resource in the real spec
-at all), `Nudm_UECM`'s NWDAF registration group
-(`NwdafRegistration`/`GetNwdafRegistration`/`NwdafDeregistration`/`UpdateNwdafRegistration`,
-ADR-0219 — real finding: no individual GET exists for a single NWDAF registration at all, only the
-collection GET), `Nudm_UECM`'s `GetRegistrations` bare aggregate itself (ADR-0220 — composes
-`RegistrationDataSets` from the six real per-group stores, gated by the required
-`registration-dataset-names` query param; disclosed: `single-nssai`/`dnn` filtering of the
-`SMF_PDU_SESSIONS` dataset not honored), `Nudm_UECM`'s `SendRoutingInfoSm` (ADR-0221 —
-composes `RoutingInfoSmResponse` from the real SMSF/IP-SM-GW stores; disclosed: `smsRouter`/
-`ipSmGwGuidance` never populated), and `Nudm_UECM`'s last three independent single ops —
-`Trigger P-CSCF Restoration`, `GetLocationInfo`, `authTrigger` (ADR-0227 — `GetLocationInfo` is a
-real, complete local composition from the already-stored AMF registration records; the other two
-are real accept-and-validate operations with a disclosed non-relay to the serving AMF/AUSF) —
-individual stubbed/missing operations within already-wired files, not a structural gap.
-**`Nudm_UECM`'s entire Tier-B backlog is now fully closed.** `Nudm_SDM` closure has begun:
-group A (`GetSmsData`/`GetSmsMngtData`/`GetTraceConfigData`/`GetLcsBcaData`, backed by UDR's own
-individual provisioned-data routes) and group B (`GetLcsPrivacyData`/`GetLcsMoData`/
-`GetLcsSubscriptionData`/`GetV2xData`/`GetProseData`/`GetMbsData`/`GetUcData`/`GetA2xData`/
-`GetRangingSlPrivacyData`, backed only by UDR's bulk `ProvisionedDataSets` aggregate, extracted via
-a new helper) closed together as a 13-operation slice (ADR-0228), then group C1 (`GetNSSAI`/
-`GetUeCtxInAmfData`/`GetUeCtxInSmfData`/`GetUeCtxInSmsfData`/`GetEcrData`, real local composition
-from UDM's own already-stored AMF/SMF/SMSF registration records or an existing UDR route) closed as
-a 5-operation slice (ADR-0230), then `Modify` (real RFC 7396 merge-patch) closed
-`Subscribe`/`Unsubscribe`/`Modify` in full (ADR-0232), then group C2
-(`GetTimeSyncSubscriptionData`/`GetRangingSlPosData`) closed as a 2-operation slice (ADR-0233 —
-a real, disclosed correction of ADR-0230's own scoping note: UDR already had both resources fully
-live, only UDM-side wiring was needed). **`Nudm_SDM`'s entire group C is now fully closed.**
-`SorAckInfo`/`UpuAck`/`S-NSSAIs Ack`/`CAG Ack` (4 of 5 SOR/UPU/ack write ops, real
-accept-and-validate) closed as a 4-operation slice (ADR-0234), then the shared-data family
-(`GetIndividualSharedData`/`GetGroupIdentifiers`, real proxies to UDR's already-live routes;
-`GetSharedData`, composed at UDM via N real UDR calls since UDR never built the bulk endpoint;
-`SubscribeToSharedData`/`UnsubscribeForSharedData`/`ModifySharedDataSubs`, backed by a new,
-genuinely global UDM-local subscription store) closed as a 6-operation slice (ADR-0235), then
-`GetSupiOrGpsi`/`GetMultipleIdentifiers` closed for their real forward (SUPI→GPSI) direction — a
-new real `gpsis` field added to UDR's seeded am-data — as a 2-operation slice (ADR-0236; the
-reverse GPSI→SUPI direction remains a real, disclosed gap: no query-by-gpsi capability exists
-anywhere in the real Nudr_DR API). **`Nudm_SDM` is now fully closed except `Update SOR Info`**
-(needs a real CounterSoR state machine and real steering-list content, neither of which exists in
-this build). `Nudm_PP`'s remaining 11 ops (5G VN Group / PP Data Entry / 5G MBS Group CRUD,
-disclosed-deferred since ADR-0082) are now closed too (ADR-0237) — all 3 real UDR backing
-resources were already fully live; 9 of 11 ops are real, direct proxies, and the 2 `Modify` ops are
-a real RFC 7396-over-RFC-6902 translation. **UDM's entire Tier-B gap-closure backlog is now closed
-except `Update SOR Info`.**
-
-The full evidence base, current per-resource breakdown, and what's still open lives in
-[`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md); the ADR trail (ADR-0075
-onward) is in [`docs/DECISIONS.md`](docs/DECISIONS.md).
-
-Standing engineering debt and what's left before carrier-grade status (ADR-0049) is tracked in
-[`docs/DECISIONS.md`](docs/DECISIONS.md) and
-[`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md). Carrier-grade test framework
-selected (ADR-0238): 3GPP TS 28.552 + TS 28.554, correcting ADR-0049's original ETSI NFV-TST/REL
-candidates once investigation found those target the NFV-MANO orchestration layer this project
-doesn't have. First concrete step against the synchronous-HTTP-client debt item now closed
-(ADR-0239, Phase 1 of 3): every NF's server was found to be fully single-threaded (zero request
-concurrency at all, worse than just "the client blocks") — now driven by a real worker-thread
-pool, live-verified (6 concurrent requests complete in ~320ms, not ~1800ms). Phase 2 now closed
-too (ADR-0241): `Client::send` used to hold one mutex across the whole blocking
-`curl_easy_perform`, so every outbound call to a given peer queued behind every other one on that
-NF's shared `Client` — replaced by a pool of libcurl easy handles, with the lock now held only for
-pool checkout/checkin and never across the network round-trip. True async I/O (Phase 3) remains
-open, deliberately deferred until real benchmark data shows Phase 1+2 concurrency is insufficient.
-
-A real load-generation harness now exists (`tools/sbi-loadgen`, ADR-0244) — ADR-0238's step (3),
-and the first benchmarking of any kind ever performed on this project. Its very first run found a
-real defect: `TCP_NODELAY` was set nowhere in `libs/sbi-core`, so every NF ran with Nagle's
-algorithm enabled on every accepted connection. Fixing it measured **8.36x throughput at
-concurrency 1** (152 → 1273 req/s), 3.73x at 4, 2.53x at 8, and — as the control that confirms the
-diagnosis rather than fitting a story to a speedup — no change at concurrency 32, where Nagle
-never waits. The harness supports both closed-loop and open-loop (`--rate`) load, the latter with
-proper coordinated-omission correction (ADR-0246). **No comparison against free5GC is claimed**:
-ADR-0238's step (1), mapping measurement points onto TS 28.552 counter families, is blocked
-because neither TS 28.552 nor TS 28.554 is vendored in `specs/`, and step (4) needs step (1)
-first.
-
-**Charging data-plane architecture decision (ADR-0445, 2026-10-02):** an external review of
-CHF/UDR/balance-management's persistence design was independently fact-checked against HEAD (every
-claim verified true) before acting on it. Decision: PostgreSQL stays the sole authority for balance
-and the ledger; Valkey carries only non-monetary, rebuildable session state — no cross-store
-balance-consistency redesign, because no benchmark evidence yet shows one is needed. Real gaps this
-surfaced and not yet fixed: settlement as two non-atomic calls (unreserve, then debit), `double`
-money arithmetic over `NUMERIC` columns, UDR's ~80 unpooled PostgreSQL connections, and an
-unbounded-wait shared connection pool. Full comparison, the rejected alternatives, and the
-incremental fix order are in `docs/DECISIONS.md` ADR-0445.
-
-**Increment 1 closed (ADR-0446, 2026-10-02): CHF's N+1 catalog/price SBI lookups.** An in-memory
-snapshot of `ProductOffering`/`ProductOfferingPrice` (`nfs/chf/src/catalog_snapshot.{hpp,cpp}`),
-kept warm by a background refresh thread, replaces the per-candidate `GET /productOfferingPrice/
-{id}` calls `build_rating_grant` made on every charging request -- with a graceful live-fetch
-fallback (not a 503 gate) whenever the snapshot isn't warm yet, so correctness never depends on
-cache state. Measured, same machine, same contention pattern: throughput **4.4x-5.0x** and p50
-latency **4.3x-4.8x** better at closed-loop concurrency 1/8/32; at an open-loop 200 rps offered
-load the system went from an unbounded, growing backlog (p50 9.5 **seconds**) to fully sustaining
-the target rate (p50 7.9 ms) -- a different regime, not a tuning win. Full before/after tables in
-`docs/DECISIONS.md` ADR-0446; raw runs in `docs/benchmark-chf-2026-10-02/` and
-`docs/benchmark-chf-2026-10-02-after/`. This result is scoped exactly to finding #1 -- balance
-reservation (still a live SBI call), settlement atomicity and the synchronous HTTP client are
-unrelated, unaddressed items ADR-0445 named separately.
+Full section (moved verbatim, links adjusted for the new location): [`docs/CAPABILITY_GAP_ANALYSIS.md`](docs/CAPABILITY_GAP_ANALYSIS.md#capability-completeness-gap-closure-moved-from-readmemd).
 
 <h2 align="center">Repository layout</h2>
 
@@ -490,11 +309,12 @@ libs/sbi-core/     Shared SBI infrastructure: HTTP/2 server+client, OAuth2 clien
                    ProblemDetails, 3gpp-Sbi-* headers, structured logging, OpenTelemetry tracing.
                    Every NF links this; no NF includes another NF's private headers.
 nfs/<nf>/          One independent binary + library per Network Function: nrf, amf, smf, udm, udr,
-                   ausf, pcf, upf, chf, nssf, bsf, nef, scp, eir, smsf, gmlc, lmf. nfs/hello-nf is
-                   a Phase 0 throwaway, not a real NF.
+                   ausf, pcf, upf, chf, nssf, bsf, nef, scp, eir, smsf, gmlc, lmf, nsacf, udsf,
+                   nwdaf (AnLF/MTLF), dccf, mfaf, adrf, and the Lawful Interception functions
+                   li-admf, li-mdf, li-mdf3. nfs/hello-nf is a Phase 0 throwaway, not a real NF.
 bss/<service>/     Standalone TM Forum ODA-layer services (not 3GPP NFs, no NRF registration):
                    product-catalog (TMF620), balance-management (TMF654), subscriber-management
-                   (TMF632), roaming-interconnect (TMF651).
+                   (TMF632), roaming-interconnect (TMF651), provisioning.
 libs/bss-sid/      Shared TM Forum SID DTOs/mapping code bss/ services and nfs/chf link against.
 libs/aka-crypto/   5G-AKA/EAP-AKA' crypto (Milenage, KDF) and real SUCI de-concealment (ECIES
                    Profile A/B, TS 33.501 Annex C) -- both independently verified against real,
@@ -506,6 +326,17 @@ libs/ss7-core/, libs/tcap-core/, libs/map-core/, libs/cap-core/, libs/diameter-c
 libs/tap3-core/    Real, hand-rolled GSMA TAP3 (TD.57) roaming-CDR BER codec, all 9 real
                    CallEventDetail variants.
 libs/tbcd-core/    TBCD-STRING codec (TS 23.003), shared by the legacy-interconnect libs above.
+libs/nf-config/    Per-service runtime configuration loader (config/<service>.json).
+libs/sbi-generated/, libs/ngap-core/, libs/ngap-generated/
+                   Generated SBI DTOs and the NGAP codec (ASN.1 PER via asn1c).
+libs/li-*/         Lawful Interception libraries (X1/X2/X3/HI codecs, POI runtime, MDF store).
+libs/event-bus/    Kafka producer/consumer client over librdkafka (ADR-0365), used by the MFAF.
+gui/               Operator GUI: React + JSON Forms (gui/web), C++ backend-for-frontend (gui/bff),
+                   schema generator (gui/schema-gen).
+agents/            customer-agent and ops-agent (MCP-based, see the AI capabilities table).
+simulators/        ransim (UERANSIM-based RAN/UE test tool, external, ADR-0016) and reference
+                   implementations (freeDiameter, jss7, osmocom) used for arms-length comparison.
+config/ deploy/    Per-service JSON config; Docker Compose, Helm charts and database schemas.
 tools/             Build-time tooling (the OpenAPI-to-C++ codegen spine) plus sbi-loadgen, the
                    load-generation harness used for real performance measurement (ADR-0244/0246).
 specs/             Vendored 3GPP/ETSI source material: R19 OpenAPI YAML (SBI API shapes), NGAP
@@ -526,6 +357,7 @@ Requires CMake 3.28+, Ninja, a C++20/23 compiler (developed against GCC 13 and C
 ```sh
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+scripts/setup-asn1c.sh   # patched asn1c for the NGAP/LI ASN.1 targets; idempotent
 
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
@@ -535,7 +367,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 Sanitizer builds: add `-D5GC_ENABLE_ASAN=ON` or `-D5GC_ENABLE_TSAN=ON` at configure time (mutually
-exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push — see
+exclusive). CI runs both, plus `clang-format`/`clang-tidy`, on every push that changes code (a
+pull request whose whole diff against `main` is docs, or a docs-only push to `main`, runs lint only, ADR-0469) — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 <h2 align="center">Contributing / working style</h2>
@@ -544,6 +377,16 @@ This project is built in small, reviewable increments — one NF or subsystem at
 TS 23.502 procedure list for each NF shown and approved before implementation. Every stub,
 simplification, or non-conformant shortcut is called out explicitly rather than left for review to
 discover. See [`CLAUDE.md`](CLAUDE.md) for the full engineering rules and mandated tech stack.
+
+**Outside contributions** are being prepared, not yet open. The rules are in
+[`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) (ADR-0467): one area per PR (Core,
+Provisioning, Charging/BSS, Products and Catalog, Security/LI, NWDAF/Analytics, Automation/Deploy,
+GUI; platform libraries are maintainer-only), the maintainer keeps the final merge and releases, and
+contributions will need a signed CLA. The CLA text and bot, `CODEOWNERS`, the area-label CI check,
+`bootstrap.sh`, branch protection and the GitHub organization move are **not done yet**;
+fork-PR approval is already required for every outside contributor. CI (ADR-0468, ADR-0469) lints
+only the `.cpp` files a push changed (a PR: everything it changes against `main`), skips the build and sanitizer jobs when the whole diff against `main` is docs, and runs
+`lint`, then `build`, then the sanitizers.
 
 <h2 align="center">License</h2>
 

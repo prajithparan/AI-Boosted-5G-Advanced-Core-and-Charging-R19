@@ -107,6 +107,7 @@ int main() {
 
     const auto config = nf_config::load("product-catalog", CONFIG_DIR);
     const auto port = nf_config::require<unsigned short>(config, "port");
+    const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
     // Host and port of this component's own advertised base come from the same two keys the
@@ -188,7 +189,7 @@ int main() {
         &three_stores);
 
     boost::asio::io_context ioc;
-    sbi_core::http2::Server server(ioc, "0.0.0.0", port, server_tls);
+    sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this

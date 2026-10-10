@@ -1,6 +1,7 @@
 {
   "x1_port": 7805,
   "x2x3_port": 7806,
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9491",
   "redis_url": "tcp://127.0.0.1:6379",
   "ne_identifier": "mdf2-01",

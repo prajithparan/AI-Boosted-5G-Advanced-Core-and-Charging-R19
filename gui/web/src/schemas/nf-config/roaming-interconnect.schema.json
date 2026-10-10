@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -29,6 +33,7 @@
     "database_url",
     "metrics_bind_address",
     "port",
+    "sbi_bind_address",
     "self_base_url"
   ],
   "x-config-file": "config/roaming-interconnect.json",

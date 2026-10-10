@@ -1,6 +1,7 @@
 {
   "port": 7798,
   "advertised_ipv4": "127.0.0.1",
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9485",
   "nrf_base_url": "https://127.0.0.1:7777",
   "redis_url": "tcp://127.0.0.1:6379",
@@ -75,7 +76,30 @@
     "retrain_interval_seconds": 0,
     "training_lease_seconds": 900,
     "accuracy_threshold": 80,
-    "retrain_cooldown_seconds": 60
+    "retrain_cooldown_seconds": 60,
+    "fl_client": {
+      "enabled": true,
+      "script": "",
+      "epochs": 200,
+      "learning_rate": 0.1,
+      "accuracy_tolerance": 10.0,
+      "default_max_response_seconds": 300
+    },
+    "fl_server": {
+      "enabled": false,
+      "aggregate_script": "",
+      "round_grace_seconds": 30,
+      "repeat_interval_seconds": 0,
+      "federations": [
+        {
+          "event": "NF_LOAD",
+          "ml_corre_id": "nf-load-fl-1",
+          "rounds": 5,
+          "min_clients": 2,
+          "max_res_time_seconds": 120
+        }
+      ]
+    }
   },
   "training": {
     "python": "",

@@ -1,5 +1,6 @@
 {
   "hi1_port": 7808,
+  "sbi_bind_address": "0.0.0.0",
   "metrics_bind_address": "0.0.0.0:9492",
   "database_url": "postgresql://li_admf:li_admf@127.0.0.1:5439/li_admf",
   "db_pool_size": 4,

@@ -67,6 +67,12 @@ inline nlohmann::json load(const std::string& service_name, const std::string& c
     }
     nlohmann::json j;
     in >> j;
+    // ADR-0478: the one process-wide TLS floor ("1.3" default, "1.2" opt-in for TS 33.210 6.2.1
+    // interop). Handed to sbi_core through the environment so no NF main needs an edit and
+    // sbi_core needs no dependency on this header; an already-set environment value wins.
+    if (j.contains("tls_min_version") && j.at("tls_min_version").is_string()) {
+        ::setenv("SBI_TLS_MIN_VERSION", j.at("tls_min_version").get<std::string>().c_str(), 0);
+    }
     return j;
 }
 

@@ -82,6 +82,8 @@ int main() {
         nf_config::require<std::uint16_t>(config, "x2x3_port", "LI_MDF_X2X3_PORT");
     const auto metrics_bind_address = nf_config::require<std::string>(
         config, "metrics_bind_address", "LI_MDF_METRICS_BIND_ADDRESS");
+    const auto sbi_bind_address =
+        nf_config::require<std::string>(config, "sbi_bind_address", "LI_MDF_SBI_BIND_ADDRESS");
     const auto redis_url = nf_config::require<std::string>(config, "redis_url", "LI_MDF_REDIS_URL");
     const auto ne_identifier =
         nf_config::require<std::string>(config, "ne_identifier", "LI_MDF_NE_IDENTIFIER");
@@ -334,7 +336,7 @@ int main() {
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
     boost::asio::io_context ioc;
-    sbi_core::http2::Server x1_server(ioc, "0.0.0.0", x1_port, x1_tls);
+    sbi_core::http2::Server x1_server(ioc, sbi_bind_address, x1_port, x1_tls);
     x1_server.add_route("POST", kX1Path, [&](const sbi_core::http2::Request& request) {
         {
             const std::lock_guard<std::mutex> lock(monitor_mutex);

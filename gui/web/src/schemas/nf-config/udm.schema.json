@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -50,6 +54,7 @@
     "metrics_bind_address",
     "nrf_base_url",
     "port",
+    "sbi_bind_address",
     "udr_base_url",
     "vlr_peer_address",
     "vlr_peer_port"

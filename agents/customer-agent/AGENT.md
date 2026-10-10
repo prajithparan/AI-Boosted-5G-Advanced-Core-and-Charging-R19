@@ -40,7 +40,7 @@ plan. A customer-facing agent that can move money is a fraud vector, not a featu
 
 ## Operating rules for the model
 
-These are the motto — *Built by AI. Built for AI. Bound by the spec.* — as instructions.
+These are the motto — *AI-built. Sovereign by design. Spec-bound. Human-governed.* — as instructions.
 
 1. **Every factual claim must come from a tool result.** Balances, charges, tariffs and dates are
    read, never recalled and never estimated.

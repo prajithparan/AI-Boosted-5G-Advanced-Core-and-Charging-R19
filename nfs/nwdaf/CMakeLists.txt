@@ -10,6 +10,24 @@ find_package(redis++ CONFIG REQUIRED)
 # plain static link of ONNX::onnx drops operator schemas the runtime needs at session creation.
 find_package(onnxruntime CONFIG REQUIRED)
 
-add_executable(nwdaf src/main.cpp src/analytics.cpp src/feature_store.cpp src/subscription_store.cpp src/collection_store.cpp src/qos_mon_collect.cpp src/vfl_subscription_store.cpp src/ml_store.cpp src/model_runtime.cpp src/training_executor.cpp src/mtlf.cpp src/ml_consumer.cpp src/accuracy_monitor.cpp)
+add_executable(nwdaf src/main.cpp src/analytics.cpp src/feature_store.cpp src/subscription_store.cpp src/collection_store.cpp src/qos_mon_collect.cpp src/vfl_subscription_store.cpp src/ml_store.cpp src/model_runtime.cpp src/training_executor.cpp src/mtlf.cpp src/ml_consumer.cpp src/accuracy_monitor.cpp src/fl_client.cpp src/fl_server.cpp)
 target_link_libraries(nwdaf PRIVATE sbi_core sbi_generated nf_config unofficial::libmariadb redis++::redis++_static onnxruntime::onnxruntime "$<LINK_LIBRARY:WHOLE_ARCHIVE,ONNX::onnx>")
 target_compile_definitions(nwdaf PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs" CONFIG_DIR="${CMAKE_SOURCE_DIR}/config" NWDAF_TRAINING_DIR="${CMAKE_SOURCE_DIR}/nfs/nwdaf/training")
+
+# ADR-0471: the federated-learning Python modules (numpy only). Registered only when the configure-time
+# Python can import numpy, so a machine without it builds the NWDAF but does not silently run a
+# broken test; the status line says which happened.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import numpy"
+                    RESULT_VARIABLE NWDAF_FL_NUMPY_RC OUTPUT_QUIET ERROR_QUIET)
+    if(NWDAF_FL_NUMPY_RC EQUAL 0)
+        add_test(NAME nwdaf_fl_python_tests
+                 COMMAND ${Python3_EXECUTABLE} -W ignore -m unittest test_fl
+                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/training)
+    else()
+        message(STATUS "nwdaf: numpy not importable by ${Python3_EXECUTABLE}; nwdaf_fl_python_tests NOT registered")
+    endif()
+else()
+    message(STATUS "nwdaf: no Python3 interpreter; nwdaf_fl_python_tests NOT registered")
+endif()

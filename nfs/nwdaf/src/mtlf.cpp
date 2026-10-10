@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "TS26510_CommonData_grp.hpp"
+#include "TS29520_Nnwdaf_MLModelTraining.hpp"
 
 namespace nwdaf {
 
@@ -22,8 +23,10 @@ namespace {
 
 // servers[0].url of TS29520_Nnwdaf_MLModelProvision.yaml (ADR-0325).
 constexpr const char* kProvisionRoot = "/nnwdaf-mlmodelprovision/v1";
+constexpr const char* kTrainingRoot = "/nnwdaf-mlmodeltraining/v1";
 // TS 29.500 Annex B: <API>_<callback key>; the YAML keys its callback "myNotification".
 constexpr const char* kProvisionCallback = "Nnwdaf_MLModelProvision_myNotification";
+constexpr const char* kTrainingCallback = "Nnwdaf_MLModelTraining_myNotification";
 // The ADRF's roots -- servers[0].url of TS29575_Nadrf_DataManagement.yaml and
 // TS29575_Nadrf_MLModelManagement.yaml -- used as a client.
 constexpr const char* kAdrfDataManagementRoot = "/nadrf-datamanagement/v1";
@@ -125,7 +128,12 @@ Mtlf::Mtlf(MtlfOptions options,
                           options_.nrf_base + "/oauth2/token",
                           options_.instance_id,
                           "nnwdaf-mlmodelmonitor",
-                          "NWDAF") {}
+                          "NWDAF"),
+      oauth_fl_client_(client,
+                       options_.nrf_base + "/oauth2/token",
+                       options_.instance_id,
+                       "nnwdaf-mlmodeltraining",
+                       "NWDAF") {}
 
 bool Mtlf::trains(const std::string& event) const {
     return std::find(options_.events.begin(), options_.events.end(), event) !=
@@ -135,7 +143,14 @@ bool Mtlf::trains(const std::string& event) const {
 json Mtlf::nrf_profile_info() const {
     // TS 29.510 MlAnalyticsInfo: "ML Analytics Filter information supported by the
     // Nnwdaf_MLModelProvision service".
-    return json{{"mlAnalyticsList", json::array({json{{"mlAnalyticsIds", options_.events}}})}};
+    json info{{"mlAnalyticsIds", options_.events}};
+    // TS 29.510 MlAnalyticsInfo.flCapabilityType: this NWDAF can act as a federated-learning client
+    // (ADR-0471 increment 5). FL_SERVER is not advertised -- there is no FL server yet.
+    // flTimeInterval (when the capability is available) is optional and not set.
+    if (fl_executor_ != nullptr) {
+        info["flCapabilityType"] = "FL_CLIENT";
+    }
+    return json{{"mlAnalyticsList", json::array({info})}};
 }
 
 Mtlf::Call Mtlf::call(sbi_core::OAuth2Client& oauth,
@@ -574,6 +589,334 @@ json Mtlf::event_notif(const std::string& event,
 }
 
 // Nnwdaf_MLModelProvision_Notify: everything this subscription has not yet been told.
+// A model notification for a training subscription: NwdafMLModelTrainNotif with mLModelInfos
+// (MLEventNotif, the same shape the provision service sends) and the mandatory notifCorreId.
+// Sent once per model version per event, and again when the model is re-trained
+// (modelUpdateInd). Delay, status-report and termination notifications belong to the
+// federated-learning increments and are not sent (ADR-0471).
+void Mtlf::deliver_training(const std::string& sub_id, json sub) {
+    if (fl_executor_ != nullptr && sub.at("request").contains("mlCorreId")) {
+        deliver_fl_round(sub_id, std::move(sub));
+        return;
+    }
+    json infos = json::array();
+    json delivered = sub.value("delivered", json::object());
+    for (const auto& es : sub.at("request").value("mLEventSubscs", json::array())) {
+        const auto event = es.value("mLEvent", "");
+        const auto model = store_.get_model(event);
+        if (!model) {
+            continue;
+        }
+        const auto version = model->value("version", std::int64_t(0));
+        const auto seen = delivered.value(event, std::int64_t(0));
+        if (seen >= version) {
+            continue;
+        }
+        infos.push_back(event_notif(event, *model, sub, seen != 0));
+        delivered[event] = version;
+    }
+    if (infos.empty()) {
+        return;
+    }
+    const json body{{"notifCorreId", sub.at("request").at("notifCorreId")},
+                    {"mLModelInfos", infos}};
+    sbi_core::http2::ClientRequest req;
+    req.method = "POST";
+    req.url = sub.at("request").at("notifUri").get<std::string>();
+    req.headers.emplace("content-type", "application/json");
+    req.headers.emplace(sbi_core::headers::kCallback, kTrainingCallback);
+    req.body = body.dump();
+    long status = -1;
+    {
+        const std::lock_guard<std::mutex> lock(client_mutex_);
+        if (auto resp = client_.send(req); resp) {
+            status = resp->status;
+        }
+    }
+    if (status >= 200 && status < 300) {
+        sub["delivered"] = delivered;
+        store_.replace_training_subscription(sub_id, sub); // gone means unsubscribed meanwhile
+    } else {
+        spdlog::warn("nwdaf-mtlf: Nnwdaf_MLModelTraining_Notify for {} to {} failed ({})",
+                     sub_id,
+                     req.url,
+                     status);
+    }
+}
+
+// One federated-learning round (TS 23.288 6.2C.2.2 steps 3-4, TS 29.520): run once per roundInd,
+// then notify the FL Server with the interim model or a DelayEventNotif. The round is bookkept
+// in the subscription ("flRoundDone"), so a re-delivery tick does not train the same round twice.
+// Simplification: the round runs on the delivery loop's thread, so a long round delays the other
+// deliveries of that tick (bounded by training.timeout_seconds).
+void Mtlf::deliver_fl_round(const std::string& sub_id, json sub) {
+    const auto& request = sub.at("request");
+    const auto round = request.value("roundInd", std::int64_t(0));
+    if (sub.value("flRoundDone", std::int64_t(-1)) == round) {
+        return;
+    }
+    std::string event;
+    for (const auto& es : request.value("mLEventSubscs", json::array())) {
+        event = es.value("mLEvent", "");
+        break;
+    }
+    std::int64_t windows = 0;
+    const auto dataset = training_dataset(event, windows);
+    const auto outcome = run_fl_round(request, dataset, *fl_executor_, fl_options_);
+    spdlog::info("nwdaf-mtlf: FL round {} of {} for {}: {} ({})",
+                 round,
+                 request.value("mlCorreId", ""),
+                 event,
+                 static_cast<int>(outcome.kind),
+                 outcome.detail);
+    if (!outcome.notification.is_null()) {
+        sbi_core::http2::ClientRequest req;
+        req.method = "POST";
+        req.url = request.at("notifUri").get<std::string>();
+        req.headers.emplace("content-type", "application/json");
+        req.headers.emplace(sbi_core::headers::kCallback, kTrainingCallback);
+        req.body = outcome.notification.dump();
+        long status = -1;
+        {
+            const std::lock_guard<std::mutex> lock(client_mutex_);
+            if (auto resp = client_.send(req); resp) {
+                status = resp->status;
+            }
+        }
+        if (status < 200 || status >= 300) {
+            spdlog::warn("nwdaf-mtlf: FL notification for {} to {} failed ({}); round {} retried",
+                         sub_id,
+                         req.url,
+                         status,
+                         round);
+            return; // the round is retried on the next tick
+        }
+    }
+    sub["flRoundDone"] = round;
+    store_.replace_training_subscription(sub_id, sub);
+}
+
+// ---- Federated-learning SERVER (ADR-0471 increment 4) -----------------------------------------
+// TS 23.288 6.2C.2.2: discover FL clients, subscribe each (round 1) / merge-patch it (later rounds)
+// with the global model, collect the interim models from the notification callback, aggregate
+// (FedAvg, the sidecar), repeat, then end every client's subscription with FL_FINISHED and the
+// final model. Project simplifications are listed in ADR-0471; the main ones: the callback route
+// is unauthenticated (like every other callback in this NF), a client that misses a round is
+// dropped from that round only, and the final model is not used by the AnLF's inference.
+std::string Mtlf::run_federation(const FlFederation& fed, std::atomic<bool>& running) {
+    const auto disc = call(oauth_disc_,
+                           "GET",
+                           options_.nrf_base + kNrfDiscRoot +
+                               "/nf-instances?target-nf-type=NWDAF&requester-nf-type=NWDAF",
+                           nullptr);
+    if (disc.status != 200) {
+        return "NRF discovery of FL clients failed (" + std::to_string(disc.status) + ")";
+    }
+    std::vector<FlClientRef> clients;
+    try {
+        clients = select_fl_clients(json::parse(disc.body).value("nfInstances", json::array()),
+                                    fed.event,
+                                    options_.instance_id);
+    } catch (const std::exception& e) {
+        return std::string("NRF discovery response unreadable: ") + e.what();
+    }
+    if (static_cast<int>(clients.size()) < fed.min_clients) {
+        return "only " + std::to_string(clients.size()) + " FL client(s) at the NRF, " +
+               std::to_string(fed.min_clients) + " needed";
+    }
+    const auto stamp = std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
+    struct Member {
+        FlClientRef ref;
+        std::string notif_corre_id;
+        std::string subscription_url; // empty until the round-1 subscription exists
+        bool active = true;
+    };
+    std::vector<Member> members;
+    for (std::size_t i = 0; i < clients.size(); ++i) {
+        members.push_back(
+            Member{clients[i], fed.ml_corre_id + "-" + stamp + "-" + std::to_string(i), "", true});
+    }
+    const std::string root = "/nnwdaf-mlmodeltraining/v1";
+    json global = nullptr;
+    std::string outcome;
+
+    for (int round = 1; round <= fed.rounds && running; ++round) {
+        {
+            const std::lock_guard<std::mutex> lock(fl_mutex_);
+            for (auto& m : members) {
+                if (m.active) {
+                    fl_slots_[m.notif_corre_id] =
+                        FlSlot{round, m.notif_corre_id, fed, std::nullopt};
+                }
+            }
+        }
+        for (auto& m : members) {
+            if (!m.active) {
+                continue;
+            }
+            Call r;
+            if (round == 1) {
+                const auto sub = build_round_subscription(fed,
+                                                          round,
+                                                          global,
+                                                          options_.self_base + root +
+                                                              "/fl-callbacks/" + m.notif_corre_id,
+                                                          m.notif_corre_id);
+                r = call(oauth_fl_client_, "POST", m.ref.base_url + root + "/subscriptions", &sub);
+                if (r.status == 201 && !r.location.empty()) {
+                    // The NWDAF's Location is a path; make it absolute at the client that sent it.
+                    m.subscription_url =
+                        r.location.rfind("http", 0) == 0 ? r.location : m.ref.base_url + r.location;
+                }
+            } else {
+                const auto patch = build_round_patch(fed, round, global);
+                r = call(oauth_fl_client_, "PATCH", m.subscription_url, &patch);
+            }
+            if (r.status != 200 && r.status != 201) {
+                spdlog::warn("nwdaf-mtlf: FL {} round {}: client {} refused ({} {})",
+                             fed.ml_corre_id,
+                             round,
+                             m.ref.nf_instance_id,
+                             r.status,
+                             r.error.empty() ? r.body : r.error);
+                m.active = false;
+            }
+        }
+        // Collect until every active client answered or maxResTime + grace passed.
+        const auto deadline =
+            std::chrono::steady_clock::now() +
+            std::chrono::seconds(fed.max_res_time_s + fl_server_options_.round_grace_seconds);
+        std::vector<json> updates;
+        {
+            std::unique_lock<std::mutex> lock(fl_mutex_);
+            const auto all_in = [&] {
+                return std::all_of(members.begin(), members.end(), [&](const Member& m) {
+                    return !m.active || fl_slots_.at(m.notif_corre_id).result.has_value();
+                });
+            };
+            while (running && !all_in() && std::chrono::steady_clock::now() < deadline) {
+                fl_cv_.wait_for(lock, std::chrono::seconds(1));
+            }
+            for (auto& m : members) {
+                if (!m.active) {
+                    continue;
+                }
+                const auto& slot = fl_slots_.at(m.notif_corre_id);
+                if (slot.result && slot.result->has_value()) {
+                    updates.push_back(json{{"model", (*slot.result)->model},
+                                           {"n_samples", (*slot.result)->n_samples}});
+                } else {
+                    spdlog::warn("nwdaf-mtlf: FL {} round {}: client {} gave no usable update ({})",
+                                 fed.ml_corre_id,
+                                 round,
+                                 m.ref.nf_instance_id,
+                                 slot.result ? slot.result->error() : "no notification in time");
+                }
+            }
+        }
+        if (static_cast<int>(updates.size()) < fed.min_clients) {
+            outcome = "round " + std::to_string(round) + ": " + std::to_string(updates.size()) +
+                      " usable update(s), " + std::to_string(fed.min_clients) + " needed";
+            break;
+        }
+        auto aggregated = fl_aggregator_->aggregate(updates);
+        if (!aggregated) {
+            outcome =
+                "round " + std::to_string(round) + " aggregation failed: " + aggregated.error();
+            break;
+        }
+        global = *aggregated;
+        spdlog::info("nwdaf-mtlf: FL {} round {}/{} aggregated {} client update(s)",
+                     fed.ml_corre_id,
+                     round,
+                     fed.rounds,
+                     updates.size());
+        if (round == fed.rounds) {
+            outcome = "completed";
+        }
+    }
+    if (outcome.empty()) {
+        outcome = "stopped";
+    }
+
+    // End every client's subscription (6.2C.2.2 step 9): FL_FINISHED + the final model on success,
+    // OTHER otherwise.
+    const bool finished = outcome == "completed";
+    for (auto& m : members) {
+        if (m.subscription_url.empty()) {
+            continue;
+        }
+        json term{{"termCause", finished ? "FL_FINISHED" : "OTHER"}};
+        if (finished) {
+            term["mLModelInfos"] = json::array(
+                {json{{"event", fed.event}, {"mlFile", fl_base64_encode(global.dump())}}});
+        }
+        static_cast<void>(
+            call(oauth_fl_client_, "POST", m.subscription_url + "/unsubscribe-info", &term));
+    }
+    {
+        const std::lock_guard<std::mutex> lock(fl_mutex_);
+        for (const auto& m : members) {
+            fl_slots_.erase(m.notif_corre_id);
+        }
+    }
+    if (finished) {
+        json record{{"event", fed.event},
+                    {"mlCorreId", fed.ml_corre_id},
+                    {"model", global},
+                    {"rounds", fed.rounds},
+                    {"clients", static_cast<int>(members.size())},
+                    {"completedAt", sbi_core::format_rfc3339(std::chrono::system_clock::now())}};
+        store_.put_fl_global(fed.event, record);
+    }
+    return outcome;
+}
+
+void Mtlf::fl_server_loop(std::atomic<bool>& running) {
+    while (running) {
+        for (const auto& fed : fl_server_options_.federations) {
+            if (!running) {
+                break;
+            }
+            try {
+                const auto outcome = run_federation(fed, running);
+                spdlog::info(
+                    "nwdaf-mtlf: federation {} ({}): {}", fed.ml_corre_id, fed.event, outcome);
+            } catch (const std::exception& e) {
+                spdlog::warn("nwdaf-mtlf: federation {} failed: {}", fed.ml_corre_id, e.what());
+            }
+        }
+        if (fl_server_options_.repeat_interval_seconds <= 0) {
+            return;
+        }
+        for (long s = 0; s < fl_server_options_.repeat_interval_seconds && running; ++s) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+}
+
+json Mtlf::training_representation(const json& sub) const {
+    json body = sub.at("request");
+    body.erase("immReport");
+    if (!body.value("eventReq", json::object()).value("immRep", false)) {
+        return body;
+    }
+    json infos = json::array();
+    for (const auto& es : body.value("mLEventSubscs", json::array())) {
+        const auto event = es.value("mLEvent", "");
+        if (const auto model = store_.get_model(event)) {
+            infos.push_back(event_notif(event, *model, sub, false));
+        }
+    }
+    if (!infos.empty()) {
+        body["immReport"] =
+            json{{"notifCorreId", body.at("notifCorreId")}, {"mLModelInfos", infos}};
+    }
+    return body;
+}
+
 void Mtlf::deliver(const std::string& sub_id, json sub) {
     json notifs = json::array();
     json delivered = sub.value("delivered", json::object());
@@ -621,6 +964,18 @@ void Mtlf::deliver(const std::string& sub_id, json sub) {
 }
 
 void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t)>& pause) {
+    std::thread fl_thread;
+    if (fl_aggregator_ != nullptr && !fl_server_options_.federations.empty()) {
+        fl_thread = std::thread([this, &running] { fl_server_loop(running); });
+    }
+    struct Join {
+        std::thread& t;
+        ~Join() {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+    } join_fl{fl_thread};
     while (running) {
         try {
             for (const auto& event : options_.events) {
@@ -689,6 +1044,11 @@ void Mtlf::run(std::atomic<bool>& running, const std::function<bool(std::int64_t
             for (auto& [id, sub] : store_.all_provision_subscriptions()) {
                 if (store_.claim_delivery(id, lease)) {
                     deliver(id, sub);
+                }
+            }
+            for (auto& [id, sub] : store_.all_training_subscriptions()) {
+                if (store_.claim_delivery(id, lease)) {
+                    deliver_training(id, sub);
                 }
             }
             reconcile_registrations();
@@ -1064,6 +1424,256 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
             } catch (const std::exception& e) {
                 return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
             }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    install_training_routes(server);
+}
+
+// ---- Nnwdaf_MLModelTraining subscription CRUD (ADR-0471) --------------------------------------
+// TS 29.520 YAML TS29520_Nnwdaf_MLModelTraining.yaml (v1.1.0), TS 23.288 7.10.2 / 7.10.3.
+// STUB / NOT YET DONE, disclosed: this stores and serves the subscription resource only.
+//   * Only the model notification (mLModelInfos + notifCorreId) and immReport are produced; no
+//     delayEventNotif, statusReport or termTrainReq is ever sent.
+//   * The federated-learning fields (mlCorreId, roundInd, skipFlInd, mLAccChkFlg, mLPreFlag,
+//     mLTrainRepInfo, tgtRepUe, mLModelTrainInfos) are accepted and stored but not acted on.
+//   * UnsubscribeInfo (termCause) removes the subscription; it does not terminate any FL round.
+void Mtlf::install_training_routes(sbi_core::http2::Server& server) {
+    const std::string root = kTrainingRoot;
+
+    // Shared by POST and PUT: the YAML's shape (required mLEventSubscs, notifUri, notifCorreId),
+    // then the events this MTLF trains models for. Events it does not go to failEventReports
+    // (FailureEventInfoForMLModelTrain); none accepted is a 500.
+    const auto validate = [this](const sbi_core::http2::Request& req,
+                                 json& record,
+                                 std::optional<sbi_core::http2::Response>& err) {
+        auto auth = check_bearer(req, verifier_);
+        if (auth && !auth->valid) {
+            err = sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            return;
+        }
+        sbi_core::http2::Response bad;
+        auto dto = sbi_core::http2::parse_json_body<sbi_gen::NwdafMLModelTrainSubsc>(req, bad);
+        if (!dto) {
+            err = bad;
+            return;
+        }
+        json request = json::parse(req.body);
+        for (const char* required : {"mLEventSubscs", "notifUri", "notifCorreId"}) {
+            if (!request.contains(required)) {
+                err = problem(400,
+                              "Bad Request",
+                              std::string(required) + " is required (NwdafMLModelTrainSubsc)",
+                              "MANDATORY_IE_MISSING");
+                return;
+            }
+        }
+        json failures = json::array();
+        int accepted = 0;
+        for (const auto& es : request.at("mLEventSubscs")) {
+            const auto event = es.value("mLEvent", "");
+            if (!event.empty() && trains(event)) {
+                ++accepted;
+            } else {
+                // FailureEventInfoForMLModelTrain: mLTrainEvent and failureCodeTrain are both
+                // required by the YAML. mLTrainEvent is a NwdafEvent, so an absent mLEvent has
+                // nothing to put there and is a 400 instead.
+                if (event.empty()) {
+                    err = problem(400,
+                                  "Bad Request",
+                                  "MLEventSubscription requires mLEvent (NwdafMLModelTrainSubsc)",
+                                  "MANDATORY_IE_MISSING");
+                    return;
+                }
+                failures.push_back(json{
+                    {"mLTrainEvent", event},
+                    {"failureCodeTrain", sbi_gen::FailureCodeTrain::UNAVAILABLE_ML_MODEL_TRAIN}});
+            }
+        }
+        if (accepted == 0) {
+            // TS 29.520 table 5.5.7.3-1 (Nnwdaf_MLModelTraining): not the Provision service's
+            // UNAVAILABLE_ML_MODEL_FOR_ALLEVENTS.
+            err = problem(500,
+                          "Internal Server Error",
+                          "this MTLF trains no model for any requested event; it trains " +
+                              json(options_.events).dump(),
+                          "UNAVAILABLE_ML_MODEL_TRAINING_FOR_ALLEVENTS");
+            return;
+        }
+        request.erase("failEventReports");
+        if (!failures.empty()) {
+            request["failEventReports"] = failures;
+        }
+        record = json{{"request", request},
+                      {"consumer", (auth && auth->valid) ? auth->subject : std::string()}};
+    };
+
+    server.add_route(
+        "POST", root + "/subscriptions", [=, this](const sbi_core::http2::Request& req) {
+            json record;
+            std::optional<sbi_core::http2::Response> err;
+            validate(req, record, err);
+            if (err) {
+                return *err;
+            }
+            const auto id = store_.create_training_subscription(record);
+            auto resp = json_response(201, training_representation(record));
+            resp.headers.emplace("location", root + "/subscriptions/" + id);
+            return resp;
+        });
+
+    server.add_route("PUT",
+                     root + "/subscriptions/{subscriptionId}",
+                     [=, this](const sbi_core::http2::Request& req) {
+                         const auto id = req.path_params.at("subscriptionId");
+                         const auto existing = store_.get_training_subscription(id);
+                         if (!existing) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         json record;
+                         std::optional<sbi_core::http2::Response> err;
+                         validate(req, record, err);
+                         if (err) {
+                             return *err;
+                         }
+                         // A replacement keeps what was already delivered.
+                         record["delivered"] = existing->value("delivered", json::object());
+                         if (!store_.replace_training_subscription(id, record)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         return json_response(200, training_representation(record));
+                     });
+
+    // RFC 7396 merge patch of NwdafMLModelTrainSubscPatch. Members outside that schema are
+    // rejected, so a patch cannot rewrite mLEventSubscs or notifCorreId (not in the YAML patch).
+    server.add_route(
+        "PATCH",
+        root + "/subscriptions/{subscriptionId}",
+        [=, this](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            const auto id = req.path_params.at("subscriptionId");
+            auto existing = store_.get_training_subscription(id);
+            if (!existing) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            json patch;
+            try {
+                patch = json::parse(req.body);
+            } catch (const std::exception& e) {
+                return problem(400, "Bad Request", e.what(), "INVALID_MSG_FORMAT");
+            }
+            if (!patch.is_object()) {
+                return problem(400,
+                               "Bad Request",
+                               "a merge patch must be a JSON object",
+                               "INVALID_MSG_FORMAT");
+            }
+            static const std::vector<std::string> kPatchable = {"notifUri",
+                                                                "eventReq",
+                                                                "mLModelInfos",
+                                                                "mLModelTrainInfos",
+                                                                "mLPreFlag",
+                                                                "mLAccChkFlg",
+                                                                "mLTrainRepInfo",
+                                                                "roundInd",
+                                                                "tgtRepUe",
+                                                                "skipFlInd"};
+            for (const auto& [key, value] : patch.items()) {
+                if (std::find(kPatchable.begin(), kPatchable.end(), key) == kPatchable.end()) {
+                    return problem(400,
+                                   "Bad Request",
+                                   key + " is not a member of NwdafMLModelTrainSubscPatch",
+                                   "INVALID_MSG_FORMAT");
+                }
+                if (key == "notifUri" && value.is_null()) {
+                    return problem(400,
+                                   "Bad Request",
+                                   "notifUri is mandatory and cannot be removed",
+                                   "INVALID_MSG_FORMAT");
+                }
+            }
+            existing->at("request").merge_patch(patch);
+            if (!store_.replace_training_subscription(id, *existing)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            return json_response(200, training_representation(*existing));
+        });
+
+    server.add_route("DELETE",
+                     root + "/subscriptions/{subscriptionId}",
+                     [this](const sbi_core::http2::Request& req) {
+                         if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                             return sbi_core::http2::problem_response(
+                                 401, "Unauthorized", auth->error);
+                         }
+                         const auto id = req.path_params.at("subscriptionId");
+                         if (!store_.remove_training_subscription(id)) {
+                             return sbi_core::http2::problem_response(
+                                 404, "Not Found", "no ML model training subscription " + id);
+                         }
+                         sbi_core::http2::Response resp;
+                         resp.status = 204;
+                         return resp;
+                     });
+
+    // UnsubscribeInfo: termCause is required (TrainingUnsubscribeInfo). FL termination itself
+    // is deferred, see the header of this section.
+    // FL server callback (ADR-0471 increment 4): where the FL clients' NwdafMLModelTrainNotif for a
+    // round arrive. The path segment is the per-client notifCorreId. Like every callback in this NF
+    // it is not authenticated -- a recorded gap, not a design.
+    server.add_route(
+        "POST", root + "/fl-callbacks/{notifCorreId}", [this](const sbi_core::http2::Request& req) {
+            const auto corre = req.path_params.at("notifCorreId");
+            const json body = json::parse(req.body, nullptr, false);
+            const std::lock_guard<std::mutex> lock(fl_mutex_);
+            const auto it = fl_slots_.find(corre);
+            if (it == fl_slots_.end() || body.is_discarded()) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no federation round awaits " + corre);
+            }
+            it->second.result =
+                parse_fl_notification(body, it->second.fed, it->second.round, corre);
+            fl_cv_.notify_all();
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        });
+
+    server.add_route(
+        "POST",
+        root + "/subscriptions/{subscriptionId}/unsubscribe-info",
+        [this](const sbi_core::http2::Request& req) {
+            if (auto auth = check_bearer(req, verifier_); auth && !auth->valid) {
+                return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
+            }
+            sbi_core::http2::Response bad;
+            auto dto = sbi_core::http2::parse_json_body<sbi_gen::TrainingUnsubscribeInfo>(req, bad);
+            if (!dto) {
+                return bad;
+            }
+            const json body = json::parse(req.body);
+            if (!body.contains("termCause")) {
+                return problem(400,
+                               "Bad Request",
+                               "termCause is required (TrainingUnsubscribeInfo)",
+                               "MANDATORY_IE_MISSING");
+            }
+            const auto id = req.path_params.at("subscriptionId");
+            if (!store_.remove_training_subscription(id)) {
+                return sbi_core::http2::problem_response(
+                    404, "Not Found", "no ML model training subscription " + id);
+            }
+            spdlog::info("nwdaf-mtlf: ML model training subscription {} ended by consumer: {}",
+                         id,
+                         body.at("termCause").dump());
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

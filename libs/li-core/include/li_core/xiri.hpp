@@ -373,6 +373,43 @@ struct SmfUnsuccessfulProcedure {
     bool operator==(const SmfUnsuccessfulProcedure&) const = default;
 };
 
+// --- UDM xIRI records, TS 33.128 clause 7.2.2.3 (ADR-0475, user-approved event list 2026-10-09)
+// --- XIRIEvent.servingSystemMessage [11] UDMServingSystemMessage -- table of clause 7.2.2.3 for
+// the serving-system event. M members: sUPI, servingSystemMethod. Modelled C/O members: pEI, gPSI,
+// pLMNID, roamingIndicator. NOT modelled (disclosed): gUAMI, gUMMEI, serviceID.
+// UDMServingSystemMethod ::= ENUMERATED { amf3GPPAccessRegistration(0),
+//                                         amfNon3GPPAccessRegistration(1), unknown(2) }
+enum class UdmServingSystemMethod : std::uint8_t {
+    Amf3GppAccessRegistration = 0,
+    AmfNon3GppAccessRegistration = 1,
+    Unknown = 2
+};
+
+struct UdmServingSystemMessage {
+    Supi supi;
+    std::optional<Pei> pei;
+    std::optional<Gpsi> gpsi;
+    std::optional<Plmnid> plmn_id;
+    UdmServingSystemMethod serving_system_method = UdmServingSystemMethod::Unknown;
+    std::optional<bool> roaming_indicator;
+    bool operator==(const UdmServingSystemMessage&) const = default;
+};
+
+// XIRIEvent.uDMStartOfInterceptionWithRegisteredTarget [124]
+// UDMStartOfInterceptionWithRegisteredTarget (TS 33.128 clause 7.2.2.3): sent when interception
+// starts for a target the UDM already holds registration data for. M members: sUPI,
+// uDMSubscriptionDataSets (an SBIType: a reference string naming the SBI resource and its value,
+// both UTF8String). gPSI is optional. The SBI reference/value strings are carried verbatim; WHICH
+// subscription data sets and how they are rendered (reference naming, JSON value) is a UDM-POI
+// decision not yet made (disclosed).
+struct UdmStartOfInterceptionWithRegisteredTarget {
+    Supi supi;
+    std::optional<Gpsi> gpsi;
+    std::string sbi_reference;
+    std::string sbi_value;
+    bool operator==(const UdmStartOfInterceptionWithRegisteredTarget&) const = default;
+};
+
 using Event = std::variant<AmfRegistration,
                            AmfDeregistration,
                            AmfStartOfInterceptionWithRegisteredUE,
@@ -383,7 +420,9 @@ using Event = std::variant<AmfRegistration,
                            SmfPduSessionModification,
                            SmfPduSessionRelease,
                            SmfStartOfInterceptionWithEstablishedPduSession,
-                           SmfUnsuccessfulProcedure>;
+                           SmfUnsuccessfulProcedure,
+                           UdmServingSystemMessage,
+                           UdmStartOfInterceptionWithRegisteredTarget>;
 
 // BER-encodes XIRIPayload { xIRIPayloadOID = {4 19 19 7 1}, event }. The OID is the module's own
 // xIRIPayloadOID (tS33128PayloadsOID xIRI(1)) -- TS 33.128 table 5.3.2-3: "the value of the

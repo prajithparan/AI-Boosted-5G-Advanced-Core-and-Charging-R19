@@ -166,6 +166,36 @@ target_compile_definitions(nwdaf_mtlf_integration_tests PRIVATE
 )
 gtest_discover_tests(nwdaf_mtlf_integration_tests PROPERTIES TIMEOUT 400)
 
+# ADR-0471: Nnwdaf_MLModelTraining subscription CRUD (an NWDAF in role mtlf behind a real NRF + Valkey).
+add_executable(nwdaf_ml_training_sub_integration_tests test_nwdaf_ml_training_sub.cpp)
+target_link_libraries(nwdaf_ml_training_sub_integration_tests PRIVATE redis++::redis++_static sbi_core sbi_generated GTest::gtest GTest::gtest_main)
+add_dependencies(nwdaf_ml_training_sub_integration_tests nrf nwdaf)
+target_compile_definitions(nwdaf_ml_training_sub_integration_tests PRIVATE
+    NRF_PATH="$<TARGET_FILE:nrf>"
+    NWDAF_PATH="$<TARGET_FILE:nwdaf>"
+    CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
+)
+gtest_discover_tests(nwdaf_ml_training_sub_integration_tests PROPERTIES TIMEOUT 200)
+
+# ADR-0471 increment 3: the FL client round logic. Compiles nfs/nwdaf's fl_client.cpp and
+# training_executor.cpp directly (the NWDAF is an executable, not a library); no ports, no NFs.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+add_executable(nwdaf_fl_client_tests test_nwdaf_fl_client.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/fl_client.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/fl_server.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src/training_executor.cpp)
+target_include_directories(nwdaf_fl_client_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nwdaf/src)
+target_link_libraries(nwdaf_fl_client_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(nwdaf_fl_client_tests PRIVATE
+    NWDAF_TRAINING_DIR="${CMAKE_SOURCE_DIR}/nfs/nwdaf/training"
+    FL_PYTHON="${Python3_EXECUTABLE}")
+gtest_discover_tests(nwdaf_fl_client_tests PROPERTIES TIMEOUT 120)
+
+# ADR-0476: the duplicate-JSON-member detector (no ports, no NFs).
+add_executable(sbi_json_duplicate_keys_tests test_sbi_json_duplicate_keys.cpp)
+target_link_libraries(sbi_json_duplicate_keys_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+gtest_discover_tests(sbi_json_duplicate_keys_tests PROPERTIES TIMEOUT 60)
+
 # ADR-0372: the LI_X2/LI_X3 delivery client over real OpenSSL mTLS. Its own binary -- it needs no
 # NF processes (an in-process loopback TLS server stands in for the MDF), only li_core, OpenSSL,
 # and the lab certs. Binds an ephemeral port, so it does not collide with CI's fixed test ports.
@@ -279,6 +309,13 @@ target_compile_definitions(udsf_integration_tests PRIVATE
 )
 gtest_discover_tests(udsf_integration_tests PROPERTIES TIMEOUT 300)
 
+# ADR-0466: the UPF's advertised IPv4 (literal or "auto"). Opens no listening port (UDP connect() only).
+add_executable(upf_advertised_address_tests test_upf_advertised_address.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/upf/src/advertised_address.cpp)
+target_include_directories(upf_advertised_address_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/upf/src)
+target_link_libraries(upf_advertised_address_tests PRIVATE GTest::gtest GTest::gtest_main)
+gtest_discover_tests(upf_advertised_address_tests)
+
 # ADR-0464: the CC chain -- UPF CC-POI (real upf::UpfLiPoi, packets fed through its tap seam) ->
 # X3 -> the real li-mdf3 process -> HI3 -> a loopback LEMF. Needs Valkey; skips without it.
 add_executable(li_cc_chain_integration_tests test_li_cc_chain.cpp
@@ -291,3 +328,16 @@ target_compile_definitions(li_cc_chain_integration_tests PRIVATE
     LI_MDF3_PATH="$<TARGET_FILE:li-mdf3>")
 add_dependencies(li_cc_chain_integration_tests li-mdf3)
 gtest_discover_tests(li_cc_chain_integration_tests)
+
+# ADR-0477: NRF discovery authorization filter (allowedNfTypes/Plmns/Nssais); pure logic, no ports.
+add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nrf/src/discovery_authz.cpp)
+target_include_directories(nrf_discovery_authz_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nrf/src)
+target_link_libraries(nrf_discovery_authz_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+gtest_discover_tests(nrf_discovery_authz_tests PROPERTIES TIMEOUT 60)
+
+# ADR-0478: the opt-in TLS 1.2 floor. In-process server on an ephemeral port; no NF processes.
+add_executable(sbi_tls_min_version_tests test_sbi_tls_min_version.cpp)
+target_link_libraries(sbi_tls_min_version_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
+target_compile_definitions(sbi_tls_min_version_tests PRIVATE CERTS_DIR="${CMAKE_SOURCE_DIR}/certs")
+gtest_discover_tests(sbi_tls_min_version_tests PROPERTIES TIMEOUT 60)

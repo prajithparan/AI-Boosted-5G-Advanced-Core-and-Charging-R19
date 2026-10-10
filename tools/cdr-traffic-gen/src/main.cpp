@@ -200,8 +200,11 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    if (opt.chf_bases.empty()) {
-        opt.chf_bases.push_back("https://127.0.0.1:7784");
+    // No built-in CHF address: where the CHF listens is deployment configuration (the pipeline
+    // scripts pass --chf from their own settings). The seeding and membership modes do not call it.
+    if (opt.chf_bases.empty() && opt.fund_balance_base.empty() && !opt.membership_only) {
+        std::cerr << "at least one --chf <base-url> is required\n";
+        return 2;
     }
     if (opt.cert.empty() || opt.key.empty() || opt.ca.empty()) {
         std::cerr << "--cert, --key and --ca are required\n";

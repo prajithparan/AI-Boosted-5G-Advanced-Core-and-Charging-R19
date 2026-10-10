@@ -10,6 +10,11 @@
       "x-env-override": "LI_ADMF_HI1_PORT",
       "x-cpp-type": "std::uint16_t"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-env-override": "LI_ADMF_SBI_BIND_ADDRESS",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-env-override": "LI_ADMF_METRICS_BIND_ADDRESS",
@@ -142,7 +147,8 @@
     "db_pool_size",
     "hi1_port",
     "metrics_bind_address",
-    "public_base_url"
+    "public_base_url",
+    "sbi_bind_address"
   ],
   "x-config-file": "config/li-admf.json",
   "x-source": [

@@ -9,6 +9,10 @@
       "type": "integer",
       "x-cpp-type": "unsigned short"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -47,36 +51,4415 @@
           },
           "smPolicyDecision": {
             "type": "object",
-            "additionalProperties": false,
             "properties": {
               "sessRules": {
                 "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "spending-limit-rule": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "sessRuleId": {
-                        "type": "string"
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "authSessAmbr": {
+                      "type": "object",
+                      "properties": {
+                        "uplink": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$"
+                        },
+                        "downlink": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$"
+                        }
                       },
-                      "authSessAmbr": {
+                      "required": [
+                        "uplink",
+                        "downlink"
+                      ]
+                    },
+                    "authDefQos": {
+                      "type": "object",
+                      "properties": {
+                        "5qi": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 255
+                        },
+                        "arp": {
+                          "type": "object",
+                          "properties": {
+                            "priorityLevel": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 15,
+                              "nullable": true
+                            },
+                            "preemptCap": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "NOT_PREEMPT",
+                                    "MAY_PREEMPT"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "preemptVuln": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "NOT_PREEMPTABLE",
+                                    "PREEMPTABLE"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "priorityLevel",
+                            "preemptCap",
+                            "preemptVuln"
+                          ]
+                        },
+                        "priorityLevel": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 127,
+                          "nullable": true
+                        },
+                        "averWindow": {
+                          "type": "integer",
+                          "maximum": 4095,
+                          "default": 2000,
+                          "minimum": 1,
+                          "nullable": true
+                        },
+                        "maxDataBurstVol": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 4095,
+                          "nullable": true
+                        },
+                        "maxbrUl": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                          "nullable": true
+                        },
+                        "maxbrDl": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                          "nullable": true
+                        },
+                        "gbrUl": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                          "nullable": true
+                        },
+                        "gbrDl": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                          "nullable": true
+                        },
+                        "extMaxDataBurstVol": {
+                          "type": "integer",
+                          "minimum": 4096,
+                          "maximum": 2000000,
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "sessRuleId": {
+                      "type": "string"
+                    },
+                    "refUmData": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "refUmN3gData": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "refCondData": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "sessRuleId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1
+              },
+              "pccRules": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "flowInfos": {
+                      "type": "array",
+                      "items": {
                         "type": "object",
-                        "additionalProperties": false,
                         "properties": {
-                          "uplink": {
+                          "flowDescription": {
                             "type": "string"
                           },
-                          "downlink": {
+                          "ethFlowDescription": {
+                            "type": "object",
+                            "required": [
+                              "ethType"
+                            ],
+                            "properties": {
+                              "destMacAddr": {
+                                "type": "string",
+                                "pattern": "^([0-9a-fA-F]{2})((-[0-9a-fA-F]{2}){5})$"
+                              },
+                              "ethType": {
+                                "type": "string"
+                              },
+                              "fDesc": {
+                                "type": "string"
+                              },
+                              "fDir": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "DOWNLINK",
+                                      "UPLINK",
+                                      "BIDIRECTIONAL",
+                                      "UNSPECIFIED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "sourceMacAddr": {
+                                "type": "string",
+                                "pattern": "^([0-9a-fA-F]{2})((-[0-9a-fA-F]{2}){5})$"
+                              },
+                              "vlanTags": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 2
+                              },
+                              "srcMacAddrEnd": {
+                                "type": "string",
+                                "pattern": "^([0-9a-fA-F]{2})((-[0-9a-fA-F]{2}){5})$"
+                              },
+                              "destMacAddrEnd": {
+                                "type": "string",
+                                "pattern": "^([0-9a-fA-F]{2})((-[0-9a-fA-F]{2}){5})$"
+                              }
+                            }
+                          },
+                          "packFiltId": {
                             "type": "string"
+                          },
+                          "packetFilterUsage": {
+                            "type": "boolean"
+                          },
+                          "tosTrafficClass": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "spi": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "flowLabel": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "flowDirection": {
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "DOWNLINK",
+                                      "UPLINK",
+                                      "BIDIRECTIONAL",
+                                      "UNSPECIFIED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              {
+                                "enum": [
+                                  null
+                                ]
+                              }
+                            ]
+                          },
+                          "mpxMediaUlInfos": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "ssrcId": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 4294967295
+                                },
+                                "payloadType": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 127
+                                },
+                                "identificationTag": {
+                                  "type": "string"
+                                },
+                                "rtpSdesHdrExtId": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "rtcpPacketType": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 255
+                                }
+                              },
+                              "anyOf": [
+                                {
+                                  "required": [
+                                    "ssrcId"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "payloadType"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "identificationTag"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "rtcpPacketType"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "identificationTag",
+                                    "rtpSdesHdrExtId"
+                                  ]
+                                }
+                              ]
+                            },
+                            "minItems": 1
+                          },
+                          "mpxMediaDlInfos": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "ssrcId": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 4294967295
+                                },
+                                "payloadType": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 127
+                                },
+                                "identificationTag": {
+                                  "type": "string"
+                                },
+                                "rtpSdesHdrExtId": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "rtcpPacketType": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 255
+                                }
+                              },
+                              "anyOf": [
+                                {
+                                  "required": [
+                                    "ssrcId"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "payloadType"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "identificationTag"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "rtcpPacketType"
+                                  ]
+                                },
+                                {
+                                  "required": [
+                                    "identificationTag",
+                                    "rtpSdesHdrExtId"
+                                  ]
+                                }
+                              ]
+                            },
+                            "minItems": 1
                           }
+                        }
+                      },
+                      "minItems": 1
+                    },
+                    "appId": {
+                      "type": "string"
+                    },
+                    "appDescriptor": {
+                      "format": "byte",
+                      "type": "string"
+                    },
+                    "contVer": {
+                      "type": "integer"
+                    },
+                    "protoDescDl": {
+                      "type": "object",
+                      "properties": {
+                        "transportProto": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "RTP",
+                                "SRTP",
+                                "MOQT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "rtpHeaderExtInfo": {
+                          "type": "object",
+                          "properties": {
+                            "rtpHeaderExtType": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "PDU_SET_MARKING",
+                                    "DYN_CHANGING_TRAFFIC_CHAR",
+                                    "EXPEDITED_TRANSFER_IND"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "rtpHeaderExtId": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 255
+                            },
+                            "longFormat": {
+                              "type": "boolean"
+                            },
+                            "pduSetSizeActive": {
+                              "type": "boolean"
+                            },
+                            "pduSetPduCountActive": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "addRtpHeaderExtInfo": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rtpHeaderExtType": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "PDU_SET_MARKING",
+                                      "DYN_CHANGING_TRAFFIC_CHAR",
+                                      "EXPEDITED_TRANSFER_IND"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "rtpHeaderExtId": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 255
+                              },
+                              "longFormat": {
+                                "type": "boolean"
+                              },
+                              "pduSetSizeActive": {
+                                "type": "boolean"
+                              },
+                              "pduSetPduCountActive": {
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "minItems": 1
+                        },
+                        "rtpPayloadInfoList": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rtpPayloadTypeList": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 127
+                                },
+                                "minItems": 1
+                              },
+                              "rtpPayloadFormat": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "H264",
+                                      "H265"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "minItems": 1
+                        },
+                        "mriTransferInfo": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "UDP_OPTION"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "protoDescUl": {
+                      "type": "object",
+                      "properties": {
+                        "transportProto": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "RTP",
+                                "SRTP",
+                                "MOQT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "rtpHeaderExtInfo": {
+                          "type": "object",
+                          "properties": {
+                            "rtpHeaderExtType": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "PDU_SET_MARKING",
+                                    "DYN_CHANGING_TRAFFIC_CHAR",
+                                    "EXPEDITED_TRANSFER_IND"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            "rtpHeaderExtId": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 255
+                            },
+                            "longFormat": {
+                              "type": "boolean"
+                            },
+                            "pduSetSizeActive": {
+                              "type": "boolean"
+                            },
+                            "pduSetPduCountActive": {
+                              "type": "boolean"
+                            }
+                          }
+                        },
+                        "addRtpHeaderExtInfo": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rtpHeaderExtType": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "PDU_SET_MARKING",
+                                      "DYN_CHANGING_TRAFFIC_CHAR",
+                                      "EXPEDITED_TRANSFER_IND"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "rtpHeaderExtId": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 255
+                              },
+                              "longFormat": {
+                                "type": "boolean"
+                              },
+                              "pduSetSizeActive": {
+                                "type": "boolean"
+                              },
+                              "pduSetPduCountActive": {
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "minItems": 1
+                        },
+                        "rtpPayloadInfoList": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rtpPayloadTypeList": {
+                                "type": "array",
+                                "items": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 127
+                                },
+                                "minItems": 1
+                              },
+                              "rtpPayloadFormat": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "H264",
+                                      "H265"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "minItems": 1
+                        },
+                        "mriTransferInfo": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "UDP_OPTION"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "pccRuleId": {
+                      "type": "string"
+                    },
+                    "precedence": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "afSigProtocol": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "NO_INFORMATION",
+                            "SIP"
+                          ]
+                        },
+                        {
+                          "enum": [
+                            null
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "appReloc": {
+                      "type": "boolean"
+                    },
+                    "easRedisInd": {
+                      "type": "boolean"
+                    },
+                    "refQosData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1
+                    },
+                    "refAltQosParams": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    },
+                    "refTcData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1
+                    },
+                    "refChgData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "nullable": true
+                    },
+                    "refChgN3gData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "nullable": true
+                    },
+                    "refUmData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "nullable": true
+                    },
+                    "refUmN3gData": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "nullable": true
+                    },
+                    "refCondData": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "refQosMon": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "nullable": true
+                    },
+                    "addrPreserInd": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "tscaiInputDl": {
+                      "type": "object",
+                      "properties": {
+                        "periodicity": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "burstArrivalTime": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "surTimeInNumMsg": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "surTimeInTime": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "burstArrivalTimeWnd": {
+                          "type": "object",
+                          "properties": {
+                            "startTime": {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "stopTime": {
+                              "format": "date-time",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "startTime",
+                            "stopTime"
+                          ]
+                        },
+                        "periodicityRange": {
+                          "type": "object",
+                          "oneOf": [
+                            {
+                              "required": [
+                                "lowerBound",
+                                "upperBound"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "periodicVals"
+                              ]
+                            }
+                          ],
+                          "properties": {
+                            "lowerBound": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "upperBound": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "periodicVals": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minItems": 1
+                            },
+                            "addPeriodicVals": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minItems": 1
+                            }
+                          }
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "tscaiInputUl": {
+                      "type": "object",
+                      "properties": {
+                        "periodicity": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "burstArrivalTime": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "surTimeInNumMsg": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "surTimeInTime": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "burstArrivalTimeWnd": {
+                          "type": "object",
+                          "properties": {
+                            "startTime": {
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "stopTime": {
+                              "format": "date-time",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "startTime",
+                            "stopTime"
+                          ]
+                        },
+                        "periodicityRange": {
+                          "type": "object",
+                          "oneOf": [
+                            {
+                              "required": [
+                                "lowerBound",
+                                "upperBound"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "periodicVals"
+                              ]
+                            }
+                          ],
+                          "properties": {
+                            "lowerBound": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "upperBound": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "periodicVals": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minItems": 1
+                            },
+                            "addPeriodicVals": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minItems": 1
+                            }
+                          }
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "tscaiTimeDom": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "capBatAdaptation": {
+                      "type": "boolean"
+                    },
+                    "ddNotifCtrl": {
+                      "type": "object",
+                      "properties": {
+                        "notifCtrlInds": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "DDN_FAILURE",
+                                  "DDD_STATUS"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1
+                        },
+                        "typesOfNotif": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "BUFFERED",
+                                  "TRANSMITTED",
+                                  "DISCARDED"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1
+                        }
+                      }
+                    },
+                    "ddNotifCtrl2": {
+                      "type": "object",
+                      "properties": {
+                        "notifCtrlInds": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "DDN_FAILURE",
+                                  "DDD_STATUS"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        },
+                        "typesOfNotif": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "BUFFERED",
+                                  "TRANSMITTED",
+                                  "DISCARDED"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "disUeNotif": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "packFiltAllPrec": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "nscSuppFeats": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[A-Fa-f0-9]*$"
+                      },
+                      "minProperties": 1
+                    },
+                    "callInfo": {
+                      "type": "object",
+                      "properties": {
+                        "callingPartyAddrs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        },
+                        "calleeInfo": {
+                          "type": "object",
+                          "properties": {
+                            "calledPartyAddr": {
+                              "type": "string"
+                            },
+                            "requestPartyAddrs": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            },
+                            "calledAssertIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          },
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "traffParaData": {
+                      "type": "object",
+                      "properties": {
+                        "periodUl": {
+                          "type": "integer"
+                        },
+                        "periodDl": {
+                          "type": "integer"
+                        },
+                        "reqTrafficParas": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "DL_N6_JITTER",
+                                  "DL_PERIOD",
+                                  "UL_PERIOD"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1
+                        },
+                        "repFreqs": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "EVENT_TRIGGERED",
+                                  "PERIODIC"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "minItems": 1
+                        },
+                        "dlN6JitterThr": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "repPeriod": {
+                          "type": "integer",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "multiModalId": {
+                      "type": "string"
+                    },
+                    "expTranInd": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "ulBrRecInd": {
+                      "type": "boolean",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "pccRuleId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "pcscfRestIndication": {
+                "type": "boolean"
+              },
+              "qosDecs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "qosId": {
+                      "type": "string"
+                    },
+                    "5qi": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "maxbrUl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "maxbrDl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "gbrUl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "gbrDl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "arp": {
+                      "type": "object",
+                      "properties": {
+                        "priorityLevel": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 15,
+                          "nullable": true
+                        },
+                        "preemptCap": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "NOT_PREEMPT",
+                                "MAY_PREEMPT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "preemptVuln": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "NOT_PREEMPTABLE",
+                                "PREEMPTABLE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "priorityLevel",
+                        "preemptCap",
+                        "preemptVuln"
+                      ]
+                    },
+                    "qnc": {
+                      "type": "boolean"
+                    },
+                    "priorityLevel": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 127,
+                      "nullable": true
+                    },
+                    "averWindow": {
+                      "type": "integer",
+                      "maximum": 4095,
+                      "default": 2000,
+                      "minimum": 1,
+                      "nullable": true
+                    },
+                    "maxDataBurstVol": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4095,
+                      "nullable": true
+                    },
+                    "reflectiveQos": {
+                      "type": "boolean"
+                    },
+                    "sharingKeyDl": {
+                      "type": "string"
+                    },
+                    "sharingKeyUl": {
+                      "type": "string"
+                    },
+                    "maxPacketLossRateDl": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000,
+                      "nullable": true
+                    },
+                    "maxPacketLossRateUl": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000,
+                      "nullable": true
+                    },
+                    "defQosFlowIndication": {
+                      "type": "boolean"
+                    },
+                    "extMaxDataBurstVol": {
+                      "type": "integer",
+                      "minimum": 4096,
+                      "maximum": 2000000,
+                      "nullable": true
+                    },
+                    "packetDelayBudget": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "packetErrorRate": {
+                      "type": "string",
+                      "pattern": "^([0-9]E-[0-9])$"
+                    },
+                    "pduSetQosDl": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "pduSetDelayBudget": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "nullable": true
+                        },
+                        "pduSetErrRate": {
+                          "type": "string",
+                          "pattern": "^([0-9]E-[0-9])$",
+                          "nullable": true
+                        },
+                        "pduSetHandlingInfo": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "ALL_PDUS_NEEDED",
+                                    "ALL_PDUS_NOT_NEEDED"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "pduSetQosUl": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "pduSetDelayBudget": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "nullable": true
+                        },
+                        "pduSetErrRate": {
+                          "type": "string",
+                          "pattern": "^([0-9]E-[0-9])$",
+                          "nullable": true
+                        },
+                        "pduSetHandlingInfo": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "ALL_PDUS_NEEDED",
+                                    "ALL_PDUS_NOT_NEEDED"
+                                  ]
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
                         }
                       }
                     }
+                  },
+                  "required": [
+                    "qosId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1
+              },
+              "chgDecs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "chgId": {
+                      "type": "string"
+                    },
+                    "meteringMethod": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "DURATION",
+                            "VOLUME",
+                            "DURATION_VOLUME",
+                            "EVENT"
+                          ]
+                        },
+                        {
+                          "enum": [
+                            null
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "offline": {
+                      "type": "boolean"
+                    },
+                    "online": {
+                      "type": "boolean"
+                    },
+                    "sdfHandl": {
+                      "type": "boolean"
+                    },
+                    "ratingGroup": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "reportingLevel": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "SER_ID_LEVEL",
+                            "RAT_GR_LEVEL",
+                            "SPON_CON_LEVEL"
+                          ]
+                        },
+                        {
+                          "enum": [
+                            null
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "serviceId": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "sponsorId": {
+                      "type": "string"
+                    },
+                    "appSvcProvId": {
+                      "type": "string"
+                    },
+                    "afChargingIdentifier": {
+                      "deprecated": true,
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "afChargId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "chgId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "chargingInfo": {
+                "type": "object",
+                "properties": {
+                  "primaryChfAddress": {
+                    "type": "string"
+                  },
+                  "secondaryChfAddress": {
+                    "type": "string"
+                  },
+                  "primaryChfSetId": {
+                    "type": "string"
+                  },
+                  "primaryChfInstanceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "secondaryChfSetId": {
+                    "type": "string"
+                  },
+                  "secondaryChfInstanceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "primaryChfAddress"
+                ]
+              },
+              "chfGroupId": {
+                "type": "string"
+              },
+              "traffContDecs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "tcId": {
+                      "type": "string"
+                    },
+                    "l4sInd": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "UL",
+                            "DL",
+                            "UL_DL"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "flowStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "ENABLED-UPLINK",
+                            "ENABLED-DOWNLINK",
+                            "ENABLED",
+                            "DISABLED",
+                            "REMOVED"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "redirectInfo": {
+                      "type": "object",
+                      "properties": {
+                        "redirectEnabled": {
+                          "type": "boolean"
+                        },
+                        "redirectAddressType": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "IPV4_ADDR",
+                                "IPV6_ADDR",
+                                "URL",
+                                "SIP_URI"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "redirectServerAddress": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "addRedirectInfo": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "redirectEnabled": {
+                            "type": "boolean"
+                          },
+                          "redirectAddressType": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "IPV4_ADDR",
+                                  "IPV6_ADDR",
+                                  "URL",
+                                  "SIP_URI"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "redirectServerAddress": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "minItems": 1
+                    },
+                    "muteNotif": {
+                      "type": "boolean"
+                    },
+                    "trafficSteeringPolIdDl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "trafficSteeringPolIdUl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "metadata": {
+                      "format": "byte",
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "routeToLocs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dnai": {
+                            "type": "string"
+                          },
+                          "routeInfo": {
+                            "type": "object",
+                            "properties": {
+                              "ipv4Addr": {
+                                "type": "string",
+                                "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                              },
+                              "ipv6Addr": {
+                                "type": "string",
+                                "allOf": [
+                                  {
+                                    "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                                  },
+                                  {
+                                    "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                                  }
+                                ]
+                              },
+                              "portNumber": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "portNumber"
+                            ],
+                            "nullable": true
+                          },
+                          "routeProfId": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "dnai"
+                        ],
+                        "anyOf": [
+                          {
+                            "required": [
+                              "routeInfo"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "routeProfId"
+                            ]
+                          }
+                        ],
+                        "nullable": true
+                      },
+                      "minItems": 1,
+                      "nullable": true
+                    },
+                    "maxAllowedUpLat": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "easIpReplaceInfos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "object",
+                            "properties": {
+                              "ip": {
+                                "type": "object",
+                                "oneOf": [
+                                  {
+                                    "required": [
+                                      "ipv4Addr"
+                                    ]
+                                  },
+                                  {
+                                    "required": [
+                                      "ipv6Addr"
+                                    ]
+                                  },
+                                  {
+                                    "required": [
+                                      "ipv6Prefix"
+                                    ]
+                                  }
+                                ],
+                                "properties": {
+                                  "ipv4Addr": {
+                                    "type": "string",
+                                    "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                                  },
+                                  "ipv6Addr": {
+                                    "type": "string",
+                                    "allOf": [
+                                      {
+                                        "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                                      },
+                                      {
+                                        "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                                      }
+                                    ]
+                                  },
+                                  "ipv6Prefix": {
+                                    "type": "string",
+                                    "allOf": [
+                                      {
+                                        "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                                      },
+                                      {
+                                        "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "port": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "ip",
+                              "port"
+                            ]
+                          },
+                          "target": {
+                            "type": "object",
+                            "properties": {
+                              "ip": {
+                                "type": "object",
+                                "oneOf": [
+                                  {
+                                    "required": [
+                                      "ipv4Addr"
+                                    ]
+                                  },
+                                  {
+                                    "required": [
+                                      "ipv6Addr"
+                                    ]
+                                  },
+                                  {
+                                    "required": [
+                                      "ipv6Prefix"
+                                    ]
+                                  }
+                                ],
+                                "properties": {
+                                  "ipv4Addr": {
+                                    "type": "string",
+                                    "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                                  },
+                                  "ipv6Addr": {
+                                    "type": "string",
+                                    "allOf": [
+                                      {
+                                        "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                                      },
+                                      {
+                                        "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                                      }
+                                    ]
+                                  },
+                                  "ipv6Prefix": {
+                                    "type": "string",
+                                    "allOf": [
+                                      {
+                                        "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                                      },
+                                      {
+                                        "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "port": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "ip",
+                              "port"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "source",
+                          "target"
+                        ]
+                      },
+                      "minItems": 1,
+                      "nullable": true
+                    },
+                    "traffCorreInd": {
+                      "type": "boolean"
+                    },
+                    "tfcCorreInfo": {
+                      "type": "object",
+                      "properties": {
+                        "corrType": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "COMMON_DNAI",
+                                "COMMON_EAS"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "tfcCorrId": {
+                          "type": "string"
+                        },
+                        "comEasIpv4Addr": {
+                          "type": "string",
+                          "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$",
+                          "nullable": true
+                        },
+                        "comEasIpv6Addr": {
+                          "type": "string",
+                          "allOf": [
+                            {
+                              "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                            },
+                            {
+                              "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                            }
+                          ],
+                          "nullable": true
+                        },
+                        "fqdnRange": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "oneOf": [
+                              {
+                                "required": [
+                                  "regex"
+                                ]
+                              },
+                              {
+                                "required": [
+                                  "stringMatchingRule"
+                                ]
+                              }
+                            ],
+                            "properties": {
+                              "regex": {
+                                "type": "string"
+                              },
+                              "stringMatchingRule": {
+                                "type": "object",
+                                "properties": {
+                                  "stringMatchingConditions": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "matchingString": {
+                                          "type": "string"
+                                        },
+                                        "matchingOperator": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "FULL_MATCH",
+                                                "MATCH_ALL",
+                                                "STARTS_WITH",
+                                                "NOT_START_WITH",
+                                                "ENDS_WITH",
+                                                "NOT_END_WITH",
+                                                "CONTAINS",
+                                                "NOT_CONTAIN"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "matchingOperator"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                },
+                                "required": [
+                                  "stringMatchingConditions"
+                                ]
+                              }
+                            }
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        },
+                        "notifUri": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "notifCorrId": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "simConnInd": {
+                      "type": "boolean"
+                    },
+                    "simConnTerm": {
+                      "type": "integer"
+                    },
+                    "n6DelayInd": {
+                      "type": "boolean"
+                    },
+                    "upPathChgEvent": {
+                      "type": "object",
+                      "properties": {
+                        "notificationUri": {
+                          "type": "string"
+                        },
+                        "notifCorreId": {
+                          "type": "string"
+                        },
+                        "dnaiChgType": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "EARLY",
+                                "EARLY_LATE",
+                                "LATE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "afAckInd": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "notificationUri",
+                        "notifCorreId",
+                        "dnaiChgType"
+                      ],
+                      "nullable": true
+                    },
+                    "outcomeEvent": {
+                      "type": "object",
+                      "properties": {
+                        "notificationUri": {
+                          "type": "string"
+                        },
+                        "notifCorreId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "notificationUri",
+                        "notifCorreId"
+                      ],
+                      "nullable": true
+                    },
+                    "simConnFailEvent": {
+                      "type": "object",
+                      "properties": {
+                        "notificationUri": {
+                          "type": "string"
+                        },
+                        "notifCorreId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "notificationUri",
+                        "notifCorreId"
+                      ],
+                      "nullable": true
+                    },
+                    "steerFun": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "MPTCP",
+                            "MPQUIC",
+                            "ATSSS_LL",
+                            "MPQUIC_IP",
+                            "MPQUIC_E"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "transMode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "DATAGRAM_MODE_1",
+                            "DATAGRAM_MODE_2",
+                            "STREAM_MODE"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "steerModeDl": {
+                      "type": "object",
+                      "properties": {
+                        "steerModeValue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "ACTIVE_STANDBY",
+                                "LOAD_BALANCING",
+                                "SMALLEST_DELAY",
+                                "PRIORITY_BASED",
+                                "REDUNDANT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "active": {
+                          "type": "string",
+                          "enum": [
+                            "3GPP_ACCESS",
+                            "NON_3GPP_ACCESS"
+                          ]
+                        },
+                        "standby": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "3GPP_ACCESS",
+                                "NON_3GPP_ACCESS"
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
+                        },
+                        "3gLoad": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "prioAcc": {
+                          "type": "string",
+                          "enum": [
+                            "3GPP_ACCESS",
+                            "NON_3GPP_ACCESS"
+                          ]
+                        },
+                        "thresValue": {
+                          "type": "object",
+                          "properties": {
+                            "rttThres": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "nullable": true
+                            },
+                            "plrThres": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000,
+                              "nullable": true
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "steerModeInd": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "AUTO_LOAD_BALANCE",
+                                "UE_ASSISTANCE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "primary": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "3GPP_ACCESS",
+                                "NON_3GPP_ACCESS"
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "steerModeValue"
+                      ]
+                    },
+                    "steerModeUl": {
+                      "type": "object",
+                      "properties": {
+                        "steerModeValue": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "ACTIVE_STANDBY",
+                                "LOAD_BALANCING",
+                                "SMALLEST_DELAY",
+                                "PRIORITY_BASED",
+                                "REDUNDANT"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "active": {
+                          "type": "string",
+                          "enum": [
+                            "3GPP_ACCESS",
+                            "NON_3GPP_ACCESS"
+                          ]
+                        },
+                        "standby": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "3GPP_ACCESS",
+                                "NON_3GPP_ACCESS"
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
+                        },
+                        "3gLoad": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "prioAcc": {
+                          "type": "string",
+                          "enum": [
+                            "3GPP_ACCESS",
+                            "NON_3GPP_ACCESS"
+                          ]
+                        },
+                        "thresValue": {
+                          "type": "object",
+                          "properties": {
+                            "rttThres": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "nullable": true
+                            },
+                            "plrThres": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000,
+                              "nullable": true
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "steerModeInd": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "AUTO_LOAD_BALANCE",
+                                "UE_ASSISTANCE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "primary": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "3GPP_ACCESS",
+                                "NON_3GPP_ACCESS"
+                              ]
+                            },
+                            {
+                              "enum": [
+                                null
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "steerModeValue"
+                      ]
+                    },
+                    "mulAccCtrl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "ALLOWED",
+                            "NOT_ALLOWED"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "candDnaiInd": {
+                      "type": "boolean"
+                    },
+                    "datEndMarkInd": {
+                      "type": "boolean"
+                    },
+                    "datBurstSizeInd": {
+                      "type": "boolean"
+                    },
+                    "timetoNextBurstInd": {
+                      "type": "boolean"
+                    },
+                    "payloadHdrReq": {
+                      "type": "object",
+                      "required": [
+                        "hDetectionReference"
+                      ],
+                      "properties": {
+                        "hDetectionReference": {
+                          "type": "string"
+                        },
+                        "hDetectionSuppInfo": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "notifUri": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "notifId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "spVal": {
+                          "type": "object",
+                          "required": [
+                            "presenceInfoList"
+                          ],
+                          "properties": {
+                            "presenceInfoList": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "object",
+                                "properties": {
+                                  "praId": {
+                                    "type": "string"
+                                  },
+                                  "additionalPraId": {
+                                    "type": "string"
+                                  },
+                                  "presenceState": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "IN_AREA",
+                                          "OUT_OF_AREA",
+                                          "UNKNOWN",
+                                          "INACTIVE"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  },
+                                  "trackingAreaList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "plmnId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "mcc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{3}$"
+                                            },
+                                            "mnc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{2,3}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "mcc",
+                                            "mnc"
+                                          ]
+                                        },
+                                        "tac": {
+                                          "type": "string",
+                                          "pattern": "(^[A-Fa-f0-9]{4}$)|(^[A-Fa-f0-9]{6}$)"
+                                        },
+                                        "nid": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{11}$"
+                                        }
+                                      },
+                                      "required": [
+                                        "plmnId",
+                                        "tac"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "ecgiList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "plmnId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "mcc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{3}$"
+                                            },
+                                            "mnc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{2,3}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "mcc",
+                                            "mnc"
+                                          ]
+                                        },
+                                        "eutraCellId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{7}$"
+                                        },
+                                        "nid": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{11}$"
+                                        }
+                                      },
+                                      "required": [
+                                        "plmnId",
+                                        "eutraCellId"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "ncgiList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "plmnId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "mcc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{3}$"
+                                            },
+                                            "mnc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{2,3}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "mcc",
+                                            "mnc"
+                                          ]
+                                        },
+                                        "nrCellId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{9}$"
+                                        },
+                                        "nid": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{11}$"
+                                        }
+                                      },
+                                      "required": [
+                                        "plmnId",
+                                        "nrCellId"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "globalRanNodeIdList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "plmnId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "mcc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{3}$"
+                                            },
+                                            "mnc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{2,3}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "mcc",
+                                            "mnc"
+                                          ]
+                                        },
+                                        "n3IwfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "gNbId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "bitLength": {
+                                              "type": "integer",
+                                              "minimum": 22,
+                                              "maximum": 32
+                                            },
+                                            "gNBValue": {
+                                              "type": "string",
+                                              "pattern": "^[A-Fa-f0-9]{6,8}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "bitLength",
+                                            "gNBValue"
+                                          ]
+                                        },
+                                        "ngeNbId": {
+                                          "type": "string",
+                                          "pattern": "^(MacroNGeNB-[A-Fa-f0-9]{5}|LMacroNGeNB-[A-Fa-f0-9]{6}|SMacroNGeNB-[A-Fa-f0-9]{5})$"
+                                        },
+                                        "wagfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "tngfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "nid": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{11}$"
+                                        },
+                                        "eNbId": {
+                                          "type": "string",
+                                          "pattern": "^(MacroeNB-[A-Fa-f0-9]{5}|LMacroeNB-[A-Fa-f0-9]{6}|SMacroeNB-[A-Fa-f0-9]{5}|HomeeNB-[A-Fa-f0-9]{7})$"
+                                        }
+                                      },
+                                      "oneOf": [
+                                        {
+                                          "required": [
+                                            "n3IwfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "gNbId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "ngeNbId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "wagfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "tngfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "eNbId"
+                                          ]
+                                        }
+                                      ],
+                                      "required": [
+                                        "plmnId"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "globaleNbIdList": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "plmnId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "mcc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{3}$"
+                                            },
+                                            "mnc": {
+                                              "type": "string",
+                                              "pattern": "^\\d{2,3}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "mcc",
+                                            "mnc"
+                                          ]
+                                        },
+                                        "n3IwfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "gNbId": {
+                                          "type": "object",
+                                          "properties": {
+                                            "bitLength": {
+                                              "type": "integer",
+                                              "minimum": 22,
+                                              "maximum": 32
+                                            },
+                                            "gNBValue": {
+                                              "type": "string",
+                                              "pattern": "^[A-Fa-f0-9]{6,8}$"
+                                            }
+                                          },
+                                          "required": [
+                                            "bitLength",
+                                            "gNBValue"
+                                          ]
+                                        },
+                                        "ngeNbId": {
+                                          "type": "string",
+                                          "pattern": "^(MacroNGeNB-[A-Fa-f0-9]{5}|LMacroNGeNB-[A-Fa-f0-9]{6}|SMacroNGeNB-[A-Fa-f0-9]{5})$"
+                                        },
+                                        "wagfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "tngfId": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]+$"
+                                        },
+                                        "nid": {
+                                          "type": "string",
+                                          "pattern": "^[A-Fa-f0-9]{11}$"
+                                        },
+                                        "eNbId": {
+                                          "type": "string",
+                                          "pattern": "^(MacroeNB-[A-Fa-f0-9]{5}|LMacroeNB-[A-Fa-f0-9]{6}|SMacroeNB-[A-Fa-f0-9]{5}|HomeeNB-[A-Fa-f0-9]{7})$"
+                                        }
+                                      },
+                                      "oneOf": [
+                                        {
+                                          "required": [
+                                            "n3IwfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "gNbId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "ngeNbId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "wagfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "tngfId"
+                                          ]
+                                        },
+                                        {
+                                          "required": [
+                                            "eNbId"
+                                          ]
+                                        }
+                                      ],
+                                      "required": [
+                                        "plmnId"
+                                      ]
+                                    },
+                                    "minItems": 1
+                                  }
+                                }
+                              },
+                              "minProperties": 1
+                            }
+                          },
+                          "nullable": true
+                        },
+                        "tempVals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "startTime": {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "stopTime": {
+                                "format": "date-time",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        },
+                        "hHndlgUl": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "hHndlgCtrlRef": {
+                                "type": "string"
+                              },
+                              "hHndlgAction": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "DETECT",
+                                        "REMOVE",
+                                        "REPLACE",
+                                        "INSERT"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "minItems": 1
+                              },
+                              "hInfo": {
+                                "type": "string"
+                              },
+                              "hVal": {
+                                "type": "string"
+                              },
+                              "hHndlgCond": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "EVERY_MATCH",
+                                      "FIRST_MATCH"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "hHndlgRep": {
+                                "properties": {
+                                  "notifFlag": {
+                                    "type": "boolean"
+                                  },
+                                  "repSuggInfo": {
+                                    "type": "object",
+                                    "properties": {
+                                      "reportingUrgency": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "DELAY_TOLERANT",
+                                              "NON_DELAY_TOLERANT"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      },
+                                      "reportingTimeInfo": {
+                                        "type": "integer"
+                                      }
+                                    },
+                                    "required": [
+                                      "reportingUrgency"
+                                    ]
+                                  },
+                                  "oneTimeInd": {
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        },
+                        "hHndlgDl": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "hHndlgCtrlRef": {
+                                "type": "string"
+                              },
+                              "hHndlgAction": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "DETECT",
+                                        "REMOVE",
+                                        "REPLACE",
+                                        "INSERT"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                "minItems": 1
+                              },
+                              "hInfo": {
+                                "type": "string"
+                              },
+                              "hVal": {
+                                "type": "string"
+                              },
+                              "hHndlgCond": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "EVERY_MATCH",
+                                      "FIRST_MATCH"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              "hHndlgRep": {
+                                "properties": {
+                                  "notifFlag": {
+                                    "type": "boolean"
+                                  },
+                                  "repSuggInfo": {
+                                    "type": "object",
+                                    "properties": {
+                                      "reportingUrgency": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "DELAY_TOLERANT",
+                                              "NON_DELAY_TOLERANT"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string"
+                                          }
+                                        ]
+                                      },
+                                      "reportingTimeInfo": {
+                                        "type": "integer"
+                                      }
+                                    },
+                                    "required": [
+                                      "reportingUrgency"
+                                    ]
+                                  },
+                                  "oneTimeInd": {
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "minItems": 1,
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "onPathN6SigInfo": {
+                      "nullable": true,
+                      "properties": {
+                        "onPathN6Method": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "CONNECT_UDP"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "asProxyAddr": {
+                          "type": "object",
+                          "oneOf": [
+                            {
+                              "required": [
+                                "ipv4Addr"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "ipv6Addr"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "ipv6Prefix"
+                              ]
+                            }
+                          ],
+                          "properties": {
+                            "ipv4Addr": {
+                              "type": "string",
+                              "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                            },
+                            "ipv6Addr": {
+                              "type": "string",
+                              "allOf": [
+                                {
+                                  "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                                },
+                                {
+                                  "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                                }
+                              ]
+                            },
+                            "ipv6Prefix": {
+                              "type": "string",
+                              "allOf": [
+                                {
+                                  "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                                },
+                                {
+                                  "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "onPathN6Method"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tcId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1
+              },
+              "umDecs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "umId": {
+                      "type": "string"
+                    },
+                    "volumeThreshold": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "volumeThresholdUplink": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "volumeThresholdDownlink": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "timeThreshold": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "monitoringTime": {
+                      "format": "date-time",
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "nextVolThreshold": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "nextVolThresholdUplink": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "nextVolThresholdDownlink": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "nextTimeThreshold": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "inactivityTime": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "exUsagePccRuleIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "umId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "qosChars": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "5qi": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "resourceType": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "NON_GBR",
+                            "NON_CRITICAL_GBR",
+                            "CRITICAL_GBR"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "priorityLevel": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 127
+                    },
+                    "packetDelayBudget": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "packetErrorRate": {
+                      "type": "string",
+                      "pattern": "^([0-9]E-[0-9])$"
+                    },
+                    "averagingWindow": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4095,
+                      "default": 2000
+                    },
+                    "maxDataBurstVol": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4095
+                    },
+                    "extMaxDataBurstVol": {
+                      "type": "integer",
+                      "minimum": 4096,
+                      "maximum": 2000000
+                    }
+                  },
+                  "required": [
+                    "5qi",
+                    "resourceType",
+                    "priorityLevel",
+                    "packetDelayBudget",
+                    "packetErrorRate"
+                  ]
+                },
+                "minProperties": 1
+              },
+              "qosMonDecs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "qmId": {
+                      "type": "string"
+                    },
+                    "qosMonParamType": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "PACKET_DELAY",
+                            "CONGESTION",
+                            "DATA_RATE",
+                            "AVAILABLE_BITRATE"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "reqQosMonParams": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "DOWNLINK",
+                              "UPLINK",
+                              "ROUND_TRIP",
+                              "DOWNLINK_DATA_RATE",
+                              "UPLINK_DATA_RATE",
+                              "DOWNLINK_CONGESTION",
+                              "UPLINK_CONGESTION",
+                              "DOWNLINK_AVAILABLE_BITRATE",
+                              "UPLINK_AVAILABLE_BITRATE"
+                            ]
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "repFreqs": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "EVENT_TRIGGERED",
+                              "PERIODIC"
+                            ]
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "repThreshDl": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "repThreshUl": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "repThreshRp": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "conThreshDl": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "conThreshUl": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "waitTime": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "repPeriod": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "notifyUri": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "notifyCorreId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "directNotifInd": {
+                      "type": "boolean"
+                    },
+                    "avrgWndw": {
+                      "type": "integer",
+                      "maximum": 4095,
+                      "default": 2000,
+                      "minimum": 1,
+                      "nullable": true
+                    },
+                    "repThreshDatRateUl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "repThreshDatRateDl": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                      "nullable": true
+                    },
+                    "avlBitrateUlThrs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                        "nullable": true
+                      },
+                      "minItems": 1
+                    },
+                    "avlBitrateDlThrs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$",
+                        "nullable": true
+                      },
+                      "minItems": 1
+                    },
+                    "dataCollAppId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "qmId",
+                    "reqQosMonParams",
+                    "repFreqs"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "reflectiveQoSTimer": {
+                "type": "integer"
+              },
+              "conds": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "condId": {
+                      "type": "string"
+                    },
+                    "activationTime": {
+                      "format": "date-time",
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "deactivationTime": {
+                      "format": "date-time",
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "accessType": {
+                      "type": "string",
+                      "enum": [
+                        "3GPP_ACCESS",
+                        "NON_3GPP_ACCESS"
+                      ]
+                    },
+                    "ratType": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "NR",
+                            "EUTRA",
+                            "WLAN",
+                            "VIRTUAL",
+                            "NBIOT",
+                            "WIRELINE",
+                            "WIRELINE_CABLE",
+                            "WIRELINE_BBF",
+                            "LTE-M",
+                            "NR_U",
+                            "EUTRA_U",
+                            "TRUSTED_N3GA",
+                            "TRUSTED_WLAN",
+                            "UTRA",
+                            "GERA",
+                            "NR_LEO",
+                            "NR_MEO",
+                            "NR_GEO",
+                            "NR_OTHER_SAT",
+                            "NR_REDCAP",
+                            "WB_E_UTRAN_LEO",
+                            "WB_E_UTRAN_MEO",
+                            "WB_E_UTRAN_GEO",
+                            "WB_E_UTRAN_OTHERSAT",
+                            "NB_IOT_LEO",
+                            "NB_IOT_MEO",
+                            "NB_IOT_GEO",
+                            "NB_IOT_OTHERSAT",
+                            "LTE_M_LEO",
+                            "LTE_M_MEO",
+                            "LTE_M_GEO",
+                            "LTE_M_OTHERSAT",
+                            "NR_EREDCAP",
+                            {
+                              "HSPA_EVOLUTION        - type": "string"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "condId"
+                  ],
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "revalidationTime": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "offline": {
+                "type": "boolean"
+              },
+              "online": {
+                "type": "boolean"
+              },
+              "offlineChOnly": {
+                "type": "boolean",
+                "default": false
+              },
+              "policyCtrlReqTriggers": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "PLMN_CH",
+                        "RES_MO_RE",
+                        "AC_TY_CH",
+                        "UE_IP_CH",
+                        "UE_MAC_CH",
+                        "AN_CH_COR",
+                        "US_RE",
+                        "APP_STA",
+                        "APP_STO",
+                        "AN_INFO",
+                        "CM_SES_FAIL",
+                        "PS_DA_OFF",
+                        "DEF_QOS_CH",
+                        "SE_AMBR_CH",
+                        "QOS_NOTIF",
+                        "NO_CREDIT",
+                        "REALLO_OF_CREDIT",
+                        "PRA_CH",
+                        "SAREA_CH",
+                        "SCNN_CH",
+                        "RE_TIMEOUT",
+                        "RES_RELEASE",
+                        "SUCC_RES_ALLO",
+                        "RAT_TY_CH",
+                        "REF_QOS_IND_CH",
+                        "NUM_OF_PACKET_FILTER",
+                        "UE_STATUS_RESUME",
+                        "UE_TZ_CH",
+                        "AUTH_PROF_CH",
+                        "QOS_MONITORING",
+                        "QOS_MON_CAP_REPO",
+                        "SCELL_CH",
+                        "USER_LOCATION_CH",
+                        "EPS_FALLBACK",
+                        "MA_PDU",
+                        "TSN_BRIDGE_INFO",
+                        "5G_RG_JOIN",
+                        "5G_RG_LEAVE",
+                        "DDN_FAILURE",
+                        "DDN_DELIVERY_STATUS",
+                        "GROUP_ID_LIST_CHG",
+                        "DDN_FAILURE_CANCELLATION",
+                        "DDN_DELIVERY_STATUS_CANCELLATION",
+                        "VPLMN_QOS_CH",
+                        "SUCC_QOS_UPDATE",
+                        "SAT_CATEGORY_CHG",
+                        "PCF_UE_NOTIF_IND",
+                        "NWDAF_DATA_CHG",
+                        "UE_POL_CONT_IND",
+                        "URSP_ENFORCEMENT_INFO",
+                        "HR_SBO_IND_CHG",
+                        "L4S_SUPP",
+                        "NET_SLICE_REPL",
+                        "BAT_OFFSET_INFO",
+                        "UE_REACH_STATUS_CH",
+                        "N3G_DEV_INFO"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "nullable": true
+              },
+              "lastReqRuleData": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "refPccRuleIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    },
+                    "reqData": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "CH_ID",
+                              "MS_TIME_ZONE",
+                              "USER_LOC_INFO",
+                              "RES_RELEASE",
+                              "SUCC_RES_ALLO",
+                              "EPS_FALLBACK",
+                              "UE_SAT_INFO"
+                            ]
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "minItems": 1
+                    }
+                  },
+                  "required": [
+                    "refPccRuleIds",
+                    "reqData"
+                  ]
+                },
+                "minItems": 1
+              },
+              "lastReqUsageData": {
+                "type": "object",
+                "properties": {
+                  "refUmIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "allUmIds": {
+                    "type": "boolean"
                   }
                 }
+              },
+              "praInfos": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "praId": {
+                      "type": "string"
+                    },
+                    "additionalPraId": {
+                      "type": "string"
+                    },
+                    "presenceState": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "IN_AREA",
+                            "OUT_OF_AREA",
+                            "UNKNOWN",
+                            "INACTIVE"
+                          ]
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "trackingAreaList": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "plmnId": {
+                            "type": "object",
+                            "properties": {
+                              "mcc": {
+                                "type": "string",
+                                "pattern": "^\\d{3}$"
+                              },
+                              "mnc": {
+                                "type": "string",
+                                "pattern": "^\\d{2,3}$"
+                              }
+                            },
+                            "required": [
+                              "mcc",
+                              "mnc"
+                            ]
+                          },
+                          "tac": {
+                            "type": "string",
+                            "pattern": "(^[A-Fa-f0-9]{4}$)|(^[A-Fa-f0-9]{6}$)"
+                          },
+                          "nid": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{11}$"
+                          }
+                        },
+                        "required": [
+                          "plmnId",
+                          "tac"
+                        ]
+                      },
+                      "minItems": 0
+                    },
+                    "ecgiList": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "plmnId": {
+                            "type": "object",
+                            "properties": {
+                              "mcc": {
+                                "type": "string",
+                                "pattern": "^\\d{3}$"
+                              },
+                              "mnc": {
+                                "type": "string",
+                                "pattern": "^\\d{2,3}$"
+                              }
+                            },
+                            "required": [
+                              "mcc",
+                              "mnc"
+                            ]
+                          },
+                          "eutraCellId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{7}$"
+                          },
+                          "nid": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{11}$"
+                          }
+                        },
+                        "required": [
+                          "plmnId",
+                          "eutraCellId"
+                        ]
+                      },
+                      "minItems": 0
+                    },
+                    "ncgiList": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "plmnId": {
+                            "type": "object",
+                            "properties": {
+                              "mcc": {
+                                "type": "string",
+                                "pattern": "^\\d{3}$"
+                              },
+                              "mnc": {
+                                "type": "string",
+                                "pattern": "^\\d{2,3}$"
+                              }
+                            },
+                            "required": [
+                              "mcc",
+                              "mnc"
+                            ]
+                          },
+                          "nrCellId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{9}$"
+                          },
+                          "nid": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{11}$"
+                          }
+                        },
+                        "required": [
+                          "plmnId",
+                          "nrCellId"
+                        ]
+                      },
+                      "minItems": 0
+                    },
+                    "globalRanNodeIdList": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "plmnId": {
+                            "type": "object",
+                            "properties": {
+                              "mcc": {
+                                "type": "string",
+                                "pattern": "^\\d{3}$"
+                              },
+                              "mnc": {
+                                "type": "string",
+                                "pattern": "^\\d{2,3}$"
+                              }
+                            },
+                            "required": [
+                              "mcc",
+                              "mnc"
+                            ]
+                          },
+                          "n3IwfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "gNbId": {
+                            "type": "object",
+                            "properties": {
+                              "bitLength": {
+                                "type": "integer",
+                                "minimum": 22,
+                                "maximum": 32
+                              },
+                              "gNBValue": {
+                                "type": "string",
+                                "pattern": "^[A-Fa-f0-9]{6,8}$"
+                              }
+                            },
+                            "required": [
+                              "bitLength",
+                              "gNBValue"
+                            ]
+                          },
+                          "ngeNbId": {
+                            "type": "string",
+                            "pattern": "^(MacroNGeNB-[A-Fa-f0-9]{5}|LMacroNGeNB-[A-Fa-f0-9]{6}|SMacroNGeNB-[A-Fa-f0-9]{5})$"
+                          },
+                          "wagfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "tngfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "nid": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{11}$"
+                          },
+                          "eNbId": {
+                            "type": "string",
+                            "pattern": "^(MacroeNB-[A-Fa-f0-9]{5}|LMacroeNB-[A-Fa-f0-9]{6}|SMacroeNB-[A-Fa-f0-9]{5}|HomeeNB-[A-Fa-f0-9]{7})$"
+                          }
+                        },
+                        "oneOf": [
+                          {
+                            "required": [
+                              "n3IwfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "gNbId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "ngeNbId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "wagfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "tngfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "eNbId"
+                            ]
+                          }
+                        ],
+                        "required": [
+                          "plmnId"
+                        ]
+                      }
+                    },
+                    "globaleNbIdList": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "plmnId": {
+                            "type": "object",
+                            "properties": {
+                              "mcc": {
+                                "type": "string",
+                                "pattern": "^\\d{3}$"
+                              },
+                              "mnc": {
+                                "type": "string",
+                                "pattern": "^\\d{2,3}$"
+                              }
+                            },
+                            "required": [
+                              "mcc",
+                              "mnc"
+                            ]
+                          },
+                          "n3IwfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "gNbId": {
+                            "type": "object",
+                            "properties": {
+                              "bitLength": {
+                                "type": "integer",
+                                "minimum": 22,
+                                "maximum": 32
+                              },
+                              "gNBValue": {
+                                "type": "string",
+                                "pattern": "^[A-Fa-f0-9]{6,8}$"
+                              }
+                            },
+                            "required": [
+                              "bitLength",
+                              "gNBValue"
+                            ]
+                          },
+                          "ngeNbId": {
+                            "type": "string",
+                            "pattern": "^(MacroNGeNB-[A-Fa-f0-9]{5}|LMacroNGeNB-[A-Fa-f0-9]{6}|SMacroNGeNB-[A-Fa-f0-9]{5})$"
+                          },
+                          "wagfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "tngfId": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]+$"
+                          },
+                          "nid": {
+                            "type": "string",
+                            "pattern": "^[A-Fa-f0-9]{11}$"
+                          },
+                          "eNbId": {
+                            "type": "string",
+                            "pattern": "^(MacroeNB-[A-Fa-f0-9]{5}|LMacroeNB-[A-Fa-f0-9]{6}|SMacroeNB-[A-Fa-f0-9]{5}|HomeeNB-[A-Fa-f0-9]{7})$"
+                          }
+                        },
+                        "oneOf": [
+                          {
+                            "required": [
+                              "n3IwfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "gNbId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "ngeNbId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "wagfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "tngfId"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "eNbId"
+                            ]
+                          }
+                        ],
+                        "required": [
+                          "plmnId"
+                        ]
+                      },
+                      "minItems": 1
+                    }
+                  },
+                  "nullable": true
+                },
+                "minProperties": 1,
+                "nullable": true
+              },
+              "ipv4Index": {
+                "type": "integer"
+              },
+              "ipv6Index": {
+                "type": "integer"
+              },
+              "qosFlowUsage": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "GENERAL",
+                      "IMS_SIG"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "qosMonCapRepoTypes": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "PACKET_DELAY",
+                        "CONGESTION",
+                        "AVAILABLE_BITRATE"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "minItems": 1
+              },
+              "relCause": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "UNSPECIFIED",
+                      "UE_SUBSCRIPTION",
+                      "INSUFFICIENT_RES",
+                      "VALIDATION_CONDITION_NOT_MET",
+                      "REACTIVATION_REQUESTED"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "suppFeat": {
+                "type": "string",
+                "pattern": "^[A-Fa-f0-9]*$"
+              },
+              "tsnBridgeManCont": {
+                "type": "object",
+                "properties": {
+                  "bridgeManCont": {
+                    "format": "byte",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "bridgeManCont"
+                ]
+              },
+              "tsnPortManContDstt": {
+                "type": "object",
+                "properties": {
+                  "portManCont": {
+                    "format": "byte",
+                    "type": "string"
+                  },
+                  "portNum": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "portManCont",
+                  "portNum"
+                ]
+              },
+              "tsnPortManContNwtts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "portManCont": {
+                      "format": "byte",
+                      "type": "string"
+                    },
+                    "portNum": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "portManCont",
+                    "portNum"
+                  ]
+                },
+                "minItems": 1
+              },
+              "tscNotifUri": {
+                "type": "string"
+              },
+              "tscNotifCorreId": {
+                "type": "string"
+              },
+              "redSessIndication": {
+                "type": "boolean"
+              },
+              "uePolCont": {
+                "format": "byte",
+                "type": "string"
+              },
+              "sliceUsgCtrlInfo": {
+                "type": "object",
+                "properties": {
+                  "pduSessInactivTimer": {
+                    "type": "integer",
+                    "nullable": true
+                  }
+                },
+                "anyOf": [
+                  {
+                    "required": [
+                      "pduSessInactivTimer"
+                    ]
+                  }
+                ]
+              },
+              "vplmnOffloadInfos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "nullable": true,
+                  "properties": {
+                    "offloadIdentifier": {
+                      "type": "string",
+                      "pattern": "^[0-9]{3}-[0-9]{2,3}-[A-Fa-f0-9]{8}(-v[0-9]{1,2}){0,1}$"
+                    },
+                    "vplmnId": {
+                      "type": "object",
+                      "properties": {
+                        "mcc": {
+                          "type": "string",
+                          "pattern": "^\\d{3}$"
+                        },
+                        "mnc": {
+                          "type": "string",
+                          "pattern": "^\\d{2,3}$"
+                        }
+                      },
+                      "required": [
+                        "mcc",
+                        "mnc"
+                      ]
+                    },
+                    "allowedTraffic": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "ipv4AddressRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                          },
+                          "end": {
+                            "type": "string",
+                            "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "ipv4AddrMasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$"
+                      },
+                      "minItems": 1
+                    },
+                    "ipv6AddressRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                              }
+                            ]
+                          },
+                          "end": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "ipv6PrefixRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                              }
+                            ]
+                          },
+                          "end": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "fqdnList": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^([0-9A-Za-z]([-0-9A-Za-z]{0,61}[0-9A-Za-z])?\\.)+[A-Za-z]{2,63}\\.?$",
+                        "minLength": 4,
+                        "maxLength": 253
+                      },
+                      "minItems": 1
+                    },
+                    "fqdnPatterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "oneOf": [
+                          {
+                            "required": [
+                              "regex"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "stringMatchingRule"
+                            ]
+                          }
+                        ],
+                        "properties": {
+                          "regex": {
+                            "type": "string"
+                          },
+                          "stringMatchingRule": {
+                            "type": "object",
+                            "properties": {
+                              "stringMatchingConditions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "matchingString": {
+                                      "type": "string"
+                                    },
+                                    "matchingOperator": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "FULL_MATCH",
+                                            "MATCH_ALL",
+                                            "STARTS_WITH",
+                                            "NOT_START_WITH",
+                                            "ENDS_WITH",
+                                            "NOT_END_WITH",
+                                            "CONTAINS",
+                                            "NOT_CONTAIN"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "matchingOperator"
+                                  ]
+                                },
+                                "minItems": 1
+                              }
+                            },
+                            "required": [
+                              "stringMatchingConditions"
+                            ]
+                          }
+                        }
+                      },
+                      "minItems": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "nullable": true
+              },
+              "locOffloadInfos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "nullable": true,
+                  "properties": {
+                    "offloadIdentifier": {
+                      "type": "string",
+                      "pattern": "^[0-9]{3}-[0-9]{2,3}-[A-Fa-f0-9]{8}(-v[0-9]{1,2}){0,1}$"
+                    },
+                    "allowedTraffic": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "ipv4AddressRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                          },
+                          "end": {
+                            "type": "string",
+                            "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "ipv4AddrMasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$"
+                      },
+                      "minItems": 1
+                    },
+                    "ipv6AddressRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                              }
+                            ]
+                          },
+                          "end": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "ipv6PrefixRanges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "start": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                              }
+                            ]
+                          },
+                          "end": {
+                            "type": "string",
+                            "allOf": [
+                              {
+                                "pattern": "^((:|(0?|([1-9a-f][0-9a-f]{0,3}))):)((0?|([1-9a-f][0-9a-f]{0,3})):){0,6}(:|(0?|([1-9a-f][0-9a-f]{0,3})))(\\/(([0-9])|([0-9]{2})|(1[0-1][0-9])|(12[0-8])))$"
+                              },
+                              {
+                                "pattern": "^((([^:]+:){7}([^:]+))|((([^:]+:)*[^:]+)?::(([^:]+:)*[^:]+)?))(\\/.+)$"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end"
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "fqdnList": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^([0-9A-Za-z]([-0-9A-Za-z]{0,61}[0-9A-Za-z])?\\.)+[A-Za-z]{2,63}\\.?$",
+                        "minLength": 4,
+                        "maxLength": 253
+                      },
+                      "minItems": 1
+                    },
+                    "fqdnPatterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "oneOf": [
+                          {
+                            "required": [
+                              "regex"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "stringMatchingRule"
+                            ]
+                          }
+                        ],
+                        "properties": {
+                          "regex": {
+                            "type": "string"
+                          },
+                          "stringMatchingRule": {
+                            "type": "object",
+                            "properties": {
+                              "stringMatchingConditions": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "matchingString": {
+                                      "type": "string"
+                                    },
+                                    "matchingOperator": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "FULL_MATCH",
+                                            "MATCH_ALL",
+                                            "STARTS_WITH",
+                                            "NOT_START_WITH",
+                                            "ENDS_WITH",
+                                            "NOT_END_WITH",
+                                            "CONTAINS",
+                                            "NOT_CONTAIN"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "matchingOperator"
+                                  ]
+                                },
+                                "minItems": 1
+                              }
+                            },
+                            "required": [
+                              "stringMatchingConditions"
+                            ]
+                          }
+                        }
+                      },
+                      "minItems": 1
+                    }
+                  }
+                },
+                "minItems": 1,
+                "nullable": true
+              },
+              "vplmnDlAmbr": {
+                "type": "object",
+                "nullable": true,
+                "properties": {
+                  "vplmnId": {
+                    "type": "object",
+                    "properties": {
+                      "mcc": {
+                        "type": "string",
+                        "pattern": "^\\d{3}$"
+                      },
+                      "mnc": {
+                        "type": "string",
+                        "pattern": "^\\d{2,3}$"
+                      }
+                    },
+                    "required": [
+                      "mcc",
+                      "mnc"
+                    ]
+                  },
+                  "sessionDlAmbr": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)? (bps|Kbps|Mbps|Gbps|Tbps)$"
+                  }
+                },
+                "required": [
+                  "vplmnId",
+                  "sessionDlAmbr"
+                ]
+              },
+              "sessionRecovStatus": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "REST_REQUEST",
+                      "REST_TRIGGERED",
+                      "REST_NOT_TRIGGERED",
+                      "NOT_FOUND"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
               }
-            }
+            },
+            "x-yaml": "TS29512_Npcf_SMPolicyControl.yaml#/components/schemas/SmPolicyDecision"
           }
         }
       }
@@ -87,6 +4470,7 @@
     "metrics_bind_address",
     "nrf_base_url",
     "port",
+    "sbi_bind_address",
     "self_base_url",
     "udr_base_url"
   ],
@@ -96,10 +4480,6 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "policy_counter_actions[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "policy_counter_actions[].smPolicyDecision: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "policy_counter_actions[].smPolicyDecision.sessRules: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "policy_counter_actions[].smPolicyDecision.sessRules.spending-limit-rule: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "policy_counter_actions[].smPolicyDecision.sessRules.spending-limit-rule.authSessAmbr: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "policy_counter_actions[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

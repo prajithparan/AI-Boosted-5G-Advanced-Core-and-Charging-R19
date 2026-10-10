@@ -14,6 +14,10 @@
       "x-env-override": "AMF_ADVERTISED_IPV4",
       "x-cpp-type": "std::string"
     },
+    "sbi_bind_address": {
+      "type": "string",
+      "x-cpp-type": "std::string"
+    },
     "metrics_bind_address": {
       "type": "string",
       "x-cpp-type": "std::string"
@@ -118,6 +122,15 @@
           "type": "boolean"
         }
       }
+    },
+    "nas_security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "alg_providers": {
+          "type": "array"
+        }
+      }
     }
   },
   "required": [
@@ -134,6 +147,7 @@
     "pcf_base_url",
     "port",
     "redis_url",
+    "sbi_bind_address",
     "smf_base_url"
   ],
   "x-config-file": "config/amf.json",
@@ -144,6 +158,8 @@
   "x-review": [
     "redis_mode: present in the file but no source line visibly reads it",
     "redis_pool_size: present in the file but no source line visibly reads it",
-    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
+    "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "nas_security: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
+    "nas_security.alg_providers: empty array, item type unknown"
   ]
 }
