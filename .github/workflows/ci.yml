@@ -994,72 +994,8 @@ jobs:
           python3 scripts/check_no_restricted.py
           python3 tools/sage-import/test_sage_import.py
 
-      - name: Cache vcpkg binary cache
-        if: runner.environment == 'github-hosted'
-        uses: actions/cache@v6
-        with:
-          path: ${{ github.workspace }}/.vcpkg-cache
-          key: vcpkg-bincache-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-bincache-${{ runner.os }}-
-
-      - name: Bootstrap vcpkg
-        run: |
-          # Same as the build job: clone once, check out vcpkg.json's builtin-baseline so the
-          # binary cache key matches the lab machine's own vcpkg.
-          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
-          if [ ! -d "$VCPKG_ROOT/.git" ]; then
-            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          fi
-          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
-            git -C "$VCPKG_ROOT" fetch --quiet origin
-            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
-            rm -f "$VCPKG_ROOT/vcpkg"
-          fi
-          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
-            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
-          fi
-
-      - name: Install sbi-codegen Python deps
-        run: pip install -q -r tools/sbi-codegen/requirements.txt
-
-      - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
-        if: runner.environment == 'github-hosted'
-        uses: actions/cache@v6
-        with:
-          path: ${{ github.workspace }}/build-tools/asn1c
-          key: asn1c-${{ runner.os }}-${{ hashFiles('scripts/setup-asn1c.sh', 'scripts/patches/asn1c-aligned-per.patch') }}
-
-      - name: Build asn1c toolchain (idempotent -- no-ops if the cache above already has it)
-        run: ./scripts/setup-asn1c.sh
-
-      - name: Configure (for compile_commands.json)
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-      - name: clang-tidy
-        # Parallelised across the runner's cores. This step was measured at 2h27m -- roughly 60% of
-        # the whole workflow's wall-clock, and more than the asan-ubsan sanitizer leg -- because the
-        # single `xargs clang-tidy-18` invocation analysed all 137 .cpp files (~69k lines) SERIALLY.
-        # CLAUDE.md's own CI rule is to keep these jobs "fast and targeted rather than exhaustive"
-        # to fit free-tier limits, which a 2.5-hour lint plainly wasn't.
-        #
-        # Deliberately `xargs -P` over `run-clang-tidy`: run-clang-tidy takes its file list from the
-        # compilation database, which is NOT the same set as `find libs nfs -name '*.cpp'` (it also
-        # carries generated sources), so switching to it would silently change WHICH files are
-        # analysed. This keeps the file set byte-identical and changes only the concurrency.
-        #
-        # `-n 1` gives one file per process so all cores stay busy; xargs still exits non-zero if
-        # any invocation fails, so warnings-as-errors continue to fail the job exactly as before.
-        #
-        # ADR-0371 (2026-09-16): even parallelised, the full sweep takes 4.5-5.5 h on the lab
-        # runner (measured: the last two that finished), and this repo's push cadence with
-        # cancel-in-progress meant every lint since 2026-09-15 02:13Z was cancelled -- eight NF
-        # increments were never linted in CI. A push now lints the .cpp files it changed (the
-        # diff from the push's base commit; the whole tree when there is no base, e.g. a new
-        # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
+      - name: Select .cpp files to lint (ADR-0468 semantics; empty list skips the toolchain setup below)
+        id: sel
         env:
           BEFORE: ${{ github.event.before }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -1086,8 +1022,79 @@ jobs:
               | tr '\n' '\0' > files.lst
             echo "lint: $(tr -cd '\0' < files.lst | wc -c) file(s) changed since $BEFORE"
           fi
-          if [ ! -s files.lst ]; then
-            echo "lint: no .cpp changed by this push -- nothing to analyse"
-            exit 0
+          if [ -s files.lst ]; then echo "count=$(tr -cd '\0' < files.lst | wc -c)" >> "$GITHUB_OUTPUT"
+          else echo "count=0" >> "$GITHUB_OUTPUT"; echo "lint: no .cpp to analyse -- skipping toolchain setup and clang-tidy"; fi
+
+      - name: Cache vcpkg binary cache
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/.vcpkg-cache
+          key: vcpkg-bincache-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-bincache-${{ runner.os }}-
+
+      - name: Bootstrap vcpkg
+        if: steps.sel.outputs.count != '0'
+        run: |
+          # Same as the build job: clone once, check out vcpkg.json's builtin-baseline so the
+          # binary cache key matches the lab machine's own vcpkg.
+          BASELINE=$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
           fi
+          if [ "$(git -C "$VCPKG_ROOT" rev-parse HEAD)" != "$BASELINE" ]; then
+            git -C "$VCPKG_ROOT" fetch --quiet origin
+            git -C "$VCPKG_ROOT" checkout --quiet "$BASELINE"
+            rm -f "$VCPKG_ROOT/vcpkg"
+          fi
+          if [ ! -x "$VCPKG_ROOT/vcpkg" ]; then
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+
+      - name: Install sbi-codegen Python deps
+        if: steps.sel.outputs.count != '0'
+        run: pip install -q -r tools/sbi-codegen/requirements.txt
+
+      - name: Cache asn1c toolchain (libs/ngap-generated needs it, ADR-0030/ADR-0031)
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/build-tools/asn1c
+          key: asn1c-${{ runner.os }}-${{ hashFiles('scripts/setup-asn1c.sh', 'scripts/patches/asn1c-aligned-per.patch') }}
+
+      - name: Build asn1c toolchain (idempotent -- no-ops if the cache above already has it)
+        if: steps.sel.outputs.count != '0'
+        run: ./scripts/setup-asn1c.sh
+
+      - name: Configure (for compile_commands.json)
+        if: steps.sel.outputs.count != '0'
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: clang-tidy
+        if: steps.sel.outputs.count != '0'
+        # Parallelised across the runner's cores. This step was measured at 2h27m -- roughly 60% of
+        # the whole workflow's wall-clock, and more than the asan-ubsan sanitizer leg -- because the
+        # single `xargs clang-tidy-18` invocation analysed all 137 .cpp files (~69k lines) SERIALLY.
+        # CLAUDE.md's own CI rule is to keep these jobs "fast and targeted rather than exhaustive"
+        # to fit free-tier limits, which a 2.5-hour lint plainly wasn't.
+        #
+        # Deliberately `xargs -P` over `run-clang-tidy`: run-clang-tidy takes its file list from the
+        # compilation database, which is NOT the same set as `find libs nfs -name '*.cpp'` (it also
+        # carries generated sources), so switching to it would silently change WHICH files are
+        # analysed. This keeps the file set byte-identical and changes only the concurrency.
+        #
+        # `-n 1` gives one file per process so all cores stay busy; xargs still exits non-zero if
+        # any invocation fails, so warnings-as-errors continue to fail the job exactly as before.
+        #
+        # ADR-0371 (2026-09-16): even parallelised, the full sweep takes 4.5-5.5 h on the lab
+        # runner (measured: the last two that finished), and this repo's push cadence with
+        # cancel-in-progress meant every lint since 2026-09-15 02:13Z was cancelled -- eight NF
+        # increments were never linted in CI. A push now lints the .cpp files it changed (the
+        # diff from the push's base commit; the whole tree when there is no base, e.g. a new
+        # branch); the full sweep runs weekly (schedule) and on demand (workflow_dispatch).
+        run: |
           xargs -0 -P "${CI_JOBS:-$(nproc)}" -n 1 clang-tidy-18 -p build < files.lst
