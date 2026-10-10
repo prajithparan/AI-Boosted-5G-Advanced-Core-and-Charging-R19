@@ -445,6 +445,7 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0477](decisions/ADR-0477-nrf-discovery-authorization-allowednftypes-allowedplmns.md) NRF discovery authorization: allowedNfTypes/allowedPlmns/allowedNssais (finding F4)
 - [0478](decisions/ADR-0478-opt-in-tls-1-2-floor-for-sbi-interop-finding-f5-ts-33-210-6.md) Opt-in TLS 1.2 floor for SBI interop (finding F5, TS 33.210 6.2.1)
 - [0479](decisions/ADR-0479-sage-bring-your-own-package-framework-for-snow-3g-design.md) SAGE bring-your-own-package framework for SNOW 3G (design only)
+- [0480](decisions/ADR-0480-amf-nas-algorithm-selection-core-ts-33-501-6-7-1-1-pure.md) AMF NAS algorithm selection core (TS 33.501 6.7.1.1), pure function, not yet wired
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 
