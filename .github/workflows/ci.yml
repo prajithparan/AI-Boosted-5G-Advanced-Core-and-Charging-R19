@@ -940,8 +940,9 @@ jobs:
   lint:
     runs-on: [self-hosted, linux, x64, 5gc-lab]
     # ADR-0468: a push or PR lints only changed files (~40 min measured); the weekly/on-demand full
-    # sweep takes 4.5-5.5 h (ADR-0371) and must keep the 6 h maximum.
-    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 90 }}
+    # sweep takes 4.5-5.5 h (ADR-0371) and must keep the 6 h maximum. Push/PR cap raised 90 -> 240
+    # on 2026-10-09: a push touching ~35 .cpp (26 NF mains at ~27 min of clang-tidy each) hit 90.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 240 }}
     steps:
       - uses: actions/checkout@v7
         with:
