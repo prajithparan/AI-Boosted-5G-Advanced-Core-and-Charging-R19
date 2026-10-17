@@ -18,6 +18,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -51,15 +52,26 @@ sbi_core::http2::Client make_client() {
     });
 }
 
+// REVIEW SEC-03: the AAnF binds an AF's afId to the FQDN its certificate names, and takes context
+// removal only from the AUSF -- so those requests come from clients holding those certificates.
+sbi_core::http2::Client make_client_as(const std::string& name) {
+    return sbi_core::http2::Client(sbi_core::http2::TlsConfig{
+        .cert_path = std::string(CERTS_DIR) + "/" + name + "/cert.pem",
+        .key_path = std::string(CERTS_DIR) + "/" + name + "/key.pem",
+        .ca_path = CERTS_DIR "/ca/ca.crt",
+    });
+}
+
 std::string token(sbi_core::http2::Client& c, const std::string& scope, const std::string& nf) {
     for (int i = 0; i < 100; ++i) {
         sbi_core::http2::ClientRequest req;
         req.method = "POST";
         req.url = "https://127.0.0.1:7777/oauth2/token";
         req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-        req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
+        req.body = "grant_type=client_credentials&nfInstanceId=" +
+                   std::string(nf_test::kTestAfInstanceId) + "&scope=" + scope +
                    "&targetNfType=" + nf;
-        if (auto r = c.send(req); r && r->status == 200) {
+        if (auto r = nf_test::send_token_request(req); r && r->status == 200) {
             return json::parse(r->body).at("access_token").get<std::string>();
         }
         std::this_thread::sleep_for(100ms);
@@ -131,6 +143,13 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     nf_test::wait_tcp_listening(7824);
 
     auto c = make_client();
+    auto af = make_client_as("af.example.com");
+    auto gpsi_af = make_client_as("gpsi-af.example.com");
+    auto ausf_client = make_client_as("ausf");
+    nf_test::attach_test_tokens(af);
+    nf_test::attach_test_tokens(gpsi_af);
+    nf_test::attach_test_tokens(ausf_client);
+    nf_test::attach_test_tokens(c); // ADR-0499: the NEF enforces tokens
     const auto udr_token = token(c, "nudr-dr", "UDR");
     const auto ausf_token = token(c, "nausf-auth", "AUSF");
     ASSERT_FALSE(udr_token.empty());
@@ -208,7 +227,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     const json request{{"afId", kAfId}, {"aKId", a_kid}};
     sbi_core::http2::ClientResponse got;
     for (int i = 0; i < 50; ++i) { // the AUSF registers right after the confirmation
-        got = send(c,
+        got = send(af,
                    "POST",
                    std::string(kAanf) + "/retrieve-applicationkey",
                    af_token,
@@ -228,7 +247,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     // Anonymous user (6.2.2): KAF, no SUPI.
     json anon = request;
     anon["anonInd"] = true;
-    const auto a = send(c,
+    const auto a = send(af,
                         "POST",
                         std::string(kAanf) + "/retrieve-applicationkey",
                         af_token,
@@ -240,7 +259,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     // An A-KID the AAnF does not know: 403 K_AKMA_NOT_PRESENT (TS 29.535 table 5.1.7.3-1).
     json unknown = request;
     unknown["aKId"] = "rid0.tid00@5gc.mnc070.mcc999.3gppnetwork.org";
-    const auto u = send(c,
+    const auto u = send(af,
                         "POST",
                         std::string(kAanf) + "/retrieve-applicationkey",
                         af_token,
@@ -252,7 +271,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     // ADR-0497, 6.2.1 steps 5-8: the UE now serves from a visited PLMN ->
     // ROAMING_AKMA_SERVICE_DENIED.
     register_amf("001", "01");
-    const auto roam = send(c,
+    const auto roam = send(af,
                            "POST",
                            std::string(kAanf) + "/retrieve-applicationkey",
                            af_token,
@@ -265,7 +284,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     // ADR-0496, 6.2.1 steps 3-4 / 8: an internal AF the AAnF's policy gives the GPSI, not the SUPI.
     json gpsi_req = request;
     gpsi_req["afId"] = "gpsi-af.example.com.0100BC0001";
-    const auto g = send(c,
+    const auto g = send(gpsi_af,
                         "POST",
                         std::string(kAanf) + "/retrieve-applicationkey",
                         af_token,
@@ -310,7 +329,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
     // Context removal (6.6): 204, then the key is gone, then 404 AKMA_CONTEXT_NOT_FOUND.
     const json remove{{"supi", kSupi}};
     const auto anchor_token = token(c, "naanf-akma%20naanf-akma:anchorkey", "AANF");
-    EXPECT_EQ(send(c,
+    EXPECT_EQ(send(ausf_client,
                    "POST",
                    std::string(kAanf) + "/remove-context",
                    anchor_token,
@@ -318,7 +337,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
                    remove.dump())
                   .status,
               204);
-    EXPECT_EQ(send(c,
+    EXPECT_EQ(send(af,
                    "POST",
                    std::string(kAanf) + "/retrieve-applicationkey",
                    af_token,
@@ -326,7 +345,7 @@ TEST(AkmaEndToEnd, AusfRegistersKakmaAndTheAanfGivesTheAfTheSameKafTheUeDerives)
                    request.dump())
                   .status,
               403);
-    const auto again = send(c,
+    const auto again = send(ausf_client,
                             "POST",
                             std::string(kAanf) + "/remove-context",
                             anchor_token,

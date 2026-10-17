@@ -44,6 +44,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -87,9 +88,10 @@ std::string token_for(sbi_core::http2::Client& c, const std::string& scope, cons
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=" + nf;
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + nf;
+    auto resp = nf_test::send_token_request(req);
     if (!resp || resp->status != 200) {
         return "";
     }
@@ -282,6 +284,7 @@ TEST(NwdafMtlf, TrainsStoresProvisionsAndTheAnlfPredicts) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     const std::string run_id = std::to_string(std::time(nullptr));
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
@@ -625,6 +628,7 @@ TEST(NwdafMtlf, AccuracyBelowThresholdIsReportedAndDrivesRetraining) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     const std::string run_id = std::to_string(std::time(nullptr));
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));

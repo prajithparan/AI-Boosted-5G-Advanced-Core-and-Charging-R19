@@ -69,6 +69,11 @@
       "type": "integer",
       "x-env-override": "MFAF_FETCH_BUFFER_TTL_SECONDS",
       "x-cpp-type": "int"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "MFAF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

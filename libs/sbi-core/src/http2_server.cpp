@@ -1,5 +1,6 @@
 #include "sbi_core/http2_server.hpp"
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/json_body.hpp"
 #include "sbi_core/metrics.hpp"
 #include "sbi_core/rate_limit.hpp"
@@ -122,6 +123,7 @@ struct Route {
     std::string method;
     std::vector<std::string> pattern_segments;
     Handler handler;
+    RouteAuth auth = RouteAuth::OAuth2;
 };
 
 bool try_match(const Route& route,
@@ -196,9 +198,11 @@ public:
                boost::asio::ssl::context& ssl_ctx,
                const std::vector<Route>& routes,
                TokenBucket* rate_limit,
-               const std::vector<TlsExport>& exporters)
+               const std::vector<TlsExport>& exporters,
+               std::shared_ptr<const Authorizer> authorizer)
         : ioc_(ioc), socket_(std::move(socket), ssl_ctx), strand_(ioc.get_executor()),
-          routes_(routes), rate_limit_(rate_limit), exporters_(exporters) {}
+          routes_(routes), rate_limit_(rate_limit), exporters_(exporters),
+          authorizer_(std::move(authorizer)) {}
 
     ~Connection() {
         if (session_ != nullptr) {
@@ -433,11 +437,15 @@ private:
         const auto segments = split_path(path_only);
 
         const Handler* matched_handler = nullptr;
+        std::shared_ptr<const Authorizer> authorizer;
         for (const auto& route : routes_) {
             std::map<std::string, std::string> params;
             if (try_match(route, req->method, segments, params)) {
                 req->path_params = std::move(params);
                 matched_handler = &route.handler;
+                if (route.auth == RouteAuth::OAuth2) {
+                    authorizer = authorizer_;
+                }
                 break;
             }
         }
@@ -506,7 +514,7 @@ private:
                 return;
             }
         }
-        boost::asio::post(ioc_, [self, stream_id, req, handler = *matched_handler]() {
+        boost::asio::post(ioc_, [self, stream_id, req, handler = *matched_handler, authorizer]() {
             // The API boundary (CLAUDE.md: exceptions only here). A handler that throws -- a
             // datastore client losing its connection mid-request is the realistic case, ADR-0360
             // -- answers a TS 29.500 ProblemDetails 500 for that one request. Before this, the
@@ -519,7 +527,13 @@ private:
             // uncaught exception here still answers.
             Response resp;
             try {
-                resp = handler(*req);
+                // ADR-0499: authorization runs here, on the worker pool, not on the connection's
+                // strand -- a signature check is the costliest step before the handler.
+                if (auto rejected = authorizer ? authorizer->check(*req) : std::nullopt) {
+                    resp = std::move(*rejected);
+                } else {
+                    resp = handler(*req);
+                }
             } catch (const nf_config::PoolExhaustedError& e) {
                 spdlog::warn("sbi-core: handler for {} {} hit an exhausted connection pool: {}",
                              req->method,
@@ -715,6 +729,7 @@ private:
     std::string peer_address_;
     std::vector<std::string> peer_cert_dns_names_;
     const std::vector<TlsExport>& exporters_;
+    std::shared_ptr<const Authorizer> authorizer_;
     std::map<std::string, std::vector<std::uint8_t>> tls_exports_;
     std::unordered_map<std::int32_t, StreamContext> streams_;
 };
@@ -783,11 +798,16 @@ public:
                     boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(address), port)),
           ssl_ctx_(make_server_ssl_context(tls)) {}
 
-    void add_route(std::string method, std::string path_pattern, Handler handler) {
+    void add_route(std::string method, std::string path_pattern, Handler handler, RouteAuth auth) {
         std::transform(method.begin(), method.end(), method.begin(), [](unsigned char c) {
             return static_cast<char>(std::toupper(c));
         });
-        routes_.push_back(Route{std::move(method), split_path(path_pattern), std::move(handler)});
+        routes_.push_back(
+            Route{std::move(method), split_path(path_pattern), std::move(handler), auth});
+    }
+
+    void set_authorizer(std::shared_ptr<const Authorizer> authorizer) {
+        authorizer_ = std::move(authorizer);
     }
 
     void set_tls_exporters(std::vector<TlsExport> exporters) { exporters_ = std::move(exporters); }
@@ -819,8 +839,13 @@ private:
                         // Non-fatal: a connection with Nagle still on is slow, not broken.
                         spdlog::warn("sbi: could not set TCP_NODELAY: {}", nodelay_ec.message());
                     }
-                    auto conn = std::make_shared<Connection>(
-                        ioc_, std::move(socket), ssl_ctx_, routes_, rate_limit_.get(), exporters_);
+                    auto conn = std::make_shared<Connection>(ioc_,
+                                                             std::move(socket),
+                                                             ssl_ctx_,
+                                                             routes_,
+                                                             rate_limit_.get(),
+                                                             exporters_,
+                                                             authorizer_);
                     conn->start();
                 }
                 do_accept();
@@ -832,6 +857,7 @@ private:
     boost::asio::ssl::context ssl_ctx_;
     std::vector<Route> routes_;
     std::vector<TlsExport> exporters_;
+    std::shared_ptr<const Authorizer> authorizer_;
     std::unique_ptr<TokenBucket> rate_limit_;
 
 public:
@@ -868,8 +894,15 @@ void Server::set_tls_exporters(std::vector<TlsExport> exporters) {
     impl_->set_tls_exporters(std::move(exporters));
 }
 
-void Server::add_route(std::string method, std::string path_pattern, Handler handler) {
-    impl_->add_route(std::move(method), std::move(path_pattern), std::move(handler));
+void Server::add_route(std::string method,
+                       std::string path_pattern,
+                       Handler handler,
+                       RouteAuth auth) {
+    impl_->add_route(std::move(method), std::move(path_pattern), std::move(handler), auth);
+}
+
+void Server::set_authorizer(std::shared_ptr<const Authorizer> authorizer) {
+    impl_->set_authorizer(std::move(authorizer));
 }
 
 void Server::start() {

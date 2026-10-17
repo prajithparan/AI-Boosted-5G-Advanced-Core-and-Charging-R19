@@ -33,6 +33,11 @@
       "items": {
         "type": "string"
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "UDR_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

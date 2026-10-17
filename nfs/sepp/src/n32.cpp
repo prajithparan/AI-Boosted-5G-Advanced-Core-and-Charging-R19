@@ -314,40 +314,55 @@ std::optional<Context> correlate(const std::vector<Context>& contexts,
                                  const std::string& via,
                                  const std::optional<std::string>& handshake_id,
                                  const std::optional<std::string>& purpose) {
-    if (contexts.empty()) {
+    // First the peer, from the client certificate (SEC-02, REVIEW-5ae0ef1): the handshake id and
+    // purpose rules below are for several contexts "between a pair of SEPPs", so they apply only
+    // among the contexts of the peer the certificate names -- never to pick between peers.
+    std::vector<std::string> names;
+    for (const auto& n : cert_dns_names) {
+        names.push_back(lower(n));
+    }
+    std::vector<Context> peer_contexts;
+    for (const auto& c : contexts) {
+        if (contains(names, c.peer_fqdn)) {
+            peer_contexts.push_back(c);
+        }
+    }
+    // A certificate naming several SEPPs (one common certificate): the Via header decides (the
+    // clause's NOTE).
+    const auto sepp_names = std::ranges::count_if(
+        names, [](const std::string& n) { return network_domain_of_host(n).has_value(); });
+    if (sepp_names > 1) {
+        const auto via_names = via_sepps(via);
+        std::erase_if(peer_contexts,
+                      [&](const Context& c) { return !contains(via_names, c.peer_fqdn); });
+    }
+    if (peer_contexts.empty()) {
         return std::nullopt;
     }
-    if (contexts.size() == 1) {
-        const auto& ctx = contexts.front();
-        std::vector<std::string> names;
-        for (const auto& n : cert_dns_names) {
-            names.push_back(lower(n));
-        }
-        if (!contains(names, ctx.peer_fqdn)) {
-            return std::nullopt;
-        }
-        // A certificate naming several SEPPs (one common certificate): the Via header decides.
-        const auto sepp_names = std::ranges::count_if(
-            names, [](const std::string& n) { return network_domain_of_host(n).has_value(); });
-        if (sepp_names > 1 && !contains(via_sepps(via), ctx.peer_fqdn)) {
-            return std::nullopt;
-        }
-        return ctx;
+    // Still more than one peer (e.g. a Via naming several): the request identifies none of them.
+    if (std::ranges::any_of(peer_contexts, [&](const Context& c) {
+            return c.peer_fqdn != peer_contexts.front().peer_fqdn;
+        })) {
+        return std::nullopt;
     }
+    if (peer_contexts.size() == 1) {
+        return peer_contexts.front();
+    }
+    // Several N32-c contexts with this one peer.
+    const auto& own = peer_contexts;
     const bool ids_exchanged =
-        std::ranges::all_of(contexts, [](const Context& c) { return c.handshake_id.has_value(); });
+        std::ranges::all_of(own, [](const Context& c) { return c.handshake_id.has_value(); });
     if (ids_exchanged) {
         if (!handshake_id) {
             return std::nullopt;
         }
-        const auto it = std::ranges::find_if(contexts, [&](const Context& c) {
-            return lower(*c.handshake_id) == lower(*handshake_id);
-        });
-        return it == contexts.end() ? std::nullopt : std::optional{*it};
+        const auto it = std::ranges::find_if(
+            own, [&](const Context& c) { return lower(*c.handshake_id) == lower(*handshake_id); });
+        return it == own.end() ? std::nullopt : std::optional{*it};
     }
     const std::string p = purpose.value_or(sbi_gen::N32Purpose::ROAMING);
     std::optional<Context> match;
-    for (const auto& c : contexts) {
+    for (const auto& c : own) {
         if (contains(c.purposes, p)) {
             if (match) {
                 return std::nullopt; // ambiguous

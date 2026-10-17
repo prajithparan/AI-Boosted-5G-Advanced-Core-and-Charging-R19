@@ -64,6 +64,11 @@
       "type": "string",
       "x-env-override": "DCCF_USER_CONSENT_POLICY",
       "x-cpp-type": "std::string"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "DCCF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

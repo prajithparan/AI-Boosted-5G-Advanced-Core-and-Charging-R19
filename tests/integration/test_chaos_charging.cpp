@@ -28,6 +28,7 @@
 #include <thread>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -98,6 +99,8 @@ TEST(ChaosCharging, ChfKilledMidSessionLosesNoUsageAndCannotDoubleRelease) {
     ASSERT_GT(nrf.pid(), 0) << "failed to fork nrf";
 
     auto client = make_client();
+
+    nf_test::attach_test_tokens(client); // ADR-0499: NFs enforce tokens
     const std::string supi = "imsi-999700000000777";
     std::string ref;
 
@@ -196,6 +199,8 @@ TEST(ChaosCharging, PartitionedBalanceStoreDoesNotProduceAPhantomReservation) {
     ::unsetenv("CHF_BALANCE_MANAGEMENT_BASE");
 
     auto client = make_client();
+
+    nf_test::attach_test_tokens(client); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_reachable(client, kChfChargingData, 200)) << "chf never became reachable";
 
     const std::string supi = "imsi-999700000000778";

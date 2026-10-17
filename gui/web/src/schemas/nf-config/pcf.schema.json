@@ -4466,6 +4466,11 @@
     },
     "bsf_base_url": {
       "type": "string"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "PCF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

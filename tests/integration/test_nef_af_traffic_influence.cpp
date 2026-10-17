@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -62,6 +63,7 @@ TEST(NefAfTrafficInfluence, SubscriptionIsBrokeredToUdrAndDeletedFromIt) {
     ASSERT_GT(nef.pid(), 0);
 
     auto client = make_client();
+    nf_test::attach_test_tokens(client); // ADR-0499: the UDR enforces tokens
     const std::string nef_base =
         "https://127.0.0.1:7790/3gpp-traffic-influence/v1/" + std::string(kAfId) + "/subscriptions";
     const std::string udr_base = "https://127.0.0.1:7781/nudr-dr/v2/application-data/influenceData";
@@ -134,6 +136,7 @@ TEST(NefAfTrafficInfluence, MutualExclusivityConstraintsAreEnforcedByTheHandler)
     ASSERT_GT(nef.pid(), 0);
 
     auto client = make_client();
+    nf_test::attach_test_tokens(client); // ADR-0499: the UDR enforces tokens
     const std::string nef_base =
         "https://127.0.0.1:7790/3gpp-traffic-influence/v1/" + std::string(kAfId) + "/subscriptions";
     ASSERT_TRUE(wait_reachable(client, nef_base, 200));

@@ -39,6 +39,23 @@ add_executable(integration_tests
     test_udr_ondatachange_webhook.cpp
     test_sbi_core_concurrency.cpp
     test_http2_route_precedence.cpp
+    test_http2_authorizer.cpp
+    test_eir_authorization.cpp
+    test_gmlc_authorization.cpp
+    test_lmf_authorization.cpp
+    test_nssf_authorization.cpp
+    test_bsf_authorization.cpp
+    test_nsacf_smsf_tsctsf_authorization.cpp
+    test_dccf_mfaf_authorization.cpp
+    test_upf_ausf_authorization.cpp
+    test_udr_authorization.cpp
+    test_udm_authorization.cpp
+    test_pcf_authorization.cpp
+    test_smf_amf_authorization.cpp
+    test_nef_authorization.cpp
+    test_nrf_authorization.cpp
+    test_chf_nwdaf_adrf_authorization.cpp
+    test_scp_authorization.cpp
     test_udr_gap_closure_212.cpp
     test_udr_policy_data_gap_closure_213.cpp
     test_udr_exposure_data.cpp
@@ -122,7 +139,7 @@ target_include_directories(integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/chf
                                                     ${CMAKE_SOURCE_DIR}/nfs/udr/src
                                                     ${CMAKE_SOURCE_DIR}/tools/mcp-server/src)
 target_link_libraries(integration_tests PRIVATE libpqxx::pqxx unofficial::libmariadb RdKafka::rdkafka++ ss7_core tcap_core map_core tbcd_core diameter_core cap_core sbi_core sbi_generated aka_crypto product_catalog_store subscriber_management_store roaming_interconnect_store balance_management_store provisioning_store ngap_core ngap_generated GTest::gtest GTest::gtest_main)
-add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf)
+add_dependencies(integration_tests nrf amf smf udm udr ausf pcf chf hello-nf upf nef nsacf product-catalog balance-management nwdaf mfaf dccf adrf eir gmlc lmf nssf bsf smsf tsctsf scp)
 target_compile_definitions(integration_tests PRIVATE
     NRF_PATH="$<TARGET_FILE:nrf>"
     AMF_PATH="$<TARGET_FILE:amf>"
@@ -145,6 +162,14 @@ target_compile_definitions(integration_tests PRIVATE
     HELLO_NF_PATH="$<TARGET_FILE:hello-nf>"
     NEF_PATH="$<TARGET_FILE:nef>"
     NSACF_PATH="$<TARGET_FILE:nsacf>"
+    EIR_PATH="$<TARGET_FILE:eir>"
+    GMLC_PATH="$<TARGET_FILE:gmlc>"
+    LMF_PATH="$<TARGET_FILE:lmf>"
+    NSSF_PATH="$<TARGET_FILE:nssf>"
+    BSF_PATH="$<TARGET_FILE:bsf>"
+    SMSF_PATH="$<TARGET_FILE:smsf>"
+    TSCTSF_PATH="$<TARGET_FILE:tsctsf>"
+    SCP_PATH="$<TARGET_FILE:scp>"
     CERTS_DIR="${CMAKE_SOURCE_DIR}/certs"
 )
 
@@ -422,8 +447,8 @@ add_dependencies(li_cc_chain_integration_tests li-mdf3)
 gtest_discover_tests(li_cc_chain_integration_tests)
 
 # ADR-0477: NRF discovery authorization filter (allowedNfTypes/Plmns/Nssais); pure logic, no ports.
-add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp
-    ${CMAKE_SOURCE_DIR}/nfs/nrf/src/discovery_authz.cpp)
+add_executable(nrf_discovery_authz_tests test_nrf_discovery_authz.cpp test_nrf_token_authz.cpp
+    ${CMAKE_SOURCE_DIR}/nfs/nrf/src/discovery_authz.cpp ${CMAKE_SOURCE_DIR}/nfs/nrf/src/token_authz.cpp)
 target_include_directories(nrf_discovery_authz_tests PRIVATE ${CMAKE_SOURCE_DIR}/nfs/nrf/src)
 target_link_libraries(nrf_discovery_authz_tests PRIVATE sbi_core GTest::gtest GTest::gtest_main)
 gtest_discover_tests(nrf_discovery_authz_tests PROPERTIES TIMEOUT 60)
@@ -448,7 +473,7 @@ gtest_discover_tests(sepp_e2e_integration_tests PROPERTIES TIMEOUT 120)
 
 # ADR-0495: AKMA end to end -- real UDR, UDM, AUSF (5G-AKA) and AAnF; the test is the UE and the
 # AF. Needs the UDR's PostgreSQL and Valkey (AUSF KAUSF store, AAnF contexts).
-add_executable(akma_e2e_integration_tests test_akma_e2e.cpp)
+add_executable(akma_e2e_integration_tests test_akma_e2e.cpp test_aanf_authorization.cpp)
 target_link_libraries(akma_e2e_integration_tests PRIVATE
     sbi_core sbi_generated aka_crypto GTest::gtest GTest::gtest_main)
 add_dependencies(akma_e2e_integration_tests nrf udr udm ausf aanf nef)

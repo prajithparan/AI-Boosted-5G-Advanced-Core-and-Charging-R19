@@ -28,6 +28,7 @@
 //     connectivity, notifications to the consumer, Time Synchronization and ASTI services.
 //   * Contexts are kept in memory (single replica, deploy/helm/tsctsf).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -46,6 +47,7 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -155,8 +157,10 @@ struct Context {
 
 void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
     http2::Client http_client(tsctsf_tls());
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     constexpr int kHeartbeatSeconds = 30;
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "TSCTSF"},
@@ -164,35 +168,29 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
                        {"ipv4Addresses", json::array({"127.0.0.1"})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
-        if (auto token = oauth.get_bearer_token()) {
-            http2::ClientRequest put;
-            put.method = "PUT";
-            put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-            put.headers.emplace("content-type", "application/json");
-            put.headers.emplace("authorization", "Bearer " + *token);
-            put.headers.emplace(
-                sbi_core::headers::kSenderTimestamp,
-                sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
-            put.body = profile.dump();
-            if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
-                spdlog::info("tsctsf: registered with NRF (HTTP {})", r->status);
-                break;
-            }
+        http2::ClientRequest put;
+        put.method = "PUT";
+        put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
+        put.headers.emplace("content-type", "application/json");
+        put.headers.emplace(
+            sbi_core::headers::kSenderTimestamp,
+            sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
+        put.body = profile.dump();
+        if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
+            spdlog::info("tsctsf: registered with NRF (HTTP {})", r->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
+            break;
         }
         spdlog::warn("tsctsf: NRF registration attempt failed, retrying in 5s");
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         http2::ClientRequest patch;
         patch.method = "PATCH";
         patch.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch.headers.emplace("content-type", "application/json-patch+json");
-        patch.headers.emplace("authorization", "Bearer " + *token);
         patch.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -293,6 +291,19 @@ int main() {
 
     boost::asio::io_context ioc;
     http2::Server server(ioc, bind, port, tsctsf_tls());
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scope ntsctsf-qos-tscai) unless `oauth2_required` is false; the PCF notification route is
+    // exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required =
+                nf_config::optional<bool>(config, "oauth2_required", "TSCTSF_OAUTH2_REQUIRED")
+                    .value_or(true),
+            .nf_type = "TSCTSF",
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // ---- Ntsctsf_QoSandTSCAssistance_Create (TS 29.565 5.3.2.2.2 / 5.3.2.2.8) ------------------
     server.add_route(
@@ -551,11 +562,16 @@ int main() {
                      });
 
     // Npcf_PolicyAuthorization_Notify target given to the PCFs (accepted; events not relayed).
-    server.add_route("POST", std::string(kApiRoot) + "/pcf-notify/**", [](const http2::Request&) {
-        http2::Response r;
-        r.status = 204;
-        return r;
-    });
+    // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+    server.add_route(
+        "POST",
+        std::string(kApiRoot) + "/pcf-notify/**",
+        [](const http2::Request&) {
+            http2::Response r;
+            r.status = 204;
+            return r;
+        },
+        http2::RouteAuth::None);
 
     std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
     server.start();

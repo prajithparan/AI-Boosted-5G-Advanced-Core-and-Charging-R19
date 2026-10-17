@@ -22,6 +22,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -133,6 +134,7 @@ bool post_x1(sbi_core::http2::Client& admf, const std::string& body) {
 sbi_core::http2::ClientResponse
 af_request(const std::string& method, const std::string& url, const json& body) {
     auto client = make_client();
+    nf_test::attach_test_tokens(client); // ADR-0499: the NEF enforces tokens
     sbi_core::http2::ClientRequest req;
     req.method = method;
     req.url = url;

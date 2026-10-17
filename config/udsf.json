@@ -15,5 +15,5 @@
   "max_record_ttl_seconds": 0,
   "max_subscription_seconds": 86400,
   "cache_max_age_seconds": 60,
-  "oauth2_required": false
+  "oauth2_required": true
 }

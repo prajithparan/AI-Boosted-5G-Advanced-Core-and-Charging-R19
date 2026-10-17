@@ -39,6 +39,9 @@ SHARED_SOURCES = ["libs/sbi-core/src/rate_limit.cpp", "libs/sbi-core/include/sbi
 
 REQUIRE_RE = re.compile(
     r'require<\s*([^>]+?)\s*>\(\s*\w+\s*,\s*"([A-Za-z0-9_]+)"\s*(?:,\s*"([A-Z0-9_]+)")?')
+# ADR-0355's nf_config::optional<T>(config, "key", "ENV"): read, typed, env-overridable, not required.
+OPTIONAL_RE = re.compile(
+    r'nf_config::optional<\s*([^>]+?)\s*>\(\s*\w+\s*,\s*"([A-Za-z0-9_]+)"\s*(?:,\s*"([A-Z0-9_]+)")?')
 READ_RE = re.compile(r'\.(?:value|at|contains|find|count)\(\s*"([A-Za-z0-9_]+)"|\[\s*"([A-Za-z0-9_]+)"\s*\]')
 # Category (c) of ADR-0425: where a component's subscriber / policy / product DATA is managed.
 # Hand-maintained knowledge, NOT derived -- each entry names an API that exists in this repository
@@ -68,6 +71,7 @@ def source_dirs(repo: Path, name: str) -> list[Path]:
 
 def scan(repo: Path, name: str):
     required: dict[str, dict] = {}
+    optional: dict[str, dict] = {}
     read: set[str] = set()
     files = []
     for d in source_dirs(repo, name):
@@ -78,9 +82,12 @@ def scan(repo: Path, name: str):
         for cpp_type, key, env in REQUIRE_RE.findall(text):
             required[key] = {"cpp": cpp_type.strip(), "env": env or None}
             read.add(key)
+        for cpp_type, key, env in OPTIONAL_RE.findall(text):
+            optional.setdefault(key, {"cpp": cpp_type.strip(), "env": env or None})
+            read.add(key)
         for a, b in READ_RE.findall(text):
             read.add(a or b)
-    return required, read, files
+    return required, optional, read, files
 
 
 def is_credential(key: str, value) -> bool:
@@ -187,15 +194,16 @@ def apply_overlay(repo: Path, nf: str, props: dict, review: list[str]) -> None:
 def derive_one(repo: Path, cfg: Path) -> tuple[dict, dict]:
     name = cfg.stem
     doc = json.loads(cfg.read_text())
-    required, read, files = scan(repo, name)
+    required, optional, read, files = scan(repo, name)
     review: list[str] = []
     props = {}
     for key, value in doc.items():
         s = value_schema(value, key, review)
-        if key in required:
-            if required[key]["env"]:
-                s["x-env-override"] = required[key]["env"]
-            s["x-cpp-type"] = required[key]["cpp"]
+        typed = required.get(key) or optional.get(key)
+        if typed:
+            if typed["env"]:
+                s["x-env-override"] = typed["env"]
+            s["x-cpp-type"] = typed["cpp"]
         if is_credential(key, value):
             s["x-sensitivity"] = "credential"
         if key not in read:

@@ -26,6 +26,7 @@
 #include "aka_crypto/kdf.hpp"
 #include "aka_crypto/milenage.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -70,9 +71,10 @@ std::string fetch_token(sbi_core::http2::Client& client, const std::string& scop
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=AUSF";
-    auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=AUSF";
+    auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }
@@ -184,6 +186,8 @@ TEST(AusfUpuProtectionIntegration, RealUpuFlowHonestlyReports404Then400Then501) 
         << "ausf never became reachable";
 
     const std::string token = fetch_token(client, "nausf-auth");
+    // ADR-0499: the AUSF checks each API's own scope.
+    const std::string upu_token = fetch_token(client, "nausf-upuprotection");
     ASSERT_FALSE(token.empty()) << "failed to obtain OAuth2 token from nrf";
 
     const std::string authenticated_supi = "imsi-999700000000001";
@@ -202,7 +206,7 @@ TEST(AusfUpuProtectionIntegration, RealUpuFlowHonestlyReports404Then400Then501) 
         req.url =
             "https://127.0.0.1:7782/nausf-upuprotection/v1/" + never_authenticated_supi + "/ue-upu";
         req.headers.emplace("content-type", "application/json");
-        req.headers.emplace("authorization", "Bearer " + token);
+        req.headers.emplace("authorization", "Bearer " + upu_token);
         req.body = json(body).dump();
         auto resp = client.send(req);
         ASSERT_TRUE(resp.has_value());
@@ -223,7 +227,7 @@ TEST(AusfUpuProtectionIntegration, RealUpuFlowHonestlyReports404Then400Then501) 
         req.method = "POST";
         req.url = "https://127.0.0.1:7782/nausf-upuprotection/v1/" + authenticated_supi + "/ue-upu";
         req.headers.emplace("content-type", "application/json");
-        req.headers.emplace("authorization", "Bearer " + token);
+        req.headers.emplace("authorization", "Bearer " + upu_token);
         req.body = json(body).dump();
         auto resp = client.send(req);
         ASSERT_TRUE(resp.has_value());
@@ -243,7 +247,7 @@ TEST(AusfUpuProtectionIntegration, RealUpuFlowHonestlyReports404Then400Then501) 
         req.method = "POST";
         req.url = "https://127.0.0.1:7782/nausf-upuprotection/v1/" + authenticated_supi + "/ue-upu";
         req.headers.emplace("content-type", "application/json");
-        req.headers.emplace("authorization", "Bearer " + token);
+        req.headers.emplace("authorization", "Bearer " + upu_token);
         req.body = json(body).dump();
         auto resp = client.send(req);
         ASSERT_TRUE(resp.has_value());

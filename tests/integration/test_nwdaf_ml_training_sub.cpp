@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -70,9 +71,11 @@ std::string token(sbi_core::http2::Client& c) {
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nnwdaf-mlmodeltraining"
-               "&targetNfType=NWDAF";
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nnwdaf-mlmodeltraining"
+        "&targetNfType=NWDAF";
+    auto resp = nf_test::send_token_request(req);
     return (resp && resp->status == 200)
                ? json::parse(resp->body).at("access_token").get<std::string>()
                : "";
@@ -169,6 +172,7 @@ TEST(NwdafMlTrainingSub, SubscriptionLifecycle) {
                      << ") -- skipped, not passed";
     }
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);
@@ -314,6 +318,7 @@ TEST(NwdafMlTrainingSub, ModelNotificationAndImmReportFromASeededModel) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);
@@ -417,6 +422,7 @@ TEST(NwdafMlTrainingSub, FlRoundIsReportedOncePerRoundIndAndSkipTrainsNothing) {
 
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     nf_test::SpawnedProcess nrf(NRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNrf) + "/nnrf-nfm/v1/nf-instances", 30s));
     setenv("NWDAF_ROLE", "mtlf", 1);

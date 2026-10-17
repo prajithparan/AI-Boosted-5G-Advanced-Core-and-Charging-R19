@@ -30,5 +30,6 @@
     "sweep_interval_seconds": 10
   },
   "ml_model_access_policy": "enforced",
-  "ml_model_download_max_bytes": 268435456
+  "ml_model_download_max_bytes": 268435456,
+  "oauth2_required": true
 }

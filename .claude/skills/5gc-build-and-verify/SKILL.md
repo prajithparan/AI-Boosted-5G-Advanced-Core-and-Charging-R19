@@ -64,9 +64,12 @@ clang-format-18 -i <file>                   # fix
 DELETE in the spec, so it passes once per database reset. Not a regression:
 
 ```bash
-docker exec docker-postgres-udr-1 psql -U udr -d udr -tAc \
+docker exec udr-postgres-local psql -U udr -d udr -tAc \
   "DELETE FROM udr_amf_context WHERE ue_id='imsi-999700000000001'"
 ```
+
+The container is `udr-postgres-local` (port 5437) on this machine; under the compose lab it is
+`docker-postgres-udr-1`. `docker ps --format '{{.Names}}' | grep -i udr` tells which.
 
 Also kill any manually started NF processes first — they squat the ports tests spawn onto.
 

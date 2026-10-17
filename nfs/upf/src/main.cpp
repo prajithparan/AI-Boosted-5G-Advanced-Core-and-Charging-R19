@@ -62,6 +62,7 @@
 //   private/public UE IP address or NAT mapping (no real NAT44/CGN capability exists anywhere in
 //   this build), so there is no real data to search.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -83,6 +84,7 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string_view>
@@ -337,8 +339,10 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", upf_instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", upf_instance_id);
 
     constexpr int kHeartbeatSeconds = 30;
 
@@ -363,18 +367,10 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
     };
 
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("upf: OAuth2 token fetch failed: {}", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
-
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + upf_instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -383,6 +379,8 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
         auto put_resp = http_client.send(put_req);
         if (put_resp.has_value() && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("upf: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("upf: NRF registration attempt failed, retrying in 5s");
@@ -392,17 +390,10 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
 
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("upf: OAuth2 token fetch failed for heartbeat: {}", token.error());
-            continue;
-        }
-
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + upf_instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -422,7 +413,8 @@ void run_nrf_lifecycle(const std::string& upf_instance_id,
 void run_sbi_server(unsigned short port,
                     std::string sbi_bind_address,
                     upf::EventSubscriptionStore& event_subs,
-                    sbi_core::TpsLimitConfig tps_limit) {
+                    sbi_core::TpsLimitConfig tps_limit,
+                    sbi_core::http2::AuthorizerConfig auth) {
     sbi_core::http2::TlsConfig server_tls{
         .cert_path = CERTS_DIR "/upf/cert.pem",
         .key_path = CERTS_DIR "/upf/key.pem",
@@ -444,6 +436,13 @@ void run_sbi_server(unsigned short port,
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as every other NF's own bind (ADR-0014).
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scopes nupf-ee, nupf-gueip) unless `oauth2_required` is false -- the UPF serves no
+    // notification route.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        std::move(auth),
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -1883,11 +1882,18 @@ int main() {
     // NgapShutdownCoordinator). run_sbi_server already self-registers its own io_context for
     // SIGTERM-triggered stop via run_multi_threaded -- it just needs to be joined, not detached,
     // so main()'s own `return 0` below waits for it to actually finish first.
-    std::thread sbi_server_thread(run_sbi_server,
-                                  sbi_port,
-                                  sbi_bind_address,
-                                  std::ref(event_subs),
-                                  sbi_core::read_tps_limit(config));
+    std::thread sbi_server_thread(
+        run_sbi_server,
+        sbi_port,
+        sbi_bind_address,
+        std::ref(event_subs),
+        sbi_core::read_tps_limit(config),
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "UPF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = upf_instance_id,
+        });
     run_pfcp_lifecycle(
         start_time,
         datapath.has_value() ? &*datapath : nullptr,

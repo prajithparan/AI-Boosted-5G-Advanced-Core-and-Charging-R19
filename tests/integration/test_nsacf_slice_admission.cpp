@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -75,14 +76,15 @@ bool wait_reachable(sbi_core::http2::Client& client, const std::string& url, int
     return false;
 }
 
-std::string fetch_token(sbi_core::http2::Client& client) {
+std::string fetch_token(sbi_core::http2::Client& client, const std::string& scope = "nnsacf-nsac") {
     sbi_core::http2::ClientRequest req;
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nnsacf-nsac&"
-               "targetNfType=NSACF";
-    auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=NSACF";
+    auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }
@@ -306,6 +308,8 @@ TEST(NsacfIntegration, ThresholdReportAndEacNotificationAreReallyDelivered) {
         wait_reachable(client, std::string(kNsacfBase) + "/nnsacf-nsac/v1/slices/ues", 200));
     const std::string token = fetch_token(client);
     ASSERT_FALSE(token.empty());
+    const std::string ee_token = fetch_token(client, "nnsacf-slice-ee"); // ADR-0499: per service
+    ASSERT_FALSE(ee_token.empty());
 
     // Subscribe to NUM_OF_REGD_UES on the sst=2 slice with a THRESHOLD of 5 UEs, and ask for an
     // immediate report so the creation response itself is checked too.
@@ -315,7 +319,7 @@ TEST(NsacfIntegration, ThresholdReportAndEacNotificationAreReallyDelivered) {
         req.method = "POST";
         req.url = std::string(kNsacfBase) + "/nnsacf-slice-ee/v1/subscriptions";
         req.headers.emplace("content-type", "application/json");
-        req.headers.emplace("authorization", "Bearer " + token);
+        req.headers.emplace("authorization", "Bearer " + ee_token);
         req.body =
             json{
                 {"event",

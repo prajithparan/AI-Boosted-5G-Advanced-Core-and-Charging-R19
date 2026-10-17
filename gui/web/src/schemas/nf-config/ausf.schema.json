@@ -46,6 +46,11 @@
           "type": "string"
         }
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "AUSF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

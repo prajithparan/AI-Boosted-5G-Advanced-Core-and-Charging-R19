@@ -130,4 +130,28 @@ bool profile_discoverable_by(const nlohmann::json& profile, const DiscoveryReque
     return allowed(none, profile, requester);
 }
 
+bool service_authorized_for(const nlohmann::json& profile,
+                            const std::string& service_name,
+                            const DiscoveryRequester& requester) {
+    bool lists_services = false;
+    for (const char* key : {"nfServiceList", "nfServices"}) {
+        if (!profile.contains(key)) {
+            continue;
+        }
+        const auto& svcs = profile.at(key);
+        if (!svcs.is_array() && !svcs.is_object()) {
+            continue;
+        }
+        for (const auto& s : svcs) {
+            lists_services = true;
+            if (s.is_object() && s.value("serviceName", "") == service_name &&
+                allowed(s, profile, requester)) {
+                return true;
+            }
+        }
+    }
+    const nlohmann::json none;
+    return !lists_services && allowed(none, profile, requester);
+}
+
 } // namespace nrf

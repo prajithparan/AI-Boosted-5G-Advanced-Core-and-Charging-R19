@@ -127,6 +127,11 @@
       "type": "integer",
       "x-env-override": "ADRF_ML_MODEL_DOWNLOAD_MAX_BYTES",
       "x-cpp-type": "std::int64_t"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "ADRF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -200,6 +201,7 @@ TEST(Mfaf, ConfigureNotifyDeliverFetchAndTransferAcrossReplicas) {
     const std::string bb = kMfafB;
 
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: the MFAF and DCCF enforce tokens
     ASSERT_TRUE(wait_up(c, a + kContextRoot + "/transfer", 30s)) << "replica A never came up";
     ASSERT_TRUE(wait_up(c, bb + kContextRoot + "/transfer", 30s)) << "replica B never came up";
 

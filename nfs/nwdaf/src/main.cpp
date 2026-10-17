@@ -69,6 +69,7 @@
 //     analytics-info-query records, disabled unless config/nwdaf.json li_poi.enabled. Roaming
 //     analytics records are not produced (Nnwdaf_RoamingAnalytics is not served).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -92,6 +93,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <netdb.h>
 #include <optional>
@@ -589,8 +591,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     const std::string resolved_ipv4 = resolve_ipv4_literal(advertised_ipv4);
     json profile{
         {"nfInstanceId", instance_id},
@@ -626,17 +630,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     profile["nfServices"] = services;
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            spdlog::error("nwdaf: OAuth2 token fetch failed: {}", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -644,6 +641,8 @@ void run_nrf_lifecycle(const std::string& instance_id,
         auto put_resp = http_client.send(put_req);
         if (put_resp && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("nwdaf: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("nwdaf: NRF registration attempt failed, retrying in 5s");
@@ -651,15 +650,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -1083,6 +1077,19 @@ int main() {
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service (the
+    // apiName's scope) unless `oauth2_required` is false; the inbound callback
+    // routes (/nwdaf-inbound/v1/...) are exempt (TS 33.501 13.4.1.0).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required =
+                nf_config::optional<bool>(config, "oauth2_required", "NWDAF_OAUTH2_REQUIRED")
+                    .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // ADR-0380: the VFL hook -- Nnwdaf_VFLTraining/VFLInference subscription CRUD. The lifecycle is
     // real; the federated-training coordination the subscriptions would drive is Phase D
@@ -1486,7 +1493,9 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- inbound: the SMF's Nsmf_EventExposure QOS_MON reports (ADR-0379 slice 2) -----------
     // The SMF POSTs NsmfEventExposureNotifications here (the notifUri of the subscription this
@@ -1494,7 +1503,9 @@ int main() {
     // appended to the collection timeline verbatim -- any S-NSSAI, standard or custom -- for the
     // SERVICE_EXPERIENCE analytic (slice 3) to aggregate per slice.
     server.add_route(
-        "POST", std::string(kInboundPrefix) + "/qos-mon", [&](const sbi_core::http2::Request& req) {
+        "POST",
+        std::string(kInboundPrefix) + "/qos-mon",
+        [&](const sbi_core::http2::Request& req) {
             json body;
             try {
                 body = json::parse(req.body);
@@ -1512,30 +1523,34 @@ int main() {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- inbound: Nnwdaf_MLModelProvision_Notify from the MTLF (ADR-0369) -------------------
     if (ml) {
-        server.add_route("POST",
-                         std::string(kInboundPrefix) + "/ml-models",
-                         [&](const sbi_core::http2::Request& req) {
-                             json body;
-                             try {
-                                 body = json::parse(req.body);
-                             } catch (const json::parse_error& e) {
-                                 return sbi_core::http2::problem_response(
-                                     400, "Malformed JSON", e.what());
-                             }
-                             try {
-                                 ml_consumer.on_notification(body);
-                             } catch (const std::exception& e) {
-                                 return sbi_core::http2::problem_response(
-                                     500, "Internal Server Error", e.what());
-                             }
-                             sbi_core::http2::Response resp;
-                             resp.status = 204;
-                             return resp;
-                         });
+        server.add_route(
+            "POST",
+            std::string(kInboundPrefix) + "/ml-models",
+            [&](const sbi_core::http2::Request& req) {
+                json body;
+                try {
+                    body = json::parse(req.body);
+                } catch (const json::parse_error& e) {
+                    return sbi_core::http2::problem_response(400, "Malformed JSON", e.what());
+                }
+                try {
+                    ml_consumer.on_notification(body);
+                } catch (const std::exception& e) {
+                    return sbi_core::http2::problem_response(
+                        500, "Internal Server Error", e.what());
+                }
+                sbi_core::http2::Response resp;
+                resp.status = 204;
+                return resp;
+            },
+            // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+            sbi_core::http2::RouteAuth::None);
     }
     if (is_mtlf) {
         mtlf.install_routes(server);
@@ -1688,7 +1703,9 @@ int main() {
 
     // ---- Nnwdaf_DataManagement_Fetch (the fetchUri this NWDAF hands out) --------------------
     server.add_route(
-        "POST", std::string(kInboundPrefix) + "/fetch", [&](const sbi_core::http2::Request& req) {
+        "POST",
+        std::string(kInboundPrefix) + "/fetch",
+        [&](const sbi_core::http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return sbi_core::http2::problem_response(401, "Unauthorized", auth->error);
             }
@@ -1728,7 +1745,9 @@ int main() {
             resp.headers.emplace("content-type", "application/json");
             resp.body = merged.dump();
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // Which source serves an NnwdafDataManagementSubsc, or why it cannot be served.
     const auto serving_source = [&](const json& request,

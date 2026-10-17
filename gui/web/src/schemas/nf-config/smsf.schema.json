@@ -98,6 +98,11 @@
           "type": "boolean"
         }
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "SMSF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

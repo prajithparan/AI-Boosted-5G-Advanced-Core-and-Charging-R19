@@ -23,5 +23,6 @@
       }
     }
   ],
-  "bsf_base_url": "https://127.0.0.1:7789"
+  "bsf_base_url": "https://127.0.0.1:7789",
+  "oauth2_required": true
 }

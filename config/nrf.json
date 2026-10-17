@@ -1,5 +1,7 @@
 {
   "port": 7777,
   "sbi_bind_address": "0.0.0.0",
-  "metrics_bind_address": "0.0.0.0:9464"
+  "metrics_bind_address": "0.0.0.0:9464",
+  "access_token_authorization": true,
+  "oauth2_required": true
 }

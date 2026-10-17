@@ -17,5 +17,6 @@
       "max_ues": 10,
       "max_pdus": 20
     }
-  ]
+  ],
+  "oauth2_required": true
 }

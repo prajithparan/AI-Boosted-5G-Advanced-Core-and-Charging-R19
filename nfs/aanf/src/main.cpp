@@ -28,6 +28,7 @@
 //   * kAkma / kaf are hexadecimal strings: TS 29.535 / 29.522 type them "string" without an
 //     encoding; hex follows the key fields of TS 29.509 (kseaf, kausf).
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -44,8 +45,11 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <ctime>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -94,6 +98,20 @@ http2::Response problem(int status,
     return r;
 }
 
+// The verified mTLS peer's certificate names `name` (CN or a dNSName SAN, case-insensitive). The
+// lab PKI names each NF by its type (scripts/gen-lab-pki.sh) and each AF by its FQDN; the NRF
+// issues tokens only against such a binding (ADR-0499 phase 2).
+bool peer_is(const http2::Request& req, const std::string& name) {
+    const auto same = [&](const std::string& v) {
+        return v.size() == name.size() &&
+               std::equal(v.begin(), v.end(), name.begin(), [](char a, char b) {
+                   return std::tolower(static_cast<unsigned char>(a)) ==
+                          std::tolower(static_cast<unsigned char>(b));
+               });
+    };
+    return same(req.peer_cert_cn) || std::ranges::any_of(req.peer_cert_dns_names, same);
+}
+
 // A missing Authorization header is not itself a 401: the YAML's `security: [{}, ...]` (same
 // reading as every other NF here, see nfs/nrf/src/main.cpp).
 std::optional<sbi_core::jwt::VerifyResult> check_bearer(const http2::Request& req,
@@ -128,8 +146,10 @@ std::string af_fqdn(const std::string& af_id) {
 
 void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_base) {
     http2::Client http_client(aanf_tls());
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     constexpr int kHeartbeatSeconds = 30;
     const json profile{{"nfInstanceId", instance_id},
                        {"nfType", "AANF"},
@@ -137,35 +157,29 @@ void run_nrf_lifecycle(const std::string& instance_id, const std::string& nrf_ba
                        {"ipv4Addresses", json::array({"127.0.0.1"})},
                        {"heartBeatTimer", kHeartbeatSeconds}};
     while (true) {
-        if (auto token = oauth.get_bearer_token()) {
-            http2::ClientRequest put;
-            put.method = "PUT";
-            put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
-            put.headers.emplace("content-type", "application/json");
-            put.headers.emplace("authorization", "Bearer " + *token);
-            put.headers.emplace(
-                sbi_core::headers::kSenderTimestamp,
-                sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
-            put.body = profile.dump();
-            if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
-                spdlog::info("aanf: registered with NRF (HTTP {})", r->status);
-                break;
-            }
+        http2::ClientRequest put;
+        put.method = "PUT";
+        put.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
+        put.headers.emplace("content-type", "application/json");
+        put.headers.emplace(
+            sbi_core::headers::kSenderTimestamp,
+            sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
+        put.body = profile.dump();
+        if (const auto r = http_client.send(put); r && (r->status == 200 || r->status == 201)) {
+            spdlog::info("aanf: registered with NRF (HTTP {})", r->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
+            break;
         }
         spdlog::warn("aanf: NRF registration attempt failed, retrying in 5s");
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         http2::ClientRequest patch;
         patch.method = "PATCH";
         patch.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch.headers.emplace("content-type", "application/json-patch+json");
-        patch.headers.emplace("authorization", "Bearer " + *token);
         patch.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -219,12 +233,28 @@ int main() {
 
     boost::asio::io_context ioc;
     http2::Server server(ioc, bind, port, aanf_tls());
+    // ADR-0499 phase 5 / REVIEW SEC-03: every route needs an access token for the AAnF (aud) and
+    // scope naanf-akma unless `oauth2_required` is false; the UDM notification route is exempt.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "AANF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = "AANF",
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // ---- Naanf_AKMA_AnchorKey_Register (TS 29.535 5.2.2.2) -------------------------------------
     server.add_route(
         "POST", std::string(kApiRoot) + "/register-anchorkey", [&](const http2::Request& req) {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return problem(401, "Unauthorized", auth->error);
+            }
+            // SEC-03: only the AUSF registers anchor keys (TS 33.535 6.1). No TS 29.500 / 29.535
+            // cause describes a wrong consumer, so none is given.
+            if (!peer_is(req, "ausf")) {
+                return problem(403, "Forbidden", "only the AUSF may register an AKMA anchor key");
             }
             sbi_gen::AkmaKeyInfo body;
             try {
@@ -272,6 +302,15 @@ int main() {
                                "Bad Request",
                                "afId must be \"<FQDN>.<Ua* security protocol id: 10 hex digits>\"",
                                "MANDATORY_IE_INCORRECT");
+            }
+            // SEC-03: the afId is the caller's own -- an AF's certificate names its FQDN -- unless
+            // the caller is the NEF, which verified the AF_ID of the external AF it relays for
+            // (TS 33.535 6.3 step 2).
+            if (!peer_is(req, "nef") && !peer_is(req, af_fqdn(body.afId))) {
+                return problem(403,
+                               "Forbidden",
+                               "afId " + af_fqdn(body.afId) +
+                                   " is not the calling AF's (its certificate does not name it)");
             }
             if (!allowed_afs.empty() &&
                 std::ranges::find(allowed_afs, af_fqdn(body.afId)) == allowed_afs.end()) {
@@ -364,6 +403,9 @@ int main() {
             if (auto auth = check_bearer(req, verifier); auth && !auth->valid) {
                 return problem(401, "Unauthorized", auth->error);
             }
+            if (!peer_is(req, "ausf")) { // SEC-03, as for register-anchorkey
+                return problem(403, "Forbidden", "only the AUSF may remove an AKMA context");
+            }
             sbi_gen::CtxRemove body;
             try {
                 body = json::parse(req.body).get<sbi_gen::CtxRemove>();
@@ -387,11 +429,16 @@ int main() {
     // The callbackReference given to the UDM's ROAMING_STATUS subscription (ADR-0497). The UDM
     // sends no later notifications today and the AAnF unsubscribes right after the immediate
     // report; served so a notification that does arrive is accepted, not 404.
-    server.add_route("POST", "/aanf-ee-notify", [](const http2::Request&) {
-        http2::Response r;
-        r.status = 204;
-        return r;
-    });
+    server.add_route(
+        "POST",
+        "/aanf-ee-notify",
+        [](const http2::Request&) {
+            http2::Response r;
+            r.status = 204;
+            return r;
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        http2::RouteAuth::None);
 
     std::thread(run_nrf_lifecycle, instance_id, nrf_base).detach();
     server.start();

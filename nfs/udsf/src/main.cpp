@@ -21,6 +21,7 @@
 // TagType presence/UNIQUE_KEY are not enforced) and AdvancedCounting (the YAML's tag-count-filter
 // encoding contradicts the TS). Notifications are delivered at most once. No LI POI: TS 33.127 has
 // no UDSF clause.
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -39,6 +40,7 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -129,8 +131,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     auto service = [&](const char* name, const char* version, const char* features) {
         return json{
             {"serviceInstanceId", name},
@@ -166,21 +170,16 @@ void run_nrf_lifecycle(const std::string& instance_id,
                       service("nudsf-timer", "1.3.0", udsf::kTimerFeatures)})},
     };
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            spdlog::warn("udsf: NRF token unavailable ({}), retrying", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.body = profile.dump();
         auto put_resp = http_client.send(put_req);
         if (put_resp && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("udsf: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("udsf: NRF registration failed ({}), retrying",
@@ -189,15 +188,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -286,17 +280,27 @@ int main() {
         .key_path = CERTS_DIR "/udsf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     };
-    sbi_core::jwt::Verifier verifier(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId);
     sbi_core::http2::Client notify_client(sbi_core::http2::TlsConfig{
         .cert_path = CERTS_DIR "/udsf/cert.pem",
         .key_path = CERTS_DIR "/udsf/key.pem",
         .ca_path = CERTS_DIR "/ca/ca.crt",
     });
 
-    udsf::Ctx ctx{store, verifier, settings};
+    udsf::Ctx ctx{store, settings};
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service
+    // (scopes nudsf-dr, nudsf-timer) unless `oauth2_required` is false -- the UDSF serves no
+    // notification route. Replaces the UDSF's own check, which did not check `aud`.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = settings.oauth2_required,
+            .nf_type = kNfType,
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
     if (const auto tps_limit = sbi_core::read_tps_limit(config); tps_limit.enabled()) {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }

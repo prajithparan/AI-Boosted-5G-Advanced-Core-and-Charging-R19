@@ -52,6 +52,11 @@
         }
       },
       "x-cpp-type": "json"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "NSACF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

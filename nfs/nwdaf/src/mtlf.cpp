@@ -1427,7 +1427,9 @@ void Mtlf::install_routes(sbi_core::http2::Server& server) {
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     install_training_routes(server);
 }

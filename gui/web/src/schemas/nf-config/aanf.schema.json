@@ -52,6 +52,11 @@
     },
     "deny_roaming_ues": {
       "type": "boolean"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "AANF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -77,14 +78,18 @@ std::string unique_test_supi(int salt) {
     return buf;
 }
 
-std::string fetch_token(sbi_core::http2::Client& client, const std::string& scope) {
+// ADR-0499: the token's aud must be the NF it is sent to.
+std::string fetch_token(sbi_core::http2::Client& client,
+                        const std::string& scope,
+                        const std::string& target_nf_type = "UDR") {
     sbi_core::http2::ClientRequest req;
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=UDR";
-    auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + target_nf_type;
+    auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }
@@ -303,7 +308,7 @@ TEST(PcfN28Integration, CreateSmPolicyFailsOpenWhenChfUnreachable) {
     ASSERT_TRUE(seed_resp.has_value());
     EXPECT_EQ(seed_resp->status, 200);
 
-    const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol");
+    const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol", "PCF");
     ASSERT_FALSE(pcf_token.empty());
 
     sbi_core::http2::ClientRequest create_req;
@@ -389,7 +394,7 @@ TEST(PcfChfN28Integration, FullLoopSubscribeStatusChangeNotifyUnsubscribe) {
     const long notify_baseline =
         scrape_metric_value("127.0.0.1", 9470, "pcf_spending_limit_notify_total");
 
-    const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol");
+    const std::string pcf_token = fetch_token(client, "npcf-smpolicycontrol", "PCF");
     ASSERT_FALSE(pcf_token.empty());
     sbi_core::http2::ClientRequest create_req;
     create_req.method = "POST";
@@ -421,7 +426,7 @@ TEST(PcfChfN28Integration, FullLoopSubscribeStatusChangeNotifyUnsubscribe) {
 
     // Real CHF-side config change (this project's own real, disclosed operator/GUI surface) --
     // triggers a real statusNotification push to PCF's real callback route.
-    const std::string chf_token = fetch_token(client, "chf-admin");
+    const std::string chf_token = fetch_token(client, "chf-admin", "CHF");
     ASSERT_FALSE(chf_token.empty());
     sbi_core::http2::ClientRequest admin_req;
     admin_req.method = "PUT";

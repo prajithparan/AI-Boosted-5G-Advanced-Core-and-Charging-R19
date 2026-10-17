@@ -10,5 +10,6 @@
   "udm_base_url": "https://127.0.0.1:7780",
   "gpsi_af_fqdns": [],
   "self_base_url": "https://127.0.0.1:7824",
-  "deny_roaming_ues": false
+  "deny_roaming_ues": false,
+  "oauth2_required": true
 }

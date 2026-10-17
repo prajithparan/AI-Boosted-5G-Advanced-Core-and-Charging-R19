@@ -66,6 +66,7 @@
 //     dsc, 307/308 redirects, storage subscriptions carrying multiProcInstructs beyond
 //     pass-through to the DCCF, MLflow (that is the MTLF's training-side tracker, ADR-0359).
 //   * LI: TS 33.127 7.18 (NWDAF) has no ADRF clause; nothing built.
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/datetime.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
@@ -90,6 +91,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -332,8 +334,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", instance_id);
     const auto service = [](const char* name) {
         return json{{"serviceInstanceId", name},
                     {"serviceName", name},
@@ -355,21 +359,16 @@ void run_nrf_lifecycle(const std::string& instance_id,
          json::array({service("nadrf-datamanagement"), service("nadrf-mlmodelmanagement")})},
     };
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            spdlog::warn("adrf: NRF token unavailable ({}), retrying", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.body = profile.dump();
         auto put_resp = http_client.send(put_req);
         if (put_resp && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("adrf: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("adrf: NRF registration failed ({}), retrying",
@@ -378,15 +377,10 @@ void run_nrf_lifecycle(const std::string& instance_id,
     }
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(heartbeat_seconds / 2));
-        auto token = oauth.get_bearer_token();
-        if (!token) {
-            continue;
-        }
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -866,6 +860,18 @@ int main() {
 
     boost::asio::io_context ioc;
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) and its service (the
+    // apiName's scope) unless `oauth2_required` is false; the inbound notification
+    // route and the model-file route (its own token + consumer allow-list check) are exempt.
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "ADRF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
     if (const auto tps_limit = sbi_core::read_tps_limit(config); tps_limit.enabled()) {
         server.set_tps_limit(tps_limit.sustained_tps, tps_limit.burst);
     }
@@ -1276,7 +1282,9 @@ int main() {
                 return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
             }
             return no_content();
-        });
+        },
+        // ADR-0499: TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- RetrievalSubscribe (4.2.2.6) -----------------------------------------------------------
     server.add_route(
@@ -1732,7 +1740,10 @@ int main() {
             } catch (const std::exception& e) {
                 return sbi_core::http2::problem_response(500, "Internal Server Error", e.what());
             }
-        });
+        },
+        // ADR-0499: the mLModelUrl file: its handler requires a valid token whose subject is an
+        // allowed consumer of the model; no YAML scope covers this URL.
+        sbi_core::http2::RouteAuth::None);
 
     // ---- MLModelManagement_Delete: by record (4.3.2.4.2) ----------------------------------------
     server.add_route(

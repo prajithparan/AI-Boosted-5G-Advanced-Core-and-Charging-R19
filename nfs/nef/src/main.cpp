@@ -136,6 +136,7 @@
 // NEFAFSessionWithQoSProvision (TS 33.128 clause 7.7.6.1.2) on the AsSessionWithQoS
 // create/update/patch/revoke handlers; the other NEF LI cases and why they wait are in ADR-0487.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -154,6 +155,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string>
 #include <thread>
@@ -617,8 +619,10 @@ void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nr
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    sbi_core::OAuth2Client oauth(
-        http_client, nrf_base + "/oauth2/token", nef_instance_id, "nnrf-nfm", "NRF");
+    // ADR-0499 phase 3: every client of this NF sends each API's token from here on; until the
+    // NRF issues one (after NFRegister, TS 33.501 13.4.1.1.2) requests go without.
+    sbi_core::install_default_token_source(
+        http_client.tls(), nrf_base + "/oauth2/token", nef_instance_id);
 
     constexpr int kHeartbeatSeconds = 30;
     json profile{
@@ -630,18 +634,10 @@ void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nr
     };
 
     while (true) {
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("nef: OAuth2 token fetch failed: {}", token.error());
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            continue;
-        }
-
         sbi_core::http2::ClientRequest put_req;
         put_req.method = "PUT";
         put_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + nef_instance_id;
         put_req.headers.emplace("content-type", "application/json");
-        put_req.headers.emplace("authorization", "Bearer " + *token);
         put_req.headers.emplace(
             sbi_core::headers::kSenderTimestamp,
             sbi_core::headers::format_sender_timestamp(std::chrono::system_clock::now()));
@@ -649,6 +645,8 @@ void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nr
         auto put_resp = http_client.send(put_req);
         if (put_resp.has_value() && (put_resp->status == 200 || put_resp->status == 201)) {
             spdlog::info("nef: registered with NRF (HTTP {})", put_resp->status);
+            // ADR-0499: a token refused before NFRegister is asked for again now.
+            sbi_core::clear_default_token_backoff();
             break;
         }
         spdlog::warn("nef: NRF registration attempt failed, retrying in 5s");
@@ -658,17 +656,10 @@ void run_nrf_lifecycle(const std::string& nef_instance_id, const std::string& nr
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(kHeartbeatSeconds / 2));
 
-        auto token = oauth.get_bearer_token();
-        if (!token.has_value()) {
-            spdlog::error("nef: OAuth2 token fetch failed for heartbeat: {}", token.error());
-            continue;
-        }
-
         sbi_core::http2::ClientRequest patch_req;
         patch_req.method = "PATCH";
         patch_req.url = nrf_base + "/nnrf-nfm/v1/nf-instances/" + nef_instance_id;
         patch_req.headers.emplace("content-type", "application/json-patch+json");
-        patch_req.headers.emplace("authorization", "Bearer " + *token);
         patch_req.body =
             json::array({json{{"op", "replace"}, {"path", "/nfStatus"}, {"value", "REGISTERED"}}})
                 .dump();
@@ -985,6 +976,20 @@ int main() {
     boost::asio::io_context ioc;
     // 0.0.0.0: same Docker-reachability reasoning as NRF's bind -- see docs/DECISIONS.md ADR-0014.
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for this NF (aud) unless
+    // `oauth2_required` is false -- the nnef-* SBI APIs also need their scope; the northbound
+    // 3gpp-* APIs declare none in their YAMLs (`scopes: {}`), so only the token is checked there
+    // (NRF-issued in this lab, not CAPIF's TS 33.122 token: decided by the user, 2026-10-17). The
+    // two /nnef-callback notification routes are exempt (below).
+    server.set_authorizer(std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "NEF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = nef_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem",
+                                                  kNrfInstanceId)));
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -7916,7 +7921,9 @@ int main() {
             sbi_core::http2::Response accepted;
             accepted.status = 204;
             return accepted;
-        });
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // --- ADR-0317: notification delivery, the piece every AF-facing service was missing ---
     //
@@ -7992,7 +7999,9 @@ int main() {
             sbi_core::http2::Response accepted;
             accepted.status = 204;
             return accepted;
-        });
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 
     // --- ADR-0316: TS 29.122 MonitoringEvent, the AF-facing event-monitoring API ---
     //

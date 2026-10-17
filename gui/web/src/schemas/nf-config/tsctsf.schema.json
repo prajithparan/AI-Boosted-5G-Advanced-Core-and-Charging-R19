@@ -38,6 +38,11 @@
       "type": "string",
       "x-env-override": "TSCTSF_SELF_BASE_URL",
       "x-cpp-type": "std::string"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "TSCTSF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

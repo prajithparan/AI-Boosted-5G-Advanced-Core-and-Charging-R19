@@ -48,6 +48,7 @@
 #include "loopback_lemf.hpp"
 #include "ngap_test_gnb.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 #include "ue_nas_driver.hpp"
 
 #include <gtest/gtest.h>
@@ -319,9 +320,11 @@ std::string fetch_smf_token(sbi_core::http2::Client& client) {
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmf-pdusession&"
-               "targetNfType=SMF";
-    auto resp = client.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nsmf-pdusession&"
+        "targetNfType=SMF";
+    auto resp = nf_test::send_token_request(req);
     if (!resp.has_value() || resp->status != 200) {
         return "";
     }
@@ -1327,11 +1330,13 @@ TEST(LiSmfEndToEnd, ARefusedEstablishmentForATargetProducesAnUnsuccessfulProcedu
     tok.method = "POST";
     tok.url = "https://127.0.0.1:7777/oauth2/token";
     tok.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    tok.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmf-pdusession&"
-               "targetNfType=SMF";
+    tok.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nsmf-pdusession&"
+        "targetNfType=SMF";
     std::string token;
     for (int attempt = 0; attempt < 100 && token.empty(); ++attempt) {
-        if (const auto r = client.send(tok); r.has_value() && r->status == 200) {
+        if (const auto r = nf_test::send_token_request(tok); r.has_value() && r->status == 200) {
             token = nlohmann::json::parse(r->body).at("access_token").get<std::string>();
         } else {
             std::this_thread::sleep_for(100ms);

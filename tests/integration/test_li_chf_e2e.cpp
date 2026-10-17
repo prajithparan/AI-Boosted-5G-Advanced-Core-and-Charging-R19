@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -29,6 +30,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -83,8 +85,16 @@ li_core::X2X3ServerConfig fake_mdf2_config() {
 std::string write_config(std::uint16_t mdf2_port) {
     std::ifstream in(CHF_CONFIG_TEMPLATE);
     json cfg = json::parse(in);
-    cfg["cdr_direct_insert"] = false;
-    cfg["cdr_event_bus_brokers"] = "127.0.0.1:9";
+    // The CI TSan leg sets CHF_CDR_EVENT_BUS_BROKERS empty (librdkafka cannot run under TSan) and
+    // that environment value overrides this file: with direct-insert off too, the CHF would have
+    // no CDR sink and exit at startup. There the CHF keeps its default direct-insert sink (CI's
+    // Doris, CHF_DORIS_*); everywhere else, the unreachable-broker workaround above.
+    const char* brokers_env = std::getenv("CHF_CDR_EVENT_BUS_BROKERS");
+    const bool bus_forced_off = brokers_env != nullptr && *brokers_env == '\0';
+    cfg["cdr_direct_insert"] = bus_forced_off;
+    if (!bus_forced_off) {
+        cfg["cdr_event_bus_brokers"] = "127.0.0.1:9";
+    }
     auto& lp = cfg["li_poi"];
     lp["enabled"] = true;
     lp["x1_bind_address"] = "127.0.0.1";
@@ -171,6 +181,7 @@ json charging_data_request(const std::string& roamer) {
 
 void post_charging(const std::string& path, const json& body) {
     auto client = make_client();
+    nf_test::attach_test_tokens(client); // ADR-0499: NFs enforce tokens
     sbi_core::http2::ClientRequest req;
     req.method = "POST";
     req.url = std::string(kChfBase) + path;
@@ -293,6 +304,8 @@ TEST(LiChfEndToEnd, ChargingDataRequestsForATargetAreReportedOnlyWithRoamerInOut
     ASSERT_GT(chf.pid(), 0);
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a0e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
 
     // 1. Converged, OUT_BOUND: reported. 2. No roamerInOut: withheld (ADR-0488, strict ASN.1).
@@ -339,6 +352,8 @@ TEST(LiChfEndToEnd, TaskWithoutChargingDataEventsExtensionGetsNoRecords) {
     ::unsetenv("CHF_CONFIG_FILE");
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a1e1e2e3-e4e5-46e7-88e9-eaebecedeeef", false)));
     post_charging("/nchf-convergedcharging/v3/chargingdata", charging_data_request("OUT_BOUND"));
     EXPECT_FALSE(lab.mdf2.wait_for(1, 3s)) << "a task without ChargingDataEvents got a record";
@@ -358,6 +373,8 @@ TEST(LiChfEndToEnd, RfAccountingRequestForATargetIsReportedWithItsOctets) {
     ::unsetenv("CHF_CONFIG_FILE");
 
     auto admf = make_client();
+
+    nf_test::attach_test_tokens(admf); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(post_x1(admf, x1_activate("a2e1e2e3-e4e5-46e7-88e9-eaebecedeeef", true)));
     ASSERT_TRUE(nf_test::wait_tcp_listening(diameter_core::kDiameterTcpPort));
 

@@ -92,6 +92,14 @@ std::vector<std::string> split_form_array(const std::string& value);
 
 using Handler = std::function<Response(const Request&)>;
 
+class Authorizer; // authorizer.hpp
+
+// Whether a route's requests go through the Server's Authorizer (ADR-0499). OAuth2 is the
+// default so a new route cannot be left unprotected by omission; None is for the operations
+// OAuth2 does not apply to: notifications/callbacks (TS 33.501 13.4.1.0, TS 29.500 6.7.3), the
+// NRF's own token endpoint, and an API whose YAML declares no security requirement.
+enum class RouteAuth : std::uint8_t { OAuth2, None };
+
 class Server {
 public:
     Server(boost::asio::io_context& ioc, std::string address, unsigned short port, TlsConfig tls);
@@ -103,7 +111,15 @@ public:
     // path_pattern segments wrapped in {} are captured into Request::path_params. A final "**"
     // segment matches any remaining path (any depth) and method "*" matches any method -- for a
     // relay (the SEPP, ADR-0491); routes are tried in registration order, so specific ones first.
-    void add_route(std::string method, std::string path_pattern, Handler handler);
+    void add_route(std::string method,
+                   std::string path_pattern,
+                   Handler handler,
+                   RouteAuth auth = RouteAuth::OAuth2);
+
+    // ADR-0499: every OAuth2 route's request is checked by `authorizer` before its handler runs;
+    // a rejection is answered without calling the handler. Not called (null): no check, today's
+    // behaviour, until each NF is switched on (ADR-0499 phase 4). Call before start().
+    void set_authorizer(std::shared_ptr<const Authorizer> authorizer);
 
     // P15 / P4.12 (ADR-0280): a TPS ceiling for this server. Beyond it, requests are shed with a
     // real 503 + ProblemDetails (the status TS29571_CommonData.yaml defines for Service

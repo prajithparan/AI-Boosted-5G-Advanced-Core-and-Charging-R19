@@ -24,6 +24,11 @@
     },
     "self_base_url": {
       "type": "string"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "BSF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [

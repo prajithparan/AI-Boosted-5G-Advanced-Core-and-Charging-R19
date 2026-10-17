@@ -6,5 +6,6 @@
   "database_url": "postgresql://udr:udr@localhost:5437/udr",
   "oam_provisioning_allowed_clients": [
     "provisioning"
-  ]
+  ],
+  "oauth2_required": true
 }

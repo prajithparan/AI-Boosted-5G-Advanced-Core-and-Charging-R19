@@ -74,59 +74,6 @@ tl::expected<std::optional<std::int64_t>, std::string> query_uint(const Request&
     return std::optional<std::int64_t>(std::stoll(*v));
 }
 
-std::optional<Response> authorize(const Ctx& ctx,
-                                  const Request& req,
-                                  const std::string& scope,
-                                  const std::string& api_uri) {
-    const auto value = header(req, "authorization");
-    if (!value) {
-        if (!ctx.settings.oauth2_required) {
-            return std::nullopt; // TS 29.500 6.7.3: accepted per local configuration
-        }
-        auto r = problem(401, "Unauthorized", "an OAuth2 access token is required");
-        r.headers.emplace("www-authenticate", "Bearer realm=\"" + api_uri + "\"");
-        return r;
-    }
-    constexpr std::string_view kPrefix = "Bearer ";
-    sbi_core::jwt::VerifyResult v;
-    if (value->size() > kPrefix.size() && value->compare(0, kPrefix.size(), kPrefix) == 0) {
-        v = ctx.verifier.verify(value->substr(kPrefix.size()));
-    } else {
-        v.valid = false;
-        v.error = "Authorization header is not a Bearer token";
-    }
-    if (!v.valid) {
-        auto r = problem(401, "Unauthorized", v.error);
-        r.headers.emplace("www-authenticate",
-                          "Bearer realm=\"" + api_uri + "\", error=\"invalid_token\"");
-        return r;
-    }
-    // The service-name scope grants the whole API (TS 29.500 6.7.3 first bullet; every operation
-    // of both TS 29.598 YAMLs accepts it). Resource/operation scopes are additive, not required.
-    std::vector<std::string> scopes;
-    std::size_t pos = 0;
-    while (pos <= v.scope.size()) {
-        const auto sp = v.scope.find(' ', pos);
-        scopes.push_back(
-            v.scope.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos));
-        if (sp == std::string::npos) {
-            break;
-        }
-        pos = sp + 1;
-    }
-    if (std::find(scopes.begin(), scopes.end(), scope) == scopes.end()) {
-        auto r = problem(403,
-                         "Forbidden",
-                         "access token scope does not include " + scope,
-                         "INSUFFICIENT_SCOPES");
-        r.headers.emplace("www-authenticate",
-                          "Bearer realm=\"" + api_uri +
-                              "\", error=\"insufficient_scope\", scope=\"" + scope + "\"");
-        return r;
-    }
-    return std::nullopt;
-}
-
 tl::expected<StorageRef, Response> resolve_storage(const Ctx& ctx, const Request& req) {
     StorageRef s{req.path_params.at("realmId"), req.path_params.at("storageId")};
     const bool realm_known = std::any_of(ctx.settings.storages.begin(),

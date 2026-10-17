@@ -31,5 +31,6 @@
       "upf_ne_identifier": "upf-poi-01",
       "upf_x1_url": "https://127.0.0.1:7810/X1/NE"
     }
-  }
+  },
+  "oauth2_required": true
 }

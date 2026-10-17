@@ -3,7 +3,9 @@
 #include <curl/curl.h>
 #include <openssl/ssl.h>
 
+#include <algorithm>
 #include <cstdlib>
+#include <memory>
 #include <mutex>
 #include <strings.h>
 
@@ -123,7 +125,40 @@ void Client::checkin(void* handle) {
     curl_easy_cleanup(static_cast<CURL*>(handle));
 }
 
+namespace {
+
+std::mutex& default_source_mutex() {
+    static std::mutex m;
+    return m;
+}
+
+std::shared_ptr<const Client::TokenSourceFn>& default_source_slot() {
+    static std::shared_ptr<const Client::TokenSourceFn> slot;
+    return slot;
+}
+
+std::shared_ptr<const Client::TokenSourceFn> default_token_source() {
+    const std::lock_guard lock(default_source_mutex());
+    return default_source_slot();
+}
+
+} // namespace
+
 tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& request) {
+    // ADR-0499 phase 3: before a handle is checked out -- fetching the token may itself send()
+    // (the NRF's token endpoint, which the source never asks a token for).
+    std::optional<std::string> bearer;
+    std::shared_ptr<const TokenSourceFn> fallback;
+    const TokenSourceFn* source = &token_source_;
+    if (!token_source_) {
+        fallback = default_token_source();
+        source = fallback.get();
+    }
+    if (source != nullptr && *source && std::ranges::none_of(request.headers, [](const auto& h) {
+            return strcasecmp(h.first.c_str(), "authorization") == 0;
+        })) {
+        bearer = (*source)(request.url);
+    }
     HandleLease lease(*this, checkout());
     if (lease.get() == nullptr) {
         return tl::unexpected("curl handle not initialized");
@@ -173,6 +208,9 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     if (const char* ua = std::getenv("SBI_USER_AGENT"); !has_user_agent && ua != nullptr && *ua) {
         header_list = curl_slist_append(header_list, (std::string("user-agent: ") + ua).c_str());
     }
+    if (bearer) {
+        header_list = curl_slist_append(header_list, ("authorization: Bearer " + *bearer).c_str());
+    }
     if (header_list != nullptr) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
     }
@@ -218,6 +256,16 @@ tl::expected<ClientResponse, std::string> Client::send(const ClientRequest& requ
     response.status = status;
 
     return response;
+}
+
+void Client::set_token_source(TokenSourceFn source) {
+    token_source_ = std::move(source);
+}
+
+void Client::set_default_token_source(TokenSourceFn source) {
+    auto next = source ? std::make_shared<const TokenSourceFn>(std::move(source)) : nullptr;
+    const std::lock_guard lock(default_source_mutex());
+    default_source_slot() = std::move(next);
 }
 
 } // namespace sbi_core::http2

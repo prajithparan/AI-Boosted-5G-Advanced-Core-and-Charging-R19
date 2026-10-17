@@ -111,11 +111,13 @@ std::optional<Context> context_from_response(const PeerConfig& peer,
                                              const std::optional<std::string>& handshake_id);
 
 // TS 29.573 5.3.3.2.1: the N32-c context an incoming N32-f request belongs to.
-// - One context: the peer FQDN must appear in the client certificate's dNSName SANs; if the
-//   certificate names several SEPPs (a common certificate), the Via header's "SEPP-<fqdn>" entry
-//   must also name the context's peer (the clause's NOTE).
-// - Several contexts: by the 3gpp-Sbi-N32-Handshake-Id header when ids were exchanged, else by
-//   3gpp-Sbi-Interplmn-Purpose ("ROAMING" when absent) against each context's purposes.
+// - The peer first: only contexts whose peer FQDN appears in the client certificate's dNSName
+//   SANs; if the certificate names several SEPPs (a common certificate), the Via header's
+//   "SEPP-<fqdn>" entries must also name the peer (the clause's NOTE). More than one peer left:
+//   no context.
+// - Several contexts with that one peer: by the 3gpp-Sbi-N32-Handshake-Id header when ids were
+//   exchanged, else by 3gpp-Sbi-Interplmn-Purpose ("ROAMING" when absent) against each context's
+//   purposes. These rules never choose between peers (SEC-02, REVIEW-5ae0ef1).
 std::optional<Context> correlate(const std::vector<Context>& contexts,
                                  const std::vector<std::string>& cert_dns_names,
                                  const std::string& via,

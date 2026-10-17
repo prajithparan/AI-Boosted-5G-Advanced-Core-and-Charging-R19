@@ -104,6 +104,9 @@ Nine items; full text in `docs/project-context/definition-of-done.md` (skill `ne
    it its own `config/<nf>.json`, found live across ~25 of 28 existing
    NF services and must never recur).
 
+Before any commit touching `nfs/`, `libs/` or `bss/`: walk the "Never repeat these" list in skill
+`new-nf-checklist` (the bug classes of `docs/reviews/REVIEW-5ae0ef1.md`; user-directed, mandatory).
+
 ## Working style for this project
 
 - Work in small, reviewable increments. Never generate more than one NF

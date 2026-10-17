@@ -25,6 +25,7 @@
 #include "li_core/x2x3_server.hpp"
 #include "li_core/xiri.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -156,6 +157,7 @@ sbi_core::http2::ClientResponse consumer_request(const std::string& method,
                                                  const json& body,
                                                  const std::string& user_agent) {
     sbi_core::http2::Client client(test_tls());
+    nf_test::attach_test_tokens(client); // ADR-0499: the NWDAF enforces tokens
     sbi_core::http2::ClientRequest req;
     req.method = method;
     req.url = url;

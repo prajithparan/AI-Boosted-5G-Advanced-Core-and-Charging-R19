@@ -132,5 +132,6 @@
     "x1_keepalive_p2_seconds": 180,
     "x1_keepalive_p3_seconds": 300,
     "x1_allow_deactivate_all": true
-  }
+  },
+  "oauth2_required": true
 }

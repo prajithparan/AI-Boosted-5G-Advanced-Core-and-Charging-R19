@@ -3,6 +3,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <vector>
 
 // OAuth2 access-token issuance/verification for the Nnrf_AccessToken service
 // (specs/5G_APIs-REL-19/TS29510_Nnrf_AccessToken.yaml). Claim names (iss, sub, aud, scope, exp)
@@ -49,9 +50,15 @@ private:
 struct VerifyResult {
     bool valid = false;
     std::string subject;  // sub, only meaningful if valid
-    std::string audience; // aud, only meaningful if valid
-    std::string scope;    // scope, only meaningful if valid
-    std::string error;    // only meaningful if !valid
+    std::string audience; // aud, only meaningful if valid (first entry of an array aud)
+    // Every aud entry: one NFType, or the NfInstanceId array form (AccessTokenClaims.aud anyOf).
+    std::vector<std::string> audiences;
+    // AccessTokenClaims' required claims (sub, aud, scope, exp) the token lacks; iss is enforced by
+    // the signature check itself. The token is still `valid` (signature and expiry hold) -- the
+    // caller decides, e.g. ACCESS_TOKEN_CLAIM_MISSING (TS 29.500 Table 5.2.7.2-1).
+    std::vector<std::string> missing_claims;
+    std::string scope; // scope, only meaningful if valid
+    std::string error; // only meaningful if !valid
 };
 
 class Verifier {

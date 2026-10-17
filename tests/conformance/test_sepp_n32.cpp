@@ -163,14 +163,65 @@ TEST(SeppN32, CorrelationFollowsClause5332) {
         sepp::correlate({a}, {kA, kB}, std::string("2.0 SEPP-") + kA, std::nullopt, std::nullopt));
     EXPECT_FALSE(
         sepp::correlate({a}, {kA, kB}, std::string("2.0 SEPP-") + kB, std::nullopt, std::nullopt));
-    // Several contexts: by handshake id.
+    // Contexts with two different peers (SEC-02, REVIEW-5ae0ef1): the handshake id and purpose
+    // rules apply only among the contexts "between a pair of SEPPs", after the certificate has
+    // identified the peer -- never across peers.
     sepp::Context c = a;
     c.peer_fqdn = "sepp.5gc.mnc003.mcc001.3gppnetwork.org";
     c.handshake_id = "0123456789abcdef";
-    const auto by_id = sepp::correlate({a, c}, {}, "", "0123456789ABCDEF", std::nullopt);
+    // No certificate name: no peer, whatever handshake id the request carries.
+    EXPECT_FALSE(sepp::correlate({a, c}, {}, "", "0123456789ABCDEF", std::nullopt));
+    // A's certificate carrying C's handshake id is A's context or nothing, never C's.
+    const auto a_with_c_id = sepp::correlate({a, c}, {kA}, "", "0123456789ABCDEF", std::nullopt);
+    EXPECT_TRUE(!a_with_c_id || a_with_c_id->peer_fqdn == kA);
+    // Each peer's certificate correlates to its own context, with no handshake id or purpose --
+    // before the fix, two ROAMING peers were "ambiguous" and every N32-f request got 403.
+    const auto only_a = sepp::correlate({a, c}, {kA}, "", std::nullopt, std::nullopt);
+    ASSERT_TRUE(only_a.has_value());
+    EXPECT_EQ(only_a->peer_fqdn, kA);
+    const auto only_c = sepp::correlate({a, c}, {c.peer_fqdn}, "", std::nullopt, std::nullopt);
+    ASSERT_TRUE(only_c.has_value());
+    EXPECT_EQ(only_c->peer_fqdn, c.peer_fqdn);
+    // A common certificate naming both peers: the Via header picks one; without it, refused.
+    const auto via_c = sepp::correlate(
+        {a, c}, {kA, c.peer_fqdn}, "2.0 SEPP-" + c.peer_fqdn, std::nullopt, std::nullopt);
+    ASSERT_TRUE(via_c.has_value());
+    EXPECT_EQ(via_c->peer_fqdn, c.peer_fqdn);
+    EXPECT_FALSE(sepp::correlate({a, c}, {kA, c.peer_fqdn}, "", std::nullopt, std::nullopt));
+    // A Via naming both peers identifies neither.
+    EXPECT_FALSE(sepp::correlate({a, c},
+                                 {kA, c.peer_fqdn},
+                                 std::string("2.0 SEPP-") + kA + ", 2.0 SEPP-" + c.peer_fqdn,
+                                 std::nullopt,
+                                 std::nullopt));
+}
+
+// The handshake id / purpose rule among several N32-c contexts with ONE peer (5.3.3.2.1).
+TEST(SeppN32, CorrelationAmongOnePeersContextsUsesHandshakeIdThenPurpose) {
+    sepp::Context roaming;
+    roaming.peer_fqdn = kA;
+    roaming.handshake_id = "1111111111111111";
+    roaming.purposes = {"ROAMING"};
+    sepp::Context other = roaming;
+    other.handshake_id = "2222222222222222";
+    other.purposes = {"DATA_ANALYTICS_EXCHANGE"};
+    const auto by_id =
+        sepp::correlate({roaming, other}, {kA}, "", "2222222222222222", std::nullopt);
     ASSERT_TRUE(by_id.has_value());
-    EXPECT_EQ(by_id->peer_fqdn, c.peer_fqdn);
-    EXPECT_FALSE(sepp::correlate({a, c}, {}, "", std::nullopt, std::nullopt));
+    EXPECT_EQ(by_id->handshake_id, other.handshake_id);
+    // Ids exchanged but none sent, or an unknown one: no context.
+    EXPECT_FALSE(sepp::correlate({roaming, other}, {kA}, "", std::nullopt, std::nullopt));
+    EXPECT_FALSE(sepp::correlate({roaming, other}, {kA}, "", "3333333333333333", std::nullopt));
+    // Ids not exchanged: by purpose, "ROAMING" when the header is absent.
+    roaming.handshake_id.reset();
+    other.handshake_id.reset();
+    const auto by_default = sepp::correlate({roaming, other}, {kA}, "", std::nullopt, std::nullopt);
+    ASSERT_TRUE(by_default.has_value());
+    EXPECT_EQ(by_default->purposes, roaming.purposes);
+    const auto by_purpose = sepp::correlate(
+        {roaming, other}, {kA}, "", std::nullopt, std::string("DATA_ANALYTICS_EXCHANGE"));
+    ASSERT_TRUE(by_purpose.has_value());
+    EXPECT_EQ(by_purpose->purposes, other.purposes);
 }
 
 // ADR-0492: telescopic FQDN (TS 23.003 28.5.2, TS 29.573 5.4).

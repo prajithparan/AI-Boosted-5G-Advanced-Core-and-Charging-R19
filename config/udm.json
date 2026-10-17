@@ -28,5 +28,6 @@
       "mcc": "999",
       "mnc": "70"
     }
-  ]
+  ],
+  "oauth2_required": true
 }

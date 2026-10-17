@@ -156,7 +156,10 @@ void register_routes(sbi_core::http2::Server& server,
             sbi_core::http2::Response resp;
             resp.status = created ? 201 : 204;
             return resp;
-        });
+        },
+        // Not an SBI API: no OAuth2 bearer, the mTLS peer allow-list above decides (ADR-0382,
+        // ADR-0499).
+        sbi_core::http2::RouteAuth::None);
 }
 
 } // namespace udr::oam

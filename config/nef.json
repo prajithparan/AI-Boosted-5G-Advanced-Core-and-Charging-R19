@@ -23,5 +23,6 @@
     "x1_keepalive_p3_seconds": 300,
     "x1_allow_deactivate_all": true
   },
-  "tsctsf_base_url": "https://127.0.0.1:7825"
+  "tsctsf_base_url": "https://127.0.0.1:7825",
+  "oauth2_required": true
 }

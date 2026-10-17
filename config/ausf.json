@@ -9,5 +9,6 @@
     "aanf_base_url": "https://127.0.0.1:7824",
     "home_mcc": "999",
     "home_mnc": "70"
-  }
+  },
+  "oauth2_required": true
 }

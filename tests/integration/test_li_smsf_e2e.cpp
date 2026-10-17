@@ -28,6 +28,7 @@
 #include "li_core/xiri.hpp"
 #include "sms_core/sms.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -210,10 +211,12 @@ std::string fetch_token(sbi_core::http2::Client& client) {
     req.method = "POST";
     req.url = "https://127.0.0.1:7777/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmsf-sms"
-               "&targetNfType=SMSF";
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nsmsf-sms"
+        "&targetNfType=SMSF";
     for (int attempt = 0; attempt < 100; ++attempt) {
-        if (auto resp = client.send(req); resp && resp->status == 200) {
+        if (auto resp = nf_test::send_token_request(req); resp && resp->status == 200) {
             return json::parse(resp->body).at("access_token").get<std::string>();
         }
         std::this_thread::sleep_for(100ms);
@@ -344,6 +347,9 @@ TEST(LiSmsfEndToEnd, RealSmsfRepliesViaAmfAndReportsSmsMessageAndSmsReportForATa
     ::setenv("SMSF_CONFIG_FILE", cfg.c_str(), 1);
     nf_test::SpawnedProcess nrf{NRF_PATH};
     nf_test::SpawnedProcess smsf{SMSF_PATH};
+    // ADR-0499 phase 5: the NRF issues a token towards AMFs only if one is registered -- the fake
+    // AMF here, as a real one would be.
+    nf_test::register_test_nf("00000000-0000-4000-8000-000000000aaa", "AMF");
     ::unsetenv("SMSF_CONFIG_FILE");
     ASSERT_GT(smsf.pid(), 0);
 
@@ -392,6 +398,9 @@ TEST(LiSmsfEndToEnd, TruncateTpUserDataDeliversARedactedTpdu) {
     ::setenv("SMSF_CONFIG_FILE", cfg.c_str(), 1);
     nf_test::SpawnedProcess nrf{NRF_PATH};
     nf_test::SpawnedProcess smsf{SMSF_PATH};
+    // ADR-0499 phase 5: the NRF issues a token towards AMFs only if one is registered -- the fake
+    // AMF here, as a real one would be.
+    nf_test::register_test_nf("00000000-0000-4000-8000-000000000aaa", "AMF");
     ::unsetenv("SMSF_CONFIG_FILE");
 
     auto admf = make_client();
@@ -420,6 +429,9 @@ TEST(LiSmsfEndToEnd, NonTargetSmsIsRelayedButNotIntercepted) {
     ::setenv("SMSF_CONFIG_FILE", cfg.c_str(), 1);
     nf_test::SpawnedProcess nrf{NRF_PATH};
     nf_test::SpawnedProcess smsf{SMSF_PATH};
+    // ADR-0499 phase 5: the NRF issues a token towards AMFs only if one is registered -- the fake
+    // AMF here, as a real one would be.
+    nf_test::register_test_nf("00000000-0000-4000-8000-000000000aaa", "AMF");
     ::unsetenv("SMSF_CONFIG_FILE");
 
     auto admf = make_client();
@@ -446,6 +458,9 @@ TEST(LiSmsfEndToEnd, MtSmsToATargetReportsSmsMessageAndSmsReport) {
     ::setenv("SMSF_CONFIG_FILE", cfg.c_str(), 1);
     nf_test::SpawnedProcess nrf{NRF_PATH};
     nf_test::SpawnedProcess smsf{SMSF_PATH};
+    // ADR-0499 phase 5: the NRF issues a token towards AMFs only if one is registered -- the fake
+    // AMF here, as a real one would be.
+    nf_test::register_test_nf("00000000-0000-4000-8000-000000000aaa", "AMF");
     ::unsetenv("SMSF_CONFIG_FILE");
 
     auto admf = make_client();

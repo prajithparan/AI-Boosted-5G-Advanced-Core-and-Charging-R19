@@ -10,5 +10,6 @@
   "amf_base_url": "https://127.0.0.1:7778",
   "nsacf_base_url": "https://127.0.0.1:7797",
   "nwdaf_base_url": "https://127.0.0.1:7798",
-  "user_consent_policy": "consumer-checked"
+  "user_consent_policy": "consumer-checked",
+  "oauth2_required": true
 }

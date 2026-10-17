@@ -46,7 +46,9 @@
       "x-cpp-type": "int"
     },
     "redis_mode": {
-      "type": "string"
+      "type": "string",
+      "x-env-override": "UDSF_REDIS_MODE",
+      "x-cpp-type": "std::string"
     },
     "storages": {
       "type": "object",
@@ -110,7 +112,6 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "redis_mode: present in the file but no source line visibly reads it",
     "storages: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]
 }

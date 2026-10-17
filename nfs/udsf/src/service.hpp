@@ -45,13 +45,12 @@ struct Settings {
     std::int64_t max_record_ttl_seconds = 0;                // 0 = no operator ceiling
     std::int64_t max_subscription_seconds = 0;              // 0 = no operator ceiling
     std::int64_t cache_max_age_seconds = 0;
-    bool oauth2_required = false;
-    std::string self_base; // https://<advertised>:<port>
+    bool oauth2_required = true; // ADR-0499: enforced by the sbi-core authorizer (main.cpp)
+    std::string self_base;       // https://<advertised>:<port>
 };
 
 struct Ctx {
     Store& store;
-    sbi_core::jwt::Verifier& verifier;
     Settings settings;
 };
 
@@ -77,9 +76,6 @@ bool query_flag(const Request& req, const std::string& name); // "true" -> true
 tl::expected<std::optional<std::int64_t>, std::string> query_uint(const Request& req,
                                                                   const std::string& name);
 
-// TS 29.500 6.7.3: 401/403 with WWW-Authenticate when the token is invalid / lacks `scope`.
-std::optional<Response>
-authorize(const Ctx& ctx, const Request& req, const std::string& scope, const std::string& api_uri);
 tl::expected<StorageRef, Response> resolve_storage(const Ctx& ctx, const Request& req);
 
 struct Conditions {

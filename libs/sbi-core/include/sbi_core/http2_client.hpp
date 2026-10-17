@@ -3,8 +3,10 @@
 #include "sbi_core/tls_config.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tl/expected.hpp>
 #include <vector>
@@ -75,6 +77,17 @@ public:
 
     tl::expected<ClientResponse, std::string> send(const ClientRequest& request);
 
+    // ADR-0499 phase 3: called with the URL of every request sent without an Authorization
+    // header; a token it returns is sent as "Bearer <token>". Set once, before the first send()
+    // (not synchronised against concurrent sends). See sbi_core::attach_tokens.
+    using TokenSourceFn = std::function<std::optional<std::string>(const std::string& url)>;
+    void set_token_source(TokenSourceFn source);
+    // The process-wide fallback for every Client with no source of its own (safe to call while
+    // other threads send; empty clears it). See sbi_core::install_default_token_source.
+    static void set_default_token_source(TokenSourceFn source);
+
+    [[nodiscard]] const TlsConfig& tls() const { return tls_; }
+
 private:
     // RAII lease: guarantees a checked-out handle returns to the pool on every exit path from
     // send(), including the early returns on a libcurl error.
@@ -95,6 +108,7 @@ private:
     void checkin(void* handle); // returns a handle to the pool, or destroys it if the pool is full
 
     TlsConfig tls_;
+    TokenSourceFn token_source_;
     std::mutex mutex_;        // guards idle_ only -- never held across curl_easy_perform
     std::vector<void*> idle_; // CURL*, opaque here to avoid leaking <curl/curl.h> into includers
 };

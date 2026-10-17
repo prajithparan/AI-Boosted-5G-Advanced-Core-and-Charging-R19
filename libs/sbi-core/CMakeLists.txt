@@ -28,6 +28,8 @@ add_library(sbi_core STATIC
     src/multipart.cpp
     src/json_body.cpp
     src/rate_limit.cpp
+    src/authorizer.cpp
+    src/api_catalog.cpp
 )
 
 target_include_directories(sbi_core PUBLIC

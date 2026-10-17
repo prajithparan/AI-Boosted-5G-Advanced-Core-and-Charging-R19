@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -63,6 +64,7 @@ TEST(NwdafPhaseA, NfLoadIsComputedFromTheRealNrfRegistry) {
     ASSERT_GT(nrf.pid(), 0);
     ASSERT_GT(nwdaf.pid(), 0);
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kAnalyticsRoot + "/context", 30s))
         << "NWDAF never came up";
     // Give the NWDAF's NRF registration a moment to land, so it appears in its own discovery.
@@ -97,6 +99,7 @@ TEST(NwdafPhaseA, AnUnsupportedAnalyticsIdIsA404NotAnEmpty200) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     nf_test::SpawnedProcess nwdaf(NWDAF_PATH);
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kAnalyticsRoot + "/context", 30s));
     sbi_core::http2::ClientRequest req;
     req.method = "GET";
@@ -116,6 +119,7 @@ TEST(NwdafPhaseA, SubscriptionLifecycleAtTheYamlsApiRoot) {
     nf_test::SpawnedProcess nrf(NRF_PATH);
     nf_test::SpawnedProcess nwdaf(NWDAF_PATH);
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kAnalyticsRoot + "/context", 30s));
 
     sbi_core::http2::ClientRequest create;
@@ -169,6 +173,8 @@ TEST(NwdafPhaseA, SubscriptionsAreSharedAcrossReplicas) {
     const std::string b = "https://127.0.0.1:7799";
 
     auto c = make_client();
+
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, a + kAnalyticsRoot + "/context", 30s)) << "replica A never came up";
     ASSERT_TRUE(wait_up(c, b + kAnalyticsRoot + "/context", 30s)) << "replica B never came up";
 
@@ -258,6 +264,8 @@ TEST(NwdafPhaseA, ReplicasDeliverEachNotificationOnce) {
     const std::string b = "https://127.0.0.1:7799";
 
     auto c = make_client();
+
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     ASSERT_TRUE(wait_up(c, a + kAnalyticsRoot + "/context", 30s)) << "replica A never came up";
     ASSERT_TRUE(wait_up(c, b + kAnalyticsRoot + "/context", 30s)) << "replica B never came up";
 

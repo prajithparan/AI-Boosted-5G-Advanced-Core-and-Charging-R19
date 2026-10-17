@@ -349,7 +349,9 @@
       }
     },
     "smf_base_url": {
-      "type": "string"
+      "type": "string",
+      "x-env-override": "NWDAF_SMF_BASE_URL",
+      "x-cpp-type": "std::string"
     },
     "li_poi": {
       "type": "object",
@@ -395,6 +397,11 @@
           "type": "boolean"
         }
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "NWDAF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [
@@ -444,7 +451,6 @@
     "mtlf.fl_server.federations[]: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "training: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "accuracy_monitoring: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
-    "smf_base_url: present in the file but no source line visibly reads it",
     "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "accuracy_threshold: read with require<> but absent from the file (env-only?)",
     "accuracy_tolerance: read with require<> but absent from the file (env-only?)",

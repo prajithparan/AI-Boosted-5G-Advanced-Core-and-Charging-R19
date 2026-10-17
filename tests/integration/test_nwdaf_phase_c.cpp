@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -106,9 +107,10 @@ std::string token_for(sbi_core::http2::Client& c, const std::string& scope, cons
     req.method = "POST";
     req.url = std::string(kNrf) + "/oauth2/token";
     req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
-               "&targetNfType=" + nf;
-    auto resp = c.send(req);
+    req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=" + scope + "&targetNfType=" + nf;
+    auto resp = nf_test::send_token_request(req);
     if (!resp || resp->status != 200) {
         return "";
     }
@@ -278,6 +280,7 @@ TEST(NwdafPhaseC, CollectsNrfDataViaTheDccfAndServesItOverDataManagement) {
     }
     Receiver receiver;
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     auto lab = spawn_lab(c, b);
     ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kDm + "/subscriptions", 30s))
         << "NWDAF never came up";
@@ -464,6 +467,7 @@ TEST(NwdafPhaseC, AdrfStoresNwdafCollectedDataThroughDataManagement) {
         GTEST_SKIP() << "no Kafka broker at " << b << " -- skipped, not passed";
     }
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: NFs enforce tokens
     auto lab = spawn_lab(c, b);
     nf_test::SpawnedProcess adrf(ADRF_PATH);
     ASSERT_TRUE(wait_up(c, std::string(kNwdaf) + kDm + "/subscriptions", 30s))

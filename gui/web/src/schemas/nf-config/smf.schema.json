@@ -58,7 +58,9 @@
       "x-cpp-type": "std::string"
     },
     "qos_mon_interval_seconds": {
-      "type": "integer"
+      "type": "integer",
+      "x-env-override": "SMF_QOS_MON_INTERVAL_SECONDS",
+      "x-cpp-type": "int"
     },
     "li_poi": {
       "type": "object",
@@ -122,6 +124,11 @@
           }
         }
       }
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "SMF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [
@@ -143,7 +150,6 @@
   ],
   "x-apply": "restart",
   "x-review": [
-    "qos_mon_interval_seconds: present in the file but no source line visibly reads it",
     "li_poi: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)",
     "li_poi.cc_tf: nested object shape inferred from current values (map-vs-struct meaning unverified; new keys refused until reviewed)"
   ]

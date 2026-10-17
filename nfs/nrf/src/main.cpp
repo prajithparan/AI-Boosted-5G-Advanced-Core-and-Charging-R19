@@ -35,6 +35,7 @@
 //   - Stored search results (searchId cache) have no TTL eviction, same class of simplification
 //     as NfRegistry/SubscriptionRegistry's own in-memory-only storage.
 
+#include "sbi_core/authorizer.hpp"
 #include "sbi_core/http2_client.hpp"
 #include "sbi_core/http2_server.hpp"
 #include "sbi_core/io_context_pool.hpp"
@@ -51,6 +52,7 @@
 #include <atomic>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <regex>
 #include <sstream>
 #include <thread>
@@ -61,6 +63,7 @@
 #include "TS29510_Nnrf_Bootstrapping.hpp"
 #include "discovery_authz.hpp"
 #include "registry.hpp"
+#include "token_authz.hpp"
 
 // docs/DECISIONS.md ADR-0077 -- no hardcoded deployment literal in source.
 #include "nf_config/nf_config.hpp"
@@ -316,6 +319,13 @@ int main() {
     const auto metrics_bind_address =
         nf_config::require<std::string>(config, "metrics_bind_address");
     const auto sbi_bind_address = nf_config::require<std::string>(config, "sbi_bind_address");
+    // ADR-0499 phase 2: authorize the requester before issuing a token. On by default (the user's
+    // "require tokens by default"); config/nrf.json turns it off until the consumers and test
+    // helpers register and present matching certificates (ADR-0499 phases 3-5).
+    const bool token_authorization = nf_config::optional<bool>(config,
+                                                               "access_token_authorization",
+                                                               "NRF_ACCESS_TOKEN_AUTHORIZATION")
+                                         .value_or(true);
 
     sbi_core::init_logging("nrf");
     sbi_core::init_tracing("nrf");
@@ -449,6 +459,18 @@ int main() {
     // See docs/DECISIONS.md ADR-0014. Still reachable at 127.0.0.1 for anything running on the
     // same host/network namespace (hello-nf's local dev usage is unaffected).
     sbi_core::http2::Server server(ioc, sbi_bind_address, port, server_tls);
+    // ADR-0499 phase 4: every route needs an access token for the NRF (aud) and its service (scopes
+    // nnrf-nfm, nnrf-disc) unless `oauth2_required` is false. Exempt (below): the token endpoints
+    // and bootstrapping (no security scheme in their YAMLs) and NFRegister.
+    const auto nrf_authorizer = std::make_shared<const sbi_core::http2::Authorizer>(
+        sbi_core::http2::AuthorizerConfig{
+            .required = nf_config::optional<bool>(config, "oauth2_required", "NRF_OAUTH2_REQUIRED")
+                            .value_or(true),
+            .nf_type = kNfType,
+            .nf_instance_id = nrf_instance_id,
+        },
+        std::make_shared<sbi_core::jwt::Verifier>(CERTS_DIR "/nrf-jwt/public.pem", kNrfInstanceId));
+    server.set_authorizer(nrf_authorizer);
 
     // P15 / P4.12 (ADR-0280): optional TPS ceiling from this NF's own config (`max_tps`,
     // `tps_burst`), overridable per deployment via SBI_MAX_TPS. Absent means unlimited, so this
@@ -466,62 +488,83 @@ int main() {
     // prefix (unlike NFManagement's `{apiRoot}/nnrf-nfm/v1`), and `paths:` declares bare
     // `/bootstrapping` -- Bootstrapping is meant to be reachable before an NF knows anything about
     // this NRF's other service paths, so no prefix is invented here.
-    server.add_route("GET", "/bootstrapping", [](const sbi_core::http2::Request& /*req*/) {
-        sbi_gen::BootstrappingInfo info;
-        info.status = sbi_gen::Status{sbi_gen::Status::OPERATIVE};
-        info.nrfInstanceId = std::string(kNrfInstanceId);
-        // Real, disclosed: every route above (check_bearer) validates a bearer token only if
-        // one is present -- the YAML's own `security: [{}, oAuth2ClientCredentials]` on those
-        // operations explicitly permits the anonymous alternative, so this NRF does not
-        // actually require OAuth2 today. oauth2Required is honestly false for the exact three
-        // real services this NRF implements, not a placeholder value. Map keys per this
-        // field's own YAML description ("e.g. nnrf-nfm or nnrf-disc").
-        info.oauth2Required = json{
-            {"nnrf-nfm", false},
-            {"nnrf-disc", false},
-            {"nnrf-oauth2", false},
-        };
-        // Real, disclosed gap: TS 29.510 clause 6.4.6.3.3 (the real link-relation vocabulary
-        // for this required map) is stage-3 prose this project's vendored material doesn't
-        // include -- only the OpenAPI schema, which places no enum on the map's own keys.
-        // "self" is the one universally-defensible HAL relation (RFC 8288), used to satisfy
-        // the schema's real `minProperties: 1` structural requirement -- not a claim to the
-        // full real TS 29.510 relation set.
-        info._links = json{
-            {"self", json{{"href", "/bootstrapping"}}},
-        };
-        // nrfFeatures/nrfSetId deliberately omitted: both optional per the YAML, and no real
-        // supported-features bitmask tracking or NRF Set concept exists in this project --
-        // populating either would be fabricated data, not a real simplification.
+    server.add_route(
+        "GET",
+        "/bootstrapping",
+        [](const sbi_core::http2::Request& /*req*/) {
+            sbi_gen::BootstrappingInfo info;
+            info.status = sbi_gen::Status{sbi_gen::Status::OPERATIVE};
+            info.nrfInstanceId = std::string(kNrfInstanceId);
+            // Real, disclosed: every route above (check_bearer) validates a bearer token only if
+            // one is present -- the YAML's own `security: [{}, oAuth2ClientCredentials]` on those
+            // operations explicitly permits the anonymous alternative, so this NRF does not
+            // actually require OAuth2 today. oauth2Required is honestly false for the exact three
+            // real services this NRF implements, not a placeholder value. Map keys per this
+            // field's own YAML description ("e.g. nnrf-nfm or nnrf-disc").
+            info.oauth2Required = json{
+                {"nnrf-nfm", false},
+                {"nnrf-disc", false},
+                {"nnrf-oauth2", false},
+            };
+            // Real, disclosed gap: TS 29.510 clause 6.4.6.3.3 (the real link-relation vocabulary
+            // for this required map) is stage-3 prose this project's vendored material doesn't
+            // include -- only the OpenAPI schema, which places no enum on the map's own keys.
+            // "self" is the one universally-defensible HAL relation (RFC 8288), used to satisfy
+            // the schema's real `minProperties: 1` structural requirement -- not a claim to the
+            // full real TS 29.510 relation set.
+            info._links = json{
+                {"self", json{{"href", "/bootstrapping"}}},
+            };
+            // nrfFeatures/nrfSetId deliberately omitted: both optional per the YAML, and no real
+            // supported-features bitmask tracking or NRF Set concept exists in this project --
+            // populating either would be fabricated data, not a real simplification.
 
-        const json body = info;
-        const std::string body_str = body.dump();
-        sbi_core::http2::Response resp;
-        resp.status = 200;
-        // Real spec content type -- application/3gppHal+json, not application/json.
-        resp.headers.emplace("content-type", "application/3gppHal+json");
-        resp.headers.emplace("cache-control", "max-age=60");
-        // Real, disclosed: the YAML declares an `If-None-Match` request parameter but never
-        // declares a 304 response for this operation, so no conditional-request short-circuit
-        // is implemented here -- a real content-derived ETag is still emitted so a client's
-        // own cache stays correct on its next request.
-        resp.headers.emplace("etag",
-                             "\"" + std::to_string(std::hash<std::string>{}(body_str)) + "\"");
-        resp.body = body_str;
-        return resp;
-    });
+            const json body = info;
+            const std::string body_str = body.dump();
+            sbi_core::http2::Response resp;
+            resp.status = 200;
+            // Real spec content type -- application/3gppHal+json, not application/json.
+            resp.headers.emplace("content-type", "application/3gppHal+json");
+            resp.headers.emplace("cache-control", "max-age=60");
+            // Real, disclosed: the YAML declares an `If-None-Match` request parameter but never
+            // declares a 304 response for this operation, so no conditional-request short-circuit
+            // is implemented here -- a real content-derived ETag is still emitted so a client's
+            // own cache stays correct on its next request.
+            resp.headers.emplace("etag",
+                                 "\"" + std::to_string(std::hash<std::string>{}(body_str)) + "\"");
+            resp.body = body_str;
+            return resp;
+        },
+        // ADR-0499: TS29510_Nnrf_Bootstrapping.yaml declares no security scheme.
+        sbi_core::http2::RouteAuth::None);
 
     server.add_route(
-        "POST", "/oauth2/token", [&issuer, &tokens_counter](const sbi_core::http2::Request& req) {
+        "POST",
+        "/oauth2/token",
+        [&issuer, &tokens_counter, nf_registry, token_authorization](
+            const sbi_core::http2::Request& req) {
             auto fields = parse_form_urlencoded(req.body);
-            if (fields.count("grant_type") == 0 || fields["grant_type"] != "client_credentials") {
-                return problem_response(400,
-                                        "Unsupported grant_type",
-                                        "Only grant_type=client_credentials is supported");
-            }
-            if (fields.count("nfInstanceId") == 0 || fields.count("scope") == 0) {
-                return problem_response(
-                    400, "Missing mandatory IE", "AccessTokenReq requires nfInstanceId and scope");
+            // RFC 6749 5.1/5.2: token responses are never cached.
+            const auto no_store = [](sbi_core::http2::Response r) {
+                r.headers.emplace("cache-control", "no-store");
+                r.headers.emplace("pragma", "no-cache");
+                return r;
+            };
+            const std::map<std::string, std::string> form(fields.begin(), fields.end());
+            const auto decision =
+                token_authorization
+                    ? nrf::authorize_token_request(
+                          form,
+                          nrf::TokenRequester{.cert_cn = req.peer_cert_cn,
+                                              .cert_dns_names = req.peer_cert_dns_names},
+                          [&](const std::string& id) { return nf_registry->get(id); },
+                          [&](const std::string& t) { return nf_registry->search_by_type(t); })
+                    : nrf::check_token_request_form(form);
+            if (!decision.error.empty()) {
+                spdlog::info(
+                    "nrf: access token refused ({}): {}", decision.error, decision.description);
+                return no_store(
+                    sbi_core::http2::Response::json(400, nrf::access_token_err(decision).dump()));
             }
             const std::string target_nf_type =
                 fields.count("targetNfType") != 0 ? fields["targetNfType"] : kNfType;
@@ -538,8 +581,11 @@ int main() {
                 {"expires_in", issued.expires_in.count()},
                 {"scope", fields["scope"]},
             };
-            return sbi_core::http2::Response::json(200, resp.dump());
-        });
+            return no_store(sbi_core::http2::Response::json(200, resp.dump()));
+        },
+        // ADR-0499: TS29510_Nnrf_AccessToken.yaml declares no security scheme: this is where tokens
+        // come from.
+        sbi_core::http2::RouteAuth::None);
 
     // Gap-closure: RetrieveKeyRequest (TS29510_Nnrf_AccessToken.yaml). Real, disclosed: NRF only
     // knows its own real signing key -- an `issuer` other than this NRF's own instance id gets an
@@ -548,42 +594,45 @@ int main() {
     // already loads to validate NRF-issued tokens), extracted by stripping the real PEM
     // "-----BEGIN/END PUBLIC KEY-----" delimiter lines -- not re-derived or fabricated key
     // material.
-    server.add_route("POST",
-                     "/oauth2/retrieve-key",
-                     [&certs_dir, nrf_instance_id](const sbi_core::http2::Request& req) {
-                         json body;
-                         try {
-                             body = json::parse(req.body);
-                         } catch (const json::parse_error& e) {
-                             return problem_response(400, "Malformed JSON", e.what());
-                         }
-                         if (!body.contains("issuer") || !body.contains("headerParameters")) {
-                             return problem_response(
-                                 400,
-                                 "Missing mandatory IE",
-                                 "RetrieveKeyReq requires issuer and headerParameters");
-                         }
-                         const auto requested_issuer = body.at("issuer").get<std::string>();
-                         if (requested_issuer != nrf_instance_id) {
-                             return problem_response(
-                                 404, "Not Found", "No key known for issuer " + requested_issuer);
-                         }
-                         std::ifstream key_file(certs_dir + "/nrf-jwt/public.pem");
-                         std::string raw_pub_key;
-                         std::string line;
-                         while (std::getline(key_file, line)) {
-                             if (line.find("-----") == std::string::npos) {
-                                 raw_pub_key += line;
-                             }
-                         }
-                         json resp{{"rawPubKey", raw_pub_key}};
-                         return sbi_core::http2::Response::json(200, resp.dump());
-                     });
+    server.add_route(
+        "POST",
+        "/oauth2/retrieve-key",
+        [&certs_dir, nrf_instance_id](const sbi_core::http2::Request& req) {
+            json body;
+            try {
+                body = json::parse(req.body);
+            } catch (const json::parse_error& e) {
+                return problem_response(400, "Malformed JSON", e.what());
+            }
+            if (!body.contains("issuer") || !body.contains("headerParameters")) {
+                return problem_response(400,
+                                        "Missing mandatory IE",
+                                        "RetrieveKeyReq requires issuer and headerParameters");
+            }
+            const auto requested_issuer = body.at("issuer").get<std::string>();
+            if (requested_issuer != nrf_instance_id) {
+                return problem_response(
+                    404, "Not Found", "No key known for issuer " + requested_issuer);
+            }
+            std::ifstream key_file(certs_dir + "/nrf-jwt/public.pem");
+            std::string raw_pub_key;
+            std::string line;
+            while (std::getline(key_file, line)) {
+                if (line.find("-----") == std::string::npos) {
+                    raw_pub_key += line;
+                }
+            }
+            json resp{{"rawPubKey", raw_pub_key}};
+            return sbi_core::http2::Response::json(200, resp.dump());
+        },
+        // ADR-0499: TS29510_Nnrf_AccessToken.yaml declares no security scheme.
+        sbi_core::http2::RouteAuth::None);
 
     server.add_route(
         "PUT",
         "/nnrf-nfm/v1/nf-instances/{nfInstanceID}",
         [&verifier,
+         nrf_authorizer,
          nf_registry,
          &notify,
          &registrations_counter,
@@ -596,8 +645,15 @@ int main() {
             // TS 28.552 5.10.1.1(c): counted on RECEIPT of the NFRegister request. An
             // unauthenticated caller is not an NFRegister request from an NF, so 401 is counted as
             // neither a request nor a failure -- the same reading ADR-0262 applies in SMF.
-            nfs_reg_req_counter->Add(1);
             const auto path_id = req.path_params.at("nfInstanceID");
+            // ADR-0499: the route is open for NFRegister; replacing a registered profile (NFUpdate)
+            // needs the same token as any other NFManagement operation.
+            if (nf_registry->get(path_id).has_value()) {
+                if (auto deny = nrf_authorizer->check(req)) {
+                    return *deny;
+                }
+            }
+            nfs_reg_req_counter->Add(1);
             json profile;
             try {
                 profile = json::parse(req.body);
@@ -639,7 +695,10 @@ int main() {
             }
             resp.body = profile.dump();
             return resp;
-        });
+        },
+        // ADR-0499: NFRegister: registration is the pre-requisite of a token
+        // (TS 33.501 13.4.1.1.2); an NFUpdate of an existing instance is checked in the handler.
+        sbi_core::http2::RouteAuth::None);
 
     server.add_route(
         "GET",

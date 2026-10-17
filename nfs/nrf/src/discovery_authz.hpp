@@ -29,4 +29,13 @@ struct DiscoveryRequester {
 // and it has no nfServices, or at least one service passes.
 bool profile_discoverable_by(const nlohmann::json& profile, const DiscoveryRequester& requester);
 
+// Whether `requester` may use the service `service_name` of `profile` (ADR-0499 phase 2, TS 33.501
+// 13.4.1.1.2 step 2): the NFService of that serviceName in nfServiceList or the deprecated
+// nfServices, under the same allowedNfTypes / allowedNfDomains / allowedPlmns / allowedNssais rules
+// as discovery (service-level list, else profile-level). A profile listing services but not this
+// one: false. A profile listing none: only the profile-level lists apply.
+bool service_authorized_for(const nlohmann::json& profile,
+                            const std::string& service_name,
+                            const DiscoveryRequester& requester);
+
 } // namespace nrf

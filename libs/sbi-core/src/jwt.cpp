@@ -62,15 +62,28 @@ VerifyResult Verifier::verify(const std::string& token) {
         verifier.verify(decoded);
 
         result.valid = true;
-        result.subject = decoded.get_subject();
+        if (decoded.has_subject()) {
+            result.subject = decoded.get_subject();
+        } else {
+            result.missing_claims.emplace_back("sub");
+        }
         if (decoded.has_audience()) {
             const auto aud = decoded.get_audience();
+            result.audiences.assign(aud.begin(), aud.end());
             if (!aud.empty()) {
                 result.audience = *aud.begin();
             }
         }
+        if (result.audiences.empty()) {
+            result.missing_claims.emplace_back("aud");
+        }
         if (decoded.has_payload_claim("scope")) {
             result.scope = decoded.get_payload_claim("scope").as_string();
+        } else {
+            result.missing_claims.emplace_back("scope");
+        }
+        if (!decoded.has_expires_at()) {
+            result.missing_claims.emplace_back("exp");
         }
     } catch (const std::exception& e) {
         result.valid = false;

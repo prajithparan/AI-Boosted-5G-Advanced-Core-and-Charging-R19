@@ -223,16 +223,12 @@ json sub_body(const Doc& d, const std::optional<std::string>& negotiated) {
 
 void add_dr_routes(sbi_core::http2::Server& server, Ctx& ctx) {
     const std::string root = kDrRoot;
-    const std::string api_uri = root; // realm attribute of WWW-Authenticate
-    const std::string scope = "nudsf-dr";
     const std::string recs = root + "/{realmId}/{storageId}/records";
     const std::string rec = recs + "/{recordId}";
 
-    // Common prologue: authorize + resolve realm/storage.
-    auto pre = [&ctx, api_uri, scope](const Request& req) -> tl::expected<StorageRef, Response> {
-        if (auto deny = authorize(ctx, req, scope, api_uri)) {
-            return tl::unexpected(*deny);
-        }
+    // Common prologue: resolve realm/storage. The access token is checked before any handler, by
+    // the sbi-core authorizer (ADR-0499; scope = the API name, TS 29.500 6.7.3).
+    auto pre = [&ctx](const Request& req) -> tl::expected<StorageRef, Response> {
         return resolve_storage(ctx, req);
     };
 

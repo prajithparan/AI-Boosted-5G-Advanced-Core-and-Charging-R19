@@ -16,6 +16,7 @@
 #include <thread>
 
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 
 #include <gtest/gtest.h>
 
@@ -44,9 +45,10 @@ std::string token(sbi_core::http2::Client& c, const std::string& scope, const st
         req.method = "POST";
         req.url = "https://127.0.0.1:7777/oauth2/token";
         req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-        req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=" + scope +
+        req.body = "grant_type=client_credentials&nfInstanceId=" +
+                   std::string(nf_test::kTestAfInstanceId) + "&scope=" + scope +
                    "&targetNfType=" + nf;
-        if (auto r = c.send(req); r && r->status == 200) {
+        if (auto r = nf_test::send_token_request(req); r && r->status == 200) {
             return json::parse(r->body).at("access_token").get<std::string>();
         }
         std::this_thread::sleep_for(100ms);
@@ -113,6 +115,7 @@ TEST(TsctsfEndToEnd, GpsiOnlyQosRequestReachesThePcfOfThePduSessionThroughTheTsc
         nf_test::wait_tcp_listening(p);
     }
     auto c = make_client();
+    nf_test::attach_test_tokens(c); // ADR-0499: the TSCTSF enforces tokens
 
     // Provisioning: the GPSI's identity data (GPSI -> SUPI) at the UDR.
     const auto udr_token = token(c, "nudr-dr", "UDR");

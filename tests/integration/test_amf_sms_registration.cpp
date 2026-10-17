@@ -23,6 +23,7 @@
 #include "ngap_test_gnb.hpp"
 #include "sms_core/sms.hpp"
 #include "spawn_guard.hpp"
+#include "test_tokens.hpp"
 #include "ue_nas_driver.hpp"
 
 #include <gtest/gtest.h>
@@ -129,9 +130,11 @@ std::string nsmsf_token() {
     token_req.method = "POST";
     token_req.url = "https://127.0.0.1:7777/oauth2/token";
     token_req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    token_req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmsf-sms"
-                     "&targetNfType=SMSF";
-    auto token = client.send(token_req);
+    token_req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nsmsf-sms"
+        "&targetNfType=SMSF";
+    auto token = nf_test::send_token_request(token_req);
     if (!token || token->status != 200) {
         return {};
     }
@@ -184,9 +187,11 @@ int smsf_context_status(const std::string& supi) {
     token_req.method = "POST";
     token_req.url = "https://127.0.0.1:7777/oauth2/token";
     token_req.headers.emplace("content-type", "application/x-www-form-urlencoded");
-    token_req.body = "grant_type=client_credentials&nfInstanceId=test-client&scope=nsmsf-sms"
-                     "&targetNfType=SMSF";
-    auto token = client.send(token_req);
+    token_req.body =
+        "grant_type=client_credentials&nfInstanceId=" + std::string(nf_test::kTestAfInstanceId) +
+        "&scope=nsmsf-sms"
+        "&targetNfType=SMSF";
+    auto token = nf_test::send_token_request(token_req);
     if (!token || token->status != 200) {
         return -1;
     }

@@ -86,3 +86,18 @@ SEPPs, so in the lab either can still claim the other; with per-SEPP certificate
 exact. Also: the telescopic Location rewrite now matches case-insensitively and skips a non-match
 (it could throw on a mixed-case host). Verified: `SeppEndToEnd.AnN32fRequestFromAPeerWithoutAContextIsRefused`
 now also sends exchange-capability claiming SEPP A with the hello-nf certificate -> 403.
+
+**Review fix SEC-02 (2026-10-16, docs/reviews/REVIEW-5ae0ef1.md).** N32-f correlation over TLS
+applied 5.3.3.2.1's several-contexts rule across *different* peers and skipped the certificate
+check there: with two or more partners, a request was mapped to a context by the
+`3gpp-Sbi-N32-Handshake-Id` header alone, whoever presented the certificate, and two partners that
+both negotiated ROAMING without handshake ids were "ambiguous", so every N32-f request got 403.
+The clause's rule is for several N32-c contexts "between a pair of SEPPs". `sepp::correlate` now
+identifies the peer first -- contexts whose peer FQDN is a client-certificate dNSName SAN, narrowed
+by the Via header's `SEPP-<fqdn>` entries when the certificate names several SEPPs -- refuses when
+more than one peer remains, and only then applies the handshake-id / purpose rule among that peer's
+contexts. `SeppN32.CorrelationFollowsClause5332` encoded the misreading (two peers correlated by
+handshake id with an empty certificate-name list); it now asserts the opposite and fails on the old
+code (checked). New: `SeppN32.CorrelationAmongOnePeersContextsUsesHandshakeIdThenPurpose`.
+Residual, unchanged: the store keeps one context per peer, so the one-peer several-contexts branch
+is not reachable from the running SEPP yet; per-PLMN trust anchors (SEC-01) are not built.

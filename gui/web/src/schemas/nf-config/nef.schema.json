@@ -92,6 +92,11 @@
     },
     "tsctsf_base_url": {
       "type": "string"
+    },
+    "oauth2_required": {
+      "type": "boolean",
+      "x-env-override": "NEF_OAUTH2_REQUIRED",
+      "x-cpp-type": "bool"
     }
   },
   "required": [
