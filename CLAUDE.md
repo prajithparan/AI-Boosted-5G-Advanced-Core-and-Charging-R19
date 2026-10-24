@@ -83,7 +83,7 @@ Tier 2 / Tier 3 lists: `docs/project-context/scope-tier2-tier3.md`.
 - SID-aligned BSS layer mapping 3GPP charging events onto TM Forum SID
   entities (Product, Service, Resource, Customer, Party, Agreement,
   ProductOffering, ProductPrice, AppliedCustomerBillingRate, CustomerBill,
-  BalanceTopUp, Event), exposed via TMF620/622/632/633/635/637/638/639/651/
+  BalanceTopUp, Event, CustomerOrder), exposed via TMF620/622/632/633/635/637/638/639/651/
   654/666/676/678/688/727.
   (TM Forum API extension history: `docs/project-context/tmforum-extension-history.md`.)
 - Deliverable before any mapping code: `docs/CHARGING_MAPPING.md` — an

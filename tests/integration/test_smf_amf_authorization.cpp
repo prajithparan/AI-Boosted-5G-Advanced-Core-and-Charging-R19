@@ -28,7 +28,7 @@ TEST(SmfAuthorization, NsmfApisNeedTheirOwnScopeAndThePcfNotifyDoesNot) {
     const auto resp = nf_test::send_to(
         client,
         {.method = "POST",
-         .url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/unknown/pcf-notify",
+         .url = "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/unknown/pcf-notify/update",
          .body = "{}"},
         "");
     EXPECT_NE(resp.status, 0);

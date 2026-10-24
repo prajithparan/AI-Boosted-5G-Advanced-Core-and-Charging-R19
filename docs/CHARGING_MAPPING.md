@@ -1,10 +1,10 @@
 # Charging Mapping: 3GPP CDR/Charging Fields → TM Forum SID → TM Forum Open API
 
-**Status: DRAFT — for review before any BSS/SID mapping code is written**, per CLAUDE.md's explicit
-charging-domain deliverable requirement ("Deliverable before any mapping code:
-`docs/CHARGING_MAPPING.md`... Ambiguous mappings are marked TODO and asked about, never silently
-invented"). No SID/TMF mapping code exists anywhere in this repo yet — this document is that
-prerequisite, not a retrofit.
+**Status: APPROVED mapping decisions (2026-10-24, REVIEW-5ae0ef1 CHG-02, ADR-0524)** — see
+"Mapping decisions (CHG-02)" below. Mapping code exists for part of it: `libs/bss-sid` (SUPI ->
+TMF632 `Individual`, ADR-0045/0046), the CHF rating engine producing `AppliedCustomerBillingRate`
+(ADR-0048 and successors) and `bss/balance-management` (TMF654). Rows not yet backed by code say
+so. This file remains the reviewable prerequisite CLAUDE.md requires before further mapping code.
 
 ## Sourcing methodology
 
@@ -69,7 +69,7 @@ treats CLAUDE.md as project-owner-authored).
 | `invocationSequenceNumber` | Not a SID entity | CHF-internal correlation only (see ADR-0044's disclosed "echoes the request" simplification) — no TM Forum field represents "the Nth invocation of a 3GPP charging trigger", this is 3GPP-side protocol bookkeeping, not billing-domain data. Not mapped. |
 | `pDUSessionChargingInformation` (currently unset — see Scope above) | `Product` (the subscribed PDU-session-capable product instance) realizing `ProductUsage` | **TMF637** Product Inventory (`Product` resource — real TM Forum description confirmed: "a product offering procured by a customer... possible actions creating/updating/retrieving Product", [TMF637 repo](https://github.com/tmforum-apis/TMF637_ProductInventory)) for the subscribed product identity, and **TMF635** Usage Management, `ProductUsage` resource for the actual usage event once populated. Confirmed real `ProductUsage` fields: `id`, `href`, `status` (`ProductUsageStatusType`: initialized/rejected/validated/rated/corrected/superseded/notRated/failed), `usageType`, `usageCharacteristic` (array), `serviceUsage` (array of `ServiceUsageRef` — split out to **TMF727** Service Usage Management as of the v4→v5 uplift), `relatedParty`, `usageProductPrice`, `product` (`ProductRef`), `usageSpecification` ([TMF635 v5.0.0 OAS](https://github.com/tmforum-apis/TMF635_UsageManagement)). **TODO, not populated yet either side**: this field is unset in every real request this codebase currently sends (disclosed in `nfs/smf/src/main.cpp`), so there is no live 3GPP data to map its sub-fields (`chargingId`, `userLocationinfo`, `pduSessionInformation`, ...) against `ProductUsage.usageCharacteristic` yet — deferred to whichever future turn actually populates this field on the SMF side. |
 | CHF's allocated `chargingId` (`ChargingId`, `Uint...` alias — TS 32.291) | Correlates a `Product`'s `ProductUsage` records to the `AppliedCustomerBillingRate`/`CustomerBill` that eventually bills for them | No single TMF field *is* `chargingId` — it is this system's own internal correlation key, realized on the BSS side as whatever key value links a stored `ProductUsage.id` to an `AppliedCustomerBillingRate.characteristic` entry (`AppliedCustomerBillingRate`'s confirmed real fields: `appliedTax`, `bill` (`CustomerBillRef`), `date`, `description`, `isBilled`, `name`, `periodCoverage`, `taxExcludedAmount`, `taxIncludedAmount`, `appliedBillingRateType`, `billingAccount`, `product` (`ProductRef`), `characteristic` (array) — [TMF678 v5.0.0 OAS](https://github.com/tmforum-apis/TMF678_CustomerBill/blob/main/TMF678-CustomerBill-v5.0.0.oas.yaml)). **Resolved 2026-08-10**: `characteristic` (name="chargingId", value=<id>), not a custom top-level field. Reasoning: TM Forum Open APIs use the `characteristic` array as the standard, spec-conformant extensibility mechanism precisely for implementation-specific correlation keys like this -- adding a non-standard top-level field would break conformance/validation against the official TMF678 schema, which a commercial-stack swap (CLAUDE.md's own stated ODA-boundary goal) depends on staying valid. **Correction (2026-10-02, docs-audit pass): the "no rating engine exists" premise below is stale.** A real rating engine now exists (ADR-0048, ADR-0057) and `AppliedCustomerBillingRate` is now actually produced -- `libs/bss-sid/{include/bss_sid,src}/rating.hpp/.cpp`, `nfs/chf/src/billing_items.cpp/.hpp`, `nfs/chf/src/rating_decision_store.{hpp,cpp}` -- feeding real `CustomerBill` generation in `bss/balance-management/src/bill_run.{hpp,cpp}` (ADR-0310/ADR-0311/ADR-0314, test coverage in `tests/conformance/test_bill_run.cpp`). This document was not updated when that work landed. Checked directly: `billing_items.cpp` does use the `characteristic`-array mechanism decided here, confirming the decision -- but correlates on `charging_data_ref` (`name="chargingDataRef"`), not the `chargingId` counter this row discusses; a session-level correlator rather than the per-invocation one, a real and reasonable implementation choice, just not literally what this row specified. |
-| `ChargingDataResponse.multipleUnitInformation[].grantedUnit`/`.allocatedUnit` (currently never populated — see ADR-0044's disclosed "no rating engine yet") | `AppliedCustomerBillingRate` (once rated) | **TMF678**, `AppliedCustomerBillingRate.taxIncludedAmount`/`.taxExcludedAmount` (both `Money`) for a monetary grant, or `characteristic` for a raw unit-count grant (volume/time/service-specific-units) if the granted quota is never actually money-rated in this system's flow. **TODO, genuinely ambiguous, not resolved here**: TS 32.291's `GrantedUnit` is pre-rating (raw units: `totalVolume`/`uplinkVolume`/`downlinkVolume`/`time`/`serviceSpecificUnits`), while `AppliedCustomerBillingRate` is TM Forum's *post-rating* billing-rate concept — mapping a pre-rating quota grant onto a post-rating billing entity is not a clean 1:1 and needs a real rating-engine design decision (which doesn't exist in this codebase yet) before it can be answered correctly rather than guessed. |
+| `ChargingDataResponse.multipleUnitInformation[].grantedUnit` | Not a billing entity (CHG-02 decision #5): a reservation against the subscriber's balance | **TMF654** `ReserveBalance` (`bss/balance-management`); used units (`usedUnitContainer`) become `ProductUsage` -> `AppliedCustomerBillingRate` | Decided (CHG-02 #5, 2026-10-24) |
 
 ## Deferred, not mapped in this pass (disclosed, not omitted by oversight)
 
@@ -141,7 +141,8 @@ data** (what "NSPA" expands to isn't stated anywhere in the YAML and isn't guess
 content confirms *what it charges for*, not the acronym), which is still a form of usage (of an
 analytics/monitoring service) rather than a one-time event.
 
-**Genuinely ambiguous, flagged rather than asserted** (structurally different from "used N bytes
+**Resolved (CHG-02 #1, 2026-10-24): all four are `ProductUsage`, quantity 1.** Originally flagged as
+**genuinely ambiguous, flagged rather than asserted** (structurally different from "used N bytes
 for M seconds" — a real rating-engine design decision, not something to pick blind):
 - `registrationChargingInformation` — a UE registering is a one-time state change, not a metered
   quantity; plausibly `Event` (TMF688, `eventType="registration"`) instead of `ProductUsage`.
@@ -160,11 +161,28 @@ for M seconds" — a real rating-engine design decision, not something to pick b
 for multi-CHF/roaming scenarios (which CHF instance, correlation IDs), not a chargeable service
 usage — same category as `nfConsumerIdentification`/`invocationSequenceNumber` above.
 
-**Possibly dual-mapped, flagged**: `networkSharingChargingInformation` (inter-operator network
+**Resolved (CHG-02 #2, 2026-10-24): `ProductUsage` per record, one referenced TMF651 `Agreement`.**
+Originally flagged as possibly dual-mapped: `networkSharingChargingInformation` (inter-operator network
 sharing, request-level fields `plmnId`/`singleNSSAI`) — the commercial arrangement behind a network-
 sharing relationship is plausibly an `Agreement` (TMF651, see above) in addition to whatever
 `ProductUsage` record captures the actual shared-capacity CDR content; not resolved as one or the
 other here.
+
+## Mapping decisions (CHG-02, approved 2026-10-24)
+
+The open questions REVIEW-5ae0ef1 CHG-02 listed, with the decision the user approved. TM Forum
+field names are checked against the published swagger before any code uses them.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | `registrationChargingInformation`, `nSSAAChargingInformation`, `eASDeploymentChargingInformation`, `nSMChargingInformation`: TMF688 `Event` or TMF635 `ProductUsage`? | **`ProductUsage` (TMF635), quantity 1, usage type = the block's name.** 3GPP charges them as event-based charging; billing (`AppliedCustomerBillingRate`, `CustomerBill`) is driven by usage. A TMF688 `Event` may additionally be published as a notification, never as the billing record. |
+| 2 | `networkSharingChargingInformation`: `Agreement` (TMF651), `ProductUsage`, or both? | **Each record is a `ProductUsage`.** The inter-operator sharing arrangement is **one** TMF651 `Agreement`, referenced from the usage, not created per record. |
+| 3 | `Policy` (TMF723): field list not public | **Out of scope** until the TMF723 specification is supplied (member-only). No code against unconfirmed fields. |
+| 4 | `CustomerOrder` and `Policy` never confirmed as in scope | **`CustomerOrder` in scope as TMF622 `ProductOrder`.** `Policy` deferred (#3). |
+| 5 | `multipleUnitInformation` / `grantedUnit` against the real rating engine | **A granted unit is not a billing entity.** It is a reservation against the subscriber's balance (TMF654 `ReserveBalance`, `bss/balance-management`). Only used units (`usedUnitContainer`) become `ProductUsage` and then `AppliedCustomerBillingRate`. Consistent with CHG-01 (an enlarged grant enlarges the reservation). |
+| 6 | TMF622 `ProductOrder` not implemented | **Build it after CHG-01**, as its own BSS increment. Not started. |
+| 7 | `CHARGING_PROMPT.md` vs CLAUDE.md TMF API lists | **`CHARGING_PROMPT.md` P4.7 aligned to CLAUDE.md's list** (620/622/632/633/635/637/638/639/651/654/666/676/678/688/727). |
+| — | ~20 `*ChargingInformation` blocks without a decided mapping | **Rule from #1 applies to all:** a metered block -> `ProductUsage` with its quantities (the "Metered usage" list below); a one-off block -> `ProductUsage`, quantity 1. `interCHFInformation` stays "not a billing entity". |
 
 ## Next steps (not started, awaiting direction)
 
@@ -181,7 +199,8 @@ other here.
    `Policy`/TMF723, whose real field list couldn't be confirmed from any public source. `Event`
    (TMF688) was asked about and added to CLAUDE.md's SID entity/API lists, same as the earlier
    four-entity extension. `CustomerOrder` and `Policy` remain named in PROMPT.md but not added to
-   CLAUDE.md's list -- not asked about yet. None of this is wired to real code; it exists so a
+   CLAUDE.md's list -- **asked and decided 2026-10-24 (CHG-02 #3, #4): `CustomerOrder` in scope as
+   TMF622 `ProductOrder`; `Policy` out of scope until TMF723 is supplied.** None of this is wired to real code; it exists so a
    future turn that actually builds product-catalog, ordering, agreement, or full billing-document
    logic doesn't have to re-derive it from scratch.
 5. **Correction (2026-10-02, docs-audit pass): the two items below were marked "not started" here
@@ -198,6 +217,9 @@ other here.
    `*ChargingInformation` blocks on the SMF/other-NF side.
 
 ## Disclosed divergence from PROMPT.md
+
+**Resolved (CHG-02 #7, 2026-10-24):** `CHARGING_PROMPT.md` P4.7 now carries CLAUDE.md's TMF API
+list (user-approved). The history below is kept as the record.
 
 CLAUDE.md's header states it condenses `PROMPT.md`, and that a disagreement between the two is a
 bug to flag, not silently resolve. **Citation corrected 2026-10-02 (docs-audit pass): the narrower

@@ -336,7 +336,8 @@ I will adjudicate before any mapping code is written.
 ### P4.7 — BSS layer + master/consumer/enterprise model (E1, E2, E9, E10)
 ```
 Implement the SID-aligned BSS layer per the APPROVED mapping: TMF620, 622, 632,
-635, 637, 666, 676, 678, aligned to ODA component boundaries. Implement the
+633, 635, 637, 638, 639, 651, 654, 666, 676, 678, 688, 727, aligned to ODA
+component boundaries. Implement the
 MASTER -> CONSUMER | ENTERPRISE specialisation with account hierarchy, pooled and
 shared quota, and split billing. Product, tariff and charging-plan definition
 must be fully data-driven and configurable via the front-end layer and rule

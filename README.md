@@ -430,6 +430,15 @@ Lab: `docker compose -f deploy/docker/docker-compose.yml up --build`.
 | [`specs/README.md`](specs/README.md) | Vendored spec inputs, and how to fetch the documents the code cites |
 | [`CHANGELOG.md`](CHANGELOG.md) | Releases and notable changes |
 
+<h2 align="center">3GPP specification gaps</h2>
+
+Places where the specifications leave a choice open or do not say what an implementation must do.
+Each entry records what this project does instead and the ADR with the reasoning.
+
+| Gap | Specs read | What this project does | ADR |
+|---|---|---|---|
+| No mapping from a PCF SM Policy Association release cause (TS 29.512 `SmPolicyAssociationReleaseCause`) to the 5GSM cause of the PDU SESSION RELEASE COMMAND the SMF sends (TS 24.501 6.3.3.2) | TS 23.502 4.3.4.2, 4.16.6; TS 29.512 4.2.3.3, 5.6.3.23; TS 24.501 6.3.3.2 | `INSUFFICIENT_RES` -> #26 "insufficient resources"; every other value -> #36 "regular deactivation" | [ADR-0523](docs/decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) |
+
 <h2 align="center">Contributing / working style</h2>
 
 This project is built in small, reviewable increments — one NF or subsystem at a time, with the

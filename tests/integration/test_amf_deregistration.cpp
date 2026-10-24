@@ -34,10 +34,19 @@
 
 #include "sbi_core/http2_client.hpp"
 
+#include <nlohmann/json.hpp>
+
+#include <arpa/inet.h>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <netinet/in.h>
+#include <regex>
 #include <string>
+#include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 #include "ngap_test_gnb.hpp"
@@ -214,6 +223,76 @@ void establish_pdu_session(NgapTestGnb& gnb,
     EXPECT_EQ((*n1_sm)[3], 0xC2) << "expected a PDU Session Establishment Accept";
 }
 
+// ADR-0523: same Prometheus scrape as test_n28_sy_end_to_end.cpp's copy (value line anchored at
+// the start of a line, unlabeled counter). -1 when unreachable or absent.
+long scrape_metric_value(int port, const std::string& metric_name) {
+    const int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        return -1;
+    }
+    timeval tv{2, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        close(sock);
+        return -1;
+    }
+    const std::string req = "GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if (send(sock, req.data(), req.size(), 0) < 0) {
+        close(sock);
+        return -1;
+    }
+    std::string body;
+    char buf[4096];
+    ssize_t n = 0;
+    while ((n = recv(sock, buf, sizeof(buf), 0)) > 0) {
+        body.append(buf, static_cast<std::size_t>(n));
+    }
+    close(sock);
+    // Unlabeled ("name value") or labeled ("name{...} value") value line; a counter never added to
+    // is not emitted at all, which is a real zero.
+    std::size_t value_start = 0;
+    if (const auto at = body.find("\n" + metric_name + " "); at != std::string::npos) {
+        value_start = at + metric_name.size() + 2;
+    } else if (const auto lb = body.find("\n" + metric_name + "{"); lb != std::string::npos) {
+        const auto brace = body.find('}', lb);
+        if (brace == std::string::npos) {
+            return -1;
+        }
+        value_start = brace + 2;
+    } else {
+        return 0;
+    }
+    try {
+        return std::stol(body.substr(value_start, body.find('\n', value_start) - value_start));
+    } catch (const std::exception&) {
+        return -1;
+    }
+}
+
+constexpr int kSmfMetricsPort = 9466;
+
+// The 5GSM message the UE received in a DL NAS TRANSPORT at `downlink_count`.
+std::vector<std::uint8_t>
+receive_n1_sm(NgapTestGnb& gnb, const RegisteredUe& ue, std::uint32_t downlink_count) {
+    const auto pdu = gnb.receive_raw();
+    if (pdu.empty()) {
+        return {};
+    }
+    NgapTestGnb::DownlinkNas dl;
+    if (!NgapTestGnb::extract_downlink_nas(pdu, dl)) {
+        return {};
+    }
+    const auto plain = nf_test::open_secured_downlink(ue.keys, downlink_count, dl.nas_pdu);
+    if (!plain.has_value()) {
+        return {};
+    }
+    return nf_test::extract_dl_nas_payload_container(*plain).value_or(std::vector<std::uint8_t>{});
+}
+
 } // namespace
 
 // The realistic, common path: register, establish a PDU session, then deregister normally
@@ -344,4 +423,141 @@ TEST(AmfDeregistration, SwitchOffDeregistrationSendsNoAccept) {
     EXPECT_EQ(nas_cause, kCauseNasDeregister);
 
     gnb.send_raw(gnb.build_ue_context_release_complete(ue.amf_ue_id, kRanUeId));
+}
+
+// ADR-0523, TS 23.502 4.3.4.2 trigger 1a: the UE's PDU SESSION RELEASE REQUEST reaches the SMF
+// through the AMF (UpdateSMContext, TS 24.501 5.4.5.2.2), the PDU SESSION RELEASE COMMAND comes
+// back with the UE's PTI and 5GSM cause #36 (TS 24.501 6.3.3.2), and the UE's RELEASE COMPLETE
+// ends it: the SMF notifies the AMF (step 11), which then has no SM context left to release at
+// deregistration.
+TEST(PduSessionRelease, UeRequestedReleaseCompletesThroughAmfAndSmf) {
+    Lab lab;
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kRanUeId = 1;
+    constexpr std::uint8_t kPsi = 5;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kRanUeId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kRanUeId, kPsi, /*pti=*/1));
+
+    constexpr std::uint8_t kReleasePti = 2;
+    const std::vector<std::uint8_t> release_request{0x2E, kPsi, kReleasePti, 0xD1};
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_ul_nas_transport_sm(ue.keys, /*uplink_count=*/3, kPsi, release_request)));
+
+    const auto command = receive_n1_sm(gnb, ue, /*downlink_count=*/3);
+    ASSERT_EQ(command.size(), 5U) << "no PDU SESSION RELEASE COMMAND reached the UE";
+    EXPECT_EQ(command[0], 0x2E);
+    EXPECT_EQ(command[1], kPsi);
+    EXPECT_EQ(command[2], kReleasePti) << "TS 24.501 6.3.3.2: the PTI of the RELEASE REQUEST";
+    EXPECT_EQ(command[3], 0xD3) << "expected PDU SESSION RELEASE COMMAND";
+    EXPECT_EQ(command[4], 36) << "5GSM cause #36 regular deactivation";
+
+    const std::vector<std::uint8_t> release_complete{0x2E, kPsi, kReleasePti, 0xD4};
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_ul_nas_transport_sm(ue.keys, /*uplink_count=*/4, kPsi, release_complete)));
+
+    long completed = -1;
+    for (int i = 0; i < 50 && completed != 1; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        completed = scrape_metric_value(kSmfMetricsPort, "smf_pdu_session_release_completed_total");
+    }
+    EXPECT_EQ(completed, 1);
+    EXPECT_EQ(scrape_metric_value(kSmfMetricsPort, "smf_pdu_session_release_command_total"), 1);
+
+    // Step 11 reached the AMF: deregistering now releases no SM context (the AMF dropped it).
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_deregistration_request(ue.keys,
+                                              /*uplink_count=*/5,
+                                              ue.guti_value,
+                                              /*switch_off=*/false)));
+    ASSERT_FALSE(gnb.receive_raw().empty()) << "no DeregistrationAccept";
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    EXPECT_EQ(scrape_metric_value(kSmfMetricsPort, "smf_release_sm_context_total"), 0)
+        << "the AMF still held the released session and asked the SMF to release it again";
+}
+
+// ADR-0523, trigger 1b: a PCF termination request (TS 29.512 4.2.3.3; the test plays the PCF, whose
+// own code never sends one) makes the SMF send a PDU SESSION RELEASE COMMAND with PTI 0 through
+// N1N2MessageTransfer; the UE's RELEASE COMPLETE completes the release.
+TEST(PduSessionRelease, PcfRequestedReleaseReachesTheUeAndCompletes) {
+    const std::string amf_log = std::string(::testing::TempDir()) + "pdu_release_amf.log";
+    nf_test::SpawnedProcess nrf{NRF_PATH};
+    nf_test::SpawnedProcess udr{UDR_PATH};
+    nf_test::SpawnedProcess udm{UDM_PATH};
+    nf_test::SpawnedProcess ausf{AUSF_PATH};
+    nf_test::SpawnedProcess pcf{PCF_PATH};
+    nf_test::SpawnedProcess smf{SMF_PATH};
+    nf_test::SpawnedProcess amf{AMF_PATH, amf_log.c_str()};
+    ASSERT_NO_FATAL_FAILURE(
+        wait_for_sbi_peers({kUdrProbe, kUdmProbe, kAusfProbe, kPcfProbe, kSmfProbe}));
+    NgapTestGnb gnb;
+    ASSERT_TRUE(gnb.connect(kAmfNgapAddress, kAmfNgapPort));
+    ASSERT_TRUE(gnb.ng_setup(kGnbId));
+    constexpr std::uint32_t kRanUeId = 1;
+    constexpr std::uint8_t kPsi = 6;
+    RegisteredUe ue;
+    ASSERT_NO_FATAL_FAILURE(register_ue(gnb, kRanUeId, ue));
+    ASSERT_NO_FATAL_FAILURE(establish_pdu_session(gnb, ue, kRanUeId, kPsi, /*pti=*/1));
+
+    // The SM context ref the AMF logged when the SMF created it.
+    // The AMF logs it after its CreateSMContext call returns, which can be just after the UE
+    // already has the Accept -- so wait for the line rather than read the file once.
+    std::string ref;
+    static const std::regex kRef(R"(smContextRef=([0-9a-zA-Z-]+))");
+    for (int i = 0; i < 30 && ref.empty(); ++i) {
+        std::ifstream in(amf_log);
+        const std::string log((std::istreambuf_iterator<char>(in)),
+                              std::istreambuf_iterator<char>());
+        std::smatch m;
+        if (std::regex_search(log, m, kRef)) {
+            ref = m[1].str();
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
+    ASSERT_FALSE(ref.empty()) << "no smContextRef in the AMF log";
+
+    auto client = make_client();
+    sbi_core::http2::ClientRequest term;
+    term.method = "POST";
+    term.url =
+        "https://127.0.0.1:7779/nsmf-pdusession/v1/sm-contexts/" + ref + "/pcf-notify/terminate";
+    term.headers.emplace("content-type", "application/json");
+    term.body = nlohmann::json{{"resourceUri",
+                                "https://127.0.0.1:7783/npcf-smpolicycontrol/v1/sm-policies/x"},
+                               {"cause", "UNSPECIFIED"}}
+                    .dump();
+    const auto resp = client.send(term);
+    ASSERT_TRUE(resp.has_value());
+    EXPECT_EQ(resp->status, 204) << resp->body;
+
+    const auto command = receive_n1_sm(gnb, ue, /*downlink_count=*/3);
+    ASSERT_EQ(command.size(), 5U) << "no PDU SESSION RELEASE COMMAND reached the UE";
+    EXPECT_EQ(command[1], kPsi);
+    EXPECT_EQ(command[2], 0) << "TS 24.501 6.3.3.2: no procedure transaction identity assigned";
+    EXPECT_EQ(command[3], 0xD3);
+    EXPECT_EQ(command[4], 36);
+
+    const std::vector<std::uint8_t> release_complete{0x2E, kPsi, 0, 0xD4};
+    gnb.send_raw(gnb.build_uplink_nas_transport(
+        ue.amf_ue_id,
+        kRanUeId,
+        nf_test::build_ul_nas_transport_sm(ue.keys, /*uplink_count=*/3, kPsi, release_complete)));
+    long completed = -1;
+    for (int i = 0; i < 50 && completed != 1; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        completed = scrape_metric_value(kSmfMetricsPort, "smf_pdu_session_release_completed_total");
+    }
+    EXPECT_EQ(completed, 1);
 }

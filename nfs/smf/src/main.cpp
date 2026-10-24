@@ -471,6 +471,12 @@ public:
         return it->second;
     }
 
+    // ADR-0522: the N4 session is gone at release, so its entry goes too.
+    void remove(std::uint64_t cp_seid) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sessions_.erase(cp_seid);
+    }
+
 private:
     std::mutex mutex_;
     std::unordered_map<std::uint64_t, CpSeidSessionInfo> sessions_;
@@ -1210,13 +1216,21 @@ perform_n40_charging_data_create(sbi_core::http2::Client& chf_client,
 // per invocation" violation this closes (a session that had at least one Update before Release
 // would previously send invocationSequenceNumber=2 for Release even after Update already used 2,
 // 3, ... for the same ChargingDataRef).
+// ADR-0522: the usage the UPF reported in its N4 Session Release Response (TS 29.244 7.5.7, Usage
+// Report IE 79), carried in Charging Data Request [Termination] (TS 32.255 5.2.2.2.4 step 2ch-a).
+struct FinalUsage {
+    std::uint32_t ur_seqn = 0;
+    std::uint64_t total_volume_octets = 0;
+};
+
 bool perform_n40_charging_data_release(sbi_core::http2::Client& chf_client,
                                        sbi_core::OAuth2Client& chf_oauth,
                                        const std::string& chf_base,
                                        const std::string& smf_instance_id,
                                        const std::string& supi,
                                        const std::string& charging_data_ref,
-                                       std::int64_t invocation_sequence_number) {
+                                       std::int64_t invocation_sequence_number,
+                                       const std::optional<FinalUsage>& final_usage) {
     auto token = chf_oauth.get_bearer_token();
     if (!token.has_value()) {
         spdlog::warn("smf: could not obtain a token for CHF, skipping Nchf_ConvergedCharging_"
@@ -1236,6 +1250,25 @@ bool perform_n40_charging_data_release(sbi_core::http2::Client& chf_client,
     chf_req.invocationTimeStamp = sbi_core::format_rfc3339(std::chrono::system_clock::now());
     chf_req.invocationSequenceNumber = invocation_sequence_number;
     chf_req.subscriberIdentifier = supi;
+    // ADR-0522, TS 32.255 5.2.2.2.4 step 2ch-a: trigger "End of PDU session", which TS 32.291
+    // encodes as triggerType FINAL on session level; reported immediately (TS 32.255 table
+    // 5.2.1.4.1).
+    sbi_gen::Trigger_Nchf_ConvergedCharging end_of_session{};
+    end_of_session.triggerType = "FINAL"; // TriggerType is an opaque anyOf (json) in sbi_gen
+    end_of_session.triggerCategory.value =
+        sbi_gen::TriggerCategory_Nchf_ConvergedCharging::IMMEDIATE_REPORT;
+    chf_req.triggers = std::vector<sbi_gen::Trigger_Nchf_ConvergedCharging>{end_of_session};
+    if (final_usage.has_value()) {
+        sbi_gen::UsedUnitContainer_Nchf_ConvergedCharging used_unit{};
+        used_unit.localSequenceNumber = final_usage->ur_seqn;
+        used_unit.totalVolume = static_cast<std::int64_t>(final_usage->total_volume_octets);
+        sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging unit_usage{};
+        unit_usage.ratingGroup = kDefaultRatingGroup;
+        unit_usage.usedUnitContainer =
+            std::vector<sbi_gen::UsedUnitContainer_Nchf_ConvergedCharging>{used_unit};
+        chf_req.multipleUnitUsage =
+            std::vector<sbi_gen::MultipleUnitUsage_Nchf_ConvergedCharging>{unit_usage};
+    }
 
     sbi_core::http2::ClientRequest chf_http_req;
     chf_http_req.method = "POST";
@@ -1421,6 +1454,87 @@ AuthSessAmbr auth_sess_ambr_from(const sbi_gen::SmPolicyDecision& decision) {
         // rate it had to guess at.
     }
     return out;
+}
+
+// ADR-0522: TS 23.502 4.3.4.2 steps 2a-2b, N4 Session Release = PFCP Session Deletion (TS 29.244
+// 7.5.6/7.5.7). The request is the header alone (addressed by the UP F-SEID); the response carries
+// the Cause and, for a session with a URR, the final Usage Report (IE 79).
+struct N4DeletionResult {
+    bool accepted = false;
+    std::optional<FinalUsage> final_usage;
+};
+
+N4DeletionResult perform_n4_session_deletion(smf::PfcpPeer& pfcp_peer,
+                                             const std::string& upf_ip,
+                                             std::uint64_t up_seid) {
+    N4DeletionResult result;
+    const boost::asio::ip::udp::endpoint upf_endpoint(boost::asio::ip::make_address(upf_ip),
+                                                      g_upf_pfcp_port);
+    pfcp_core::Header req_header;
+    req_header.has_seid = true;
+    req_header.seid = up_seid;
+    req_header.message_type = pfcp_core::MessageType::SessionDeletionRequest;
+    req_header.sequence_number = pfcp_peer.allocate_sequence_number();
+    const auto pdu = pfcp_core::encode_header(req_header, 0);
+
+    const auto resp_ie_bytes =
+        pfcp_peer.send_request_and_await_response(upf_endpoint,
+                                                  pdu,
+                                                  pfcp_core::MessageType::SessionDeletionResponse,
+                                                  req_header.sequence_number,
+                                                  "Session Deletion");
+    if (!resp_ie_bytes.has_value()) {
+        return result;
+    }
+    const auto resp_ies = pfcp_core::decode_ies(*resp_ie_bytes);
+    if (!resp_ies.has_value()) {
+        return result;
+    }
+    const auto* cause_ie =
+        pfcp_core::find_ie(*resp_ies, static_cast<std::uint16_t>(pfcp_core::IeType::Cause));
+    const auto cause =
+        cause_ie != nullptr ? pfcp_core::decode_cause(cause_ie->value) : std::nullopt;
+    if (!cause.has_value() || *cause != pfcp_core::Cause::RequestAccepted) {
+        spdlog::warn("smf: UPF rejected N4 Session Deletion (UP F-SEID={:#x}, cause={})",
+                     up_seid,
+                     cause.has_value() ? static_cast<int>(*cause) : -1);
+        return result;
+    }
+    result.accepted = true;
+
+    const auto* usage_ie = pfcp_core::find_ie(
+        *resp_ies, static_cast<std::uint16_t>(pfcp_core::IeType::UsageReportSessionDeletion));
+    if (usage_ie != nullptr) {
+        const auto usage_ies = pfcp_core::decode_ies(usage_ie->value);
+        const auto* seqn_ie =
+            usage_ies.has_value()
+                ? pfcp_core::find_ie(*usage_ies,
+                                     static_cast<std::uint16_t>(pfcp_core::IeType::UrSeqn))
+                : nullptr;
+        const auto* volume_ie =
+            usage_ies.has_value()
+                ? pfcp_core::find_ie(
+                      *usage_ies, static_cast<std::uint16_t>(pfcp_core::IeType::VolumeMeasurement))
+                : nullptr;
+        const auto seqn =
+            seqn_ie != nullptr ? pfcp_core::decode_ur_seqn(seqn_ie->value) : std::nullopt;
+        const auto volume =
+            volume_ie != nullptr ? pfcp_core::decode_volume_total(volume_ie->value) : std::nullopt;
+        if (seqn.has_value() && volume.has_value()) {
+            result.final_usage = FinalUsage{*seqn, *volume};
+        } else {
+            spdlog::warn("smf: N4 Session Deletion Response (UP F-SEID={:#x}) has a malformed "
+                         "Usage Report; no final usage to charge",
+                         up_seid);
+        }
+    }
+    spdlog::info("smf: UPF released N4 session (UP F-SEID={:#x}){}",
+                 up_seid,
+                 result.final_usage.has_value()
+                     ? ", final usage " + std::to_string(result.final_usage->total_volume_octets) +
+                           " octets"
+                     : std::string{});
+    return result;
 }
 
 // ADR-0328: re-authorise the session QER on the user plane after PCF changes its mind.
@@ -1780,6 +1894,215 @@ void report_pdu_session_to_nsacf(sbi_core::http2::Client& nsacf_client,
 }
 
 } // namespace
+
+// ---- ADR-0523: PDU session release, TS 23.502 4.3.4.2 (non-roaming) ----
+//
+// One set of steps, three triggers: 1a (UE PDU SESSION RELEASE REQUEST via UpdateSMContext), 1b
+// (PCF SM Policy Association termination request) and 1c (AMF ReleaseSMContext). What each trigger
+// does is in its own route; the steps are here.
+struct ReleaseDeps {
+    smf::SmContextStore& sm_contexts;
+    smf::PfcpPeer& pfcp_peer;
+    CpSeidSessionStore& cp_seid_sessions;
+    sbi_core::http2::Client& pcf_client;
+    sbi_core::OAuth2Client& pcf_oauth;
+    const std::string& pcf_base_url;
+    sbi_core::http2::Client& chf_client;
+    sbi_core::OAuth2Client& chf_oauth;
+    const std::string& chf_base_url;
+    sbi_core::http2::Client& amf_client;
+    sbi_core::OAuth2Client& amf_oauth;
+    const std::string& amf_base_url;
+    sbi_core::http2::Client& notify_client;
+    const std::string& smf_instance_id;
+    ChargingDataInvocationSeqStore& charging_data_invocation_seq;
+    std::unique_ptr<smf::SmfLiPoi>& li_poi;
+    opentelemetry::metrics::Counter<std::uint64_t>& n4_session_deletion_counter;
+    opentelemetry::metrics::Counter<std::uint64_t>& pcf_sm_policy_delete_counter;
+    opentelemetry::metrics::Counter<std::uint64_t>& chf_charging_data_release_counter;
+    opentelemetry::metrics::Counter<std::uint64_t>& release_command_counter;
+    opentelemetry::metrics::Counter<std::uint64_t>& release_completed_counter;
+};
+
+// Step 2 (2a-2b): N4 Session Release; then 2ch-a (TS 32.255 5.2.2.2.4): Charging Data Request
+// [Termination] with the UPF's final usage. Both best-effort: a failure is logged and the release
+// goes on (no step of 4.3.4.2 waits on them succeeding).
+// The released N4 and charging identifiers are erased from `stored`, so a later trigger for the
+// same context (e.g. the AMF's ReleaseSMContext while a network-requested release waits for the UE)
+// does not release them twice.
+void release_user_plane_and_charging(ReleaseDeps& d, const std::string& ref, json& stored) {
+    std::optional<FinalUsage> final_usage;
+    if (stored.contains("upSeid") && stored.contains("upfIp")) {
+        const auto n4 = perform_n4_session_deletion(d.pfcp_peer,
+                                                    stored.at("upfIp").get<std::string>(),
+                                                    stored.at("upSeid").get<std::uint64_t>());
+        if (n4.accepted) {
+            d.n4_session_deletion_counter.Add(1);
+            final_usage = n4.final_usage;
+        } else {
+            spdlog::warn("smf: N4 Session Release for smContextRef {} failed -- the UPF may still "
+                         "hold the session",
+                         ref);
+        }
+    }
+    if (stored.contains("cpSeid")) {
+        const auto cp_seid = stored.at("cpSeid").get<std::uint64_t>();
+        d.cp_seid_sessions.remove(cp_seid);
+        if (d.li_poi) {
+            d.li_poi->cc_end(cp_seid); // ADR-0464: withdraw the PFCP session from the CC tasks
+        }
+    }
+    if (stored.contains("chargingDataRef") && stored.contains("supi")) {
+        const auto charging_data_ref = stored.at("chargingDataRef").get<std::string>();
+        if (!charging_data_ref.empty() &&
+            perform_n40_charging_data_release(
+                d.chf_client,
+                d.chf_oauth,
+                d.chf_base_url,
+                d.smf_instance_id,
+                stored.at("supi").get<std::string>(),
+                charging_data_ref,
+                d.charging_data_invocation_seq.get_and_advance(charging_data_ref),
+                final_usage)) {
+            d.chf_charging_data_release_counter.Add(1);
+        }
+    }
+    for (const char* key : {"upSeid", "upfIp", "cpSeid", "chargingDataRef"}) {
+        stored.erase(key);
+    }
+}
+
+// Step 12 (and TS 29.512 4.2.3.3 / 4.2.5): Npcf_SMPolicyControl_Delete. Best-effort.
+void delete_sm_policy(ReleaseDeps& d, const json& stored) {
+    const auto sm_policy_id = stored.value("smPolicyId", std::string{});
+    if (sm_policy_id.empty()) {
+        return;
+    }
+    auto token = d.pcf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("smf: no PCF token for DeleteSMPolicy (smPolicyId={}): {}",
+                     sm_policy_id,
+                     token.error());
+        return;
+    }
+    sbi_core::http2::ClientRequest r;
+    r.method = "POST";
+    r.url = d.pcf_base_url + "/npcf-smpolicycontrol/v1/sm-policies/" + sm_policy_id + "/delete";
+    r.headers.emplace("content-type", "application/json");
+    r.headers.emplace("authorization", "Bearer " + *token);
+    r.body = json::object().dump();
+    const auto resp = d.pcf_client.send(r);
+    if (resp.has_value() && resp->status == 204) {
+        d.pcf_sm_policy_delete_counter.Add(1);
+    } else {
+        spdlog::warn("smf: DeleteSMPolicy failed for smPolicyId={}", sm_policy_id);
+    }
+}
+
+// The SMF's own context goes, with the LI release record (ADR-0463) and the CC withdrawal
+// (ADR-0464).
+void remove_sm_context(ReleaseDeps& d, const std::string& ref, const json& stored) {
+    d.sm_contexts.remove(ref);
+    if (d.li_poi && stored.contains("li")) {
+        d.li_poi->report_release(smf::li_session_from_context(stored));
+    }
+}
+
+// Step 11: Nsmf_PDUSession_SMContextStatusNotify (TS 29.502 smContextStatusNotification callback,
+// '{smContextStatusUri}', SmContextStatusNotification with statusInfo.resourceStatus RELEASED).
+// Notifications carry no OAuth2 token (TS 33.501 13.4.1.0).
+void notify_sm_context_released(ReleaseDeps& d, const std::string& ref, const json& stored) {
+    const auto uri = stored.value("smContextStatusUri", std::string{});
+    if (uri.empty()) {
+        spdlog::warn("smf: no smContextStatusUri for smContextRef {}; AMF not told of the release",
+                     ref);
+        return;
+    }
+    sbi_gen::SmContextStatusNotification_Nsmf_PDUSession n{};
+    n.statusInfo.resourceStatus.value = sbi_gen::ResourceStatus::RELEASED;
+    sbi_core::http2::ClientRequest r;
+    r.method = "POST";
+    r.url = uri;
+    r.headers.emplace("content-type", "application/json");
+    r.body = json(n).dump();
+    const auto resp = d.notify_client.send(r);
+    if (!resp.has_value() || resp->status != 204) {
+        spdlog::warn("smf: SMContextStatusNotify for smContextRef {} to {} failed ({})",
+                     ref,
+                     uri,
+                     resp.has_value() ? std::to_string(resp->status) : resp.error());
+    }
+}
+
+// Steps 11, 12 and the local removal: once the UE's reply is in (or none can come).
+void complete_release(ReleaseDeps& d, const std::string& ref, const json& stored) {
+    notify_sm_context_released(d, ref, stored);
+    delete_sm_policy(d, stored);
+    remove_sm_context(d, ref, stored);
+    d.release_completed_counter.Add(1);
+    spdlog::info(
+        "smf: PDU session {} (smContextRef {}) released", stored.value("pduSessionId", 0), ref);
+}
+
+// Step 3b: Namf_Communication_N1N2MessageTransfer with the PDU SESSION RELEASE COMMAND and the
+// skip indicator (TS 24.501 6.3.3.2: allowed when the 5GSM cause is not #39 and no Access type IE
+// is sent -- both hold here). No N2 SM Resource Release request: this AMF never activates the
+// user-plane connection at the RAN (no NGAP PDU Session Resource Setup outside handover), and step
+// 3 says it "shall not" be included then. True when the AMF answered N1_N2_TRANSFER_INITIATED.
+bool send_release_command_via_amf(ReleaseDeps& d,
+                                  const json& stored,
+                                  const std::vector<std::uint8_t>& command) {
+    auto token = d.amf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("smf: no AMF token for N1N2MessageTransfer: {}", token.error());
+        return false;
+    }
+    sbi_gen::N1N2MessageTransferReqData req{};
+    sbi_gen::N1MessageContainer n1{};
+    n1.n1MessageClass.value = sbi_gen::N1MessageClass::SM;
+    sbi_gen::RefToBinaryData ref_part{};
+    ref_part.contentId = "n1Message";
+    n1.n1MessageContent = ref_part;
+    req.n1MessageContainer = n1;
+    req.pduSessionId = stored.value("pduSessionId", 0);
+    req.skipInd = true;
+
+    sbi_core::multipart::Part json_part;
+    json_part.content_type = "application/json";
+    json_part.body = json(req).dump();
+    sbi_core::multipart::Part bin_part;
+    bin_part.content_type = "application/vnd.3gpp.5gnas";
+    bin_part.content_id = "n1Message";
+    bin_part.body.assign(command.begin(), command.end());
+    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+
+    sbi_core::http2::ClientRequest r;
+    r.method = "POST";
+    r.url = d.amf_base_url + "/namf-comm/v1/ue-contexts/" + stored.value("supi", std::string{}) +
+            "/n1-n2-messages";
+    r.headers.emplace("content-type", encoded.content_type_header);
+    r.headers.emplace("authorization", "Bearer " + *token);
+    r.body = encoded.body;
+    const auto resp = d.amf_client.send(r);
+    if (!resp.has_value() || resp->status != 200) {
+        return false;
+    }
+    try {
+        const auto rsp = json::parse(resp->body).get<sbi_gen::N1N2MessageTransferRspData>();
+        return rsp.cause.value == sbi_gen::N1N2MessageTransferCause::N1_N2_TRANSFER_INITIATED;
+    } catch (const json::exception&) {
+        return false;
+    }
+}
+
+// TS 24.501 6.3.3.2 5GSM cause for a PCF-requested release. TS 29.512's SmPolicyAssociationRelease
+// Cause has no mapping to a 5GSM cause in any spec read (README "3GPP specification gaps"):
+// INSUFFICIENT_RES -> #26 "insufficient resources", everything else -> #36 "regular deactivation".
+std::uint8_t sm_cause_for_pcf_release(const std::string& pcf_cause) {
+    constexpr std::uint8_t kInsufficientResources = 26;
+    constexpr std::uint8_t kRegularDeactivation = 36;
+    return pcf_cause == "INSUFFICIENT_RES" ? kInsufficientResources : kRegularDeactivation;
+}
 
 int main() {
     const auto config = nf_config::load("smf", CONFIG_DIR);
@@ -2198,9 +2521,21 @@ int main() {
     auto chf_charging_data_create_counter = meter->CreateUInt64Counter(
         "smf_chf_charging_data_create_total",
         "Total successful (best-effort) Nchf_ConvergedCharging_Create calls to CHF");
+    // ADR-0522: N4 Session Release (PFCP Session Deletion) accepted by the UPF.
+    auto n4_session_deletion_counter =
+        meter->CreateUInt64Counter("smf_n4_session_deletion_total",
+                                   "N4 sessions released at the UPF (PFCP Session Deletion "
+                                   "accepted), TS 23.502 4.3.4.2 step 2");
     auto chf_charging_data_release_counter = meter->CreateUInt64Counter(
         "smf_chf_charging_data_release_total",
         "Total successful (best-effort) Nchf_ConvergedCharging_Release calls to CHF");
+    // ADR-0523: network-requested PDU session release.
+    auto release_command_counter = meter->CreateUInt64Counter(
+        "smf_pdu_session_release_command_total",
+        "PDU SESSION RELEASE COMMANDs sent (TS 23.502 4.3.4.2 step 3a/3b)");
+    auto release_completed_counter = meter->CreateUInt64Counter(
+        "smf_pdu_session_release_completed_total",
+        "UE- or network-requested PDU session releases completed (step 11 reached)");
     // ADR-0201: Nsmf_EventExposure + Nsmf_NIDD counters.
     auto event_sub_create_counter =
         meter->CreateUInt64Counter("smf_event_exposure_create_subscription_total",
@@ -2235,6 +2570,11 @@ int main() {
     // rejection cause (§5.3.1.5(c)).
     // ADR-0286: how often PCF actually pushed a policy change to this SMF -- the N28 chain's own
     // observable proof that it is live rather than merely wired.
+    // ADR-0521: PCF-requested SM policy terminations received (recorded, not yet acted on).
+    auto pcf_termination_request_counter =
+        meter->CreateUInt64Counter("smf_pcf_termination_requests_total",
+                                   "SM Policy Association termination requests received from PCF "
+                                   "({notificationUri}/terminate)");
     auto pcf_policy_update_counter = meter->CreateUInt64Counter(
         "smf_pcf_policy_updates_total",
         "SM policy decisions pushed by PCF to SMF's notificationUri (N28/Sy chain)");
@@ -2466,7 +2806,12 @@ int main() {
             sm_contexts.update(sm_context_ref,
                                json{{"smPolicyId", sm_policy_id},
                                     {"policy", json(decision)},
-                                    {"supi", *body->supi}});
+                                    {"supi", *body->supi},
+                                    // ADR-0523: what a network-requested release needs -- the
+                                    // PDU session ID for the N1 command and N1N2MessageTransfer,
+                                    // and the AMF's callback for SMContextStatusNotify (step 11).
+                                    {"pduSessionId", *body->pduSessionId},
+                                    {"smContextStatusUri", body->smContextStatusUri}});
             pcf_sm_policy_create_counter->Add(1);
 
             // N40, ADR-0044/ADR-0046/ADR-0050: real Nchf_ConvergedCharging_Create, moved ahead of
@@ -2768,6 +3113,28 @@ int main() {
             return resp;
         };
 
+    ReleaseDeps release_deps{sm_contexts,
+                             pfcp_peer,
+                             cp_seid_sessions,
+                             pcf_client,
+                             pcf_oauth,
+                             pcf_base_url,
+                             chf_client,
+                             chf_oauth,
+                             chf_base_url,
+                             amf_client,
+                             amf_oauth,
+                             amf_base_url,
+                             amf_client,
+                             smf_instance_id,
+                             charging_data_invocation_seq,
+                             li_poi,
+                             *n4_session_deletion_counter,
+                             *pcf_sm_policy_delete_counter,
+                             *chf_charging_data_release_counter,
+                             *release_command_counter,
+                             *release_completed_counter};
+
     // ADR-0262: TS 28.552 clause 5.3.1.3-5, taken around the real handler.
     //
     // Where "receipt" begins, stated as a reading rather than left implicit: §5.3.1.3(c) says
@@ -2947,9 +3314,13 @@ int main() {
     // would assert that blocking one flow blocks the session -- an enforcement semantic the spec
     // does not state. Fully barring a subscriber is a PDU session release, a different procedure.
     // Named here rather than approximated.
+    //
+    // ADR-0521 (REVIEW-5ae0ef1 SPEC-05): TS 29.512's callbacks are "{notificationUri}/update"
+    // (SmPolicyUpdateNotification) and "{notificationUri}/terminate"
+    // (SmPolicyControlTerminationRequestNotification); the bare notificationUri is not served.
     server.add_route(
         "POST",
-        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify",
+        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify/update",
         [&sm_contexts, &pcf_policy_update_counter, &pcf_policy_enforced_counter, &pfcp_peer](
             const sbi_core::http2::Request& req) {
             // No bearer check: this is a notification endpoint PCF calls back on a URI SMF itself
@@ -2957,11 +3328,11 @@ int main() {
             const auto ref = req.path_params.at("smContextRef");
             auto stored = sm_contexts.get(ref);
             if (!stored.has_value()) {
-                return sbi_core::http2::problem_response(404,
-                                                         "Not Found",
-                                                         "No SM context " + ref +
-                                                             " for this policy notification",
-                                                         std::nullopt);
+                return sbi_core::http2::problem_response(
+                    404,
+                    "Not Found",
+                    "No SM context " + ref + " for this policy notification",
+                    "POLICY_CONTEXT_NOT_FOUND"); // TS 29.512 4.2.3.2, table 5.7.3-2
             }
 
             sbi_core::http2::Response err;
@@ -3051,6 +3422,61 @@ int main() {
         // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
         sbi_core::http2::RouteAuth::None);
 
+    // ADR-0521 / ADR-0523: TS 29.512 4.2.3.3, PCF-requested SM Policy Association termination --
+    // TS 23.502 4.3.4.2 trigger 1b. Step 2 (+2ch), then 3b: the PDU SESSION RELEASE COMMAND (PTI
+    // "no procedure transaction identity assigned") over N1N2MessageTransfer. When the AMF cannot
+    // reach the UE (any answer other than N1_N2_TRANSFER_INITIATED) the procedure goes straight to
+    // step 11 (step 3, first paragraph); otherwise steps 11-12 run when the UE's PDU SESSION
+    // RELEASE COMPLETE arrives (the /modify route). The 204 is the TS 29.512 acknowledgement.
+    server.add_route(
+        "POST",
+        std::string(kApiRoot) + "/sm-contexts/{smContextRef}/pcf-notify/terminate",
+        [&release_deps, &pcf_termination_request_counter](const sbi_core::http2::Request& req) {
+            const auto ref = req.path_params.at("smContextRef");
+            auto stored = release_deps.sm_contexts.get(ref);
+            if (!stored.has_value()) {
+                return sbi_core::http2::problem_response(
+                    404,
+                    "Not Found",
+                    "No SM context " + ref + " for this termination request",
+                    "POLICY_CONTEXT_NOT_FOUND"); // TS 29.512 table 5.7.3-2
+            }
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::TerminationNotification_Npcf_SMPolicyControl>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            pcf_termination_request_counter->Add(1);
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            if (stored->value("releasePending", false)) {
+                return resp; // a release is already under way
+            }
+            (*stored)["pcfTerminationRequest"] = json(*body);
+            release_user_plane_and_charging(release_deps, ref, *stored);
+            const auto command = smf::nas5gsm::encode_release_command(
+                static_cast<std::uint8_t>(stored->value("pduSessionId", 0)),
+                0,
+                sm_cause_for_pcf_release(json(body->cause).get<std::string>()));
+            if (send_release_command_via_amf(release_deps, *stored, command)) {
+                release_deps.release_command_counter.Add(1);
+                (*stored)["releasePending"] = true;
+                release_deps.sm_contexts.update(ref, *stored);
+                spdlog::info("smf: PCF-requested release of smContextRef {}: PDU SESSION RELEASE "
+                             "COMMAND sent, waiting for the UE",
+                             ref);
+            } else {
+                spdlog::info("smf: PCF-requested release of smContextRef {}: the UE could not be "
+                             "reached, releasing without it (TS 23.502 4.3.4.2 step 3)",
+                             ref);
+                complete_release(release_deps, ref, *stored);
+            }
+            return resp;
+        },
+        // TS 33.501 13.4.1.0: OAuth 2.0 does not apply to the notification operation (ADR-0499).
+        sbi_core::http2::RouteAuth::None);
+
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/retrieve",
@@ -3084,7 +3510,8 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/modify",
-        [&sm_contexts, &update_counter, &pfcp_peer, &li_poi](const sbi_core::http2::Request& req) {
+        [&sm_contexts, &update_counter, &pfcp_peer, &li_poi, &release_deps](
+            const sbi_core::http2::Request& req) {
             // Real, both-real-shapes content negotiation (TS29502_Nsmf_PDUSession.yaml's own
             // UpdateSmContext requestBody: application/json "message without binary body part" OR
             // multipart/related "message with binary body part(s)") -- unlike CreateSMContext,
@@ -3094,6 +3521,7 @@ int main() {
             std::optional<sbi_gen::SmContextUpdateData_Nsmf_PDUSession> body;
             std::vector<std::uint8_t> n2_sm_info_bytes;
             bool has_n2_sm_info_bytes = false;
+            std::optional<std::vector<std::uint8_t>> n1_sm_msg_bytes; // ADR-0523
             const auto content_type_it = req.headers.find("content-type");
             const bool is_multipart =
                 content_type_it != req.headers.end() &&
@@ -3112,6 +3540,15 @@ int main() {
                                                              "Missing or invalid mandatory IE",
                                                              e.what(),
                                                              sbi_core::http2::dto_error_cause(e));
+                }
+                if (body->n1SmMsg.has_value()) {
+                    for (const auto& part : *parts) {
+                        if (part.content_id.has_value() &&
+                            *part.content_id == body->n1SmMsg->contentId) {
+                            n1_sm_msg_bytes.emplace(part.body.begin(), part.body.end());
+                            break;
+                        }
+                    }
                 }
                 if (body->n2SmInfo.has_value()) {
                     for (const auto& part : *parts) {
@@ -3139,6 +3576,64 @@ int main() {
                     404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
             }
             update_counter->Add(1);
+
+            // ADR-0523, TS 23.502 4.3.4.2: the 5GSM messages of a PDU session release.
+            //   PDU SESSION RELEASE REQUEST (trigger 1a): step 2 (+2ch), then 3a -- this response
+            //   carries the PDU SESSION RELEASE COMMAND (the UE's PTI, 5GSM cause #36 "regular
+            //   deactivation"; no N2 SM Resource Release request, the UP connection is never active
+            //   at the RAN in this build).
+            //   PDU SESSION RELEASE COMPLETE (10a): 10b, and steps 11-12.
+            if (n1_sm_msg_bytes.has_value()) {
+                const auto sm = smf::nas5gsm::decode_sm_header(*n1_sm_msg_bytes);
+                using smf::nas5gsm::SmMessage;
+                if (sm.has_value() &&
+                    sm->message_type == static_cast<std::uint8_t>(SmMessage::kReleaseRequest)) {
+                    auto ctx = *stored_ctx;
+                    if (!ctx.value("releasePending", false)) {
+                        release_user_plane_and_charging(release_deps, sm_context_ref, ctx);
+                        ctx["releasePending"] = true;
+                        release_deps.sm_contexts.update(sm_context_ref, ctx);
+                    }
+                    constexpr std::uint8_t kRegularDeactivation = 36;
+                    const auto command = smf::nas5gsm::encode_release_command(
+                        sm->pdu_session_id, sm->pti, kRegularDeactivation);
+                    release_deps.release_command_counter.Add(1);
+                    sbi_gen::SmContextUpdatedData updated{};
+                    sbi_gen::RefToBinaryData n1_ref{};
+                    n1_ref.contentId = "n1SmMsg";
+                    updated.n1SmMsg = n1_ref;
+                    sbi_core::multipart::Part json_part;
+                    json_part.content_type = "application/json";
+                    json_part.body = json(updated).dump();
+                    sbi_core::multipart::Part bin_part;
+                    bin_part.content_type = "application/vnd.3gpp.5gnas";
+                    bin_part.content_id = "n1SmMsg";
+                    bin_part.body.assign(command.begin(), command.end());
+                    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+                    sbi_core::http2::Response resp;
+                    resp.status = 200;
+                    resp.headers.emplace("content-type", encoded.content_type_header);
+                    resp.body = encoded.body;
+                    spdlog::info("smf: UE requested release of smContextRef {} (PTI {}): PDU "
+                                 "SESSION RELEASE COMMAND returned to the AMF",
+                                 sm_context_ref,
+                                 sm->pti);
+                    return resp;
+                }
+                if (sm.has_value() &&
+                    sm->message_type == static_cast<std::uint8_t>(SmMessage::kReleaseComplete)) {
+                    if (stored_ctx->value("releasePending", false)) {
+                        complete_release(release_deps, sm_context_ref, *stored_ctx);
+                    } else {
+                        spdlog::warn("smf: PDU SESSION RELEASE COMPLETE for smContextRef {} with "
+                                     "no release under way -- ignored",
+                                     sm_context_ref);
+                    }
+                    sbi_core::http2::Response resp;
+                    resp.status = 204;
+                    return resp;
+                }
+            }
 
             // Gap-closure (docs/CAPABILITY_GAP_ANALYSIS.md task #101, ADR-0092): real
             // PATH_SWITCH_REQ handling -- the one N2SmInfoType this project closes real, live
@@ -4038,21 +4533,9 @@ int main() {
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/sm-contexts/{smContextRef}/release",
-        [&sm_contexts,
-         &li_poi,
-         &release_counter,
-         &pcf_client,
-         &pcf_oauth,
-         &pcf_base_url,
-         &pcf_sm_policy_delete_counter,
-         &chf_client,
-         &chf_oauth,
-         &chf_base_url,
-         &chf_charging_data_release_counter,
-         &smf_instance_id,
-         &charging_data_invocation_seq](const sbi_core::http2::Request& req) {
+        [&release_deps, &release_counter](const sbi_core::http2::Request& req) {
             const auto sm_context_ref = req.path_params.at("smContextRef");
-            auto stored = sm_contexts.get(sm_context_ref);
+            auto stored = release_deps.sm_contexts.get(sm_context_ref);
             if (!stored.has_value()) {
                 return sbi_core::http2::problem_response(
                     404, "Not Found", "No SM context with ref " + sm_context_ref, std::nullopt);
@@ -4067,71 +4550,13 @@ int main() {
                     return err;
                 }
             }
-
-            // Best-effort DeleteSMPolicy -- see file header for why this doesn't gate local
-            // release the way CreateSMContext's PCF call gates creation.
-            if (stored->contains("smPolicyId")) {
-                const auto sm_policy_id = (*stored)["smPolicyId"].get<std::string>();
-                if (!sm_policy_id.empty()) {
-                    auto token = pcf_oauth.get_bearer_token();
-                    if (!token.has_value()) {
-                        spdlog::warn(
-                            "smf: could not obtain a PCF token for best-effort DeleteSMPolicy "
-                            "(smPolicyId={}): {}",
-                            sm_policy_id,
-                            token.error());
-                    } else {
-                        sbi_core::http2::ClientRequest pcf_http_req;
-                        pcf_http_req.method = "POST";
-                        pcf_http_req.url = pcf_base_url + "/npcf-smpolicycontrol/v1/sm-policies/" +
-                                           sm_policy_id + "/delete";
-                        pcf_http_req.headers.emplace("content-type", "application/json");
-                        pcf_http_req.headers.emplace("authorization", "Bearer " + *token);
-                        pcf_http_req.body = json::object().dump();
-                        auto pcf_resp = pcf_client.send(pcf_http_req);
-                        if (pcf_resp.has_value() && pcf_resp->status == 204) {
-                            pcf_sm_policy_delete_counter->Add(1);
-                        } else {
-                            spdlog::warn("smf: best-effort DeleteSMPolicy failed for smPolicyId={}",
-                                         sm_policy_id);
-                        }
-                    }
-                }
-            }
-
-            // Best-effort Nchf_ConvergedCharging_Release (ADR-0046) -- same discipline as
-            // DeleteSMPolicy directly above: local release must not block on CHF being
-            // unreachable. Needs both chargingDataRef (from Create's response, ADR-0044) and supi
-            // (stored alongside smPolicyId above) -- if either is missing (e.g. Create's own N40
-            // call never succeeded for this session), there's nothing valid to release, skipped
-            // rather than sent with a fabricated ref.
-            if (stored->contains("chargingDataRef") && stored->contains("supi")) {
-                const auto charging_data_ref = (*stored)["chargingDataRef"].get<std::string>();
-                const auto supi = (*stored)["supi"].get<std::string>();
-                if (!charging_data_ref.empty() &&
-                    perform_n40_charging_data_release(
-                        chf_client,
-                        chf_oauth,
-                        chf_base_url,
-                        smf_instance_id,
-                        supi,
-                        charging_data_ref,
-                        charging_data_invocation_seq.get_and_advance(charging_data_ref))) {
-                    chf_charging_data_release_counter->Add(1);
-                }
-            }
-
-            sm_contexts.remove(sm_context_ref);
+            // TS 23.502 4.3.4.2 trigger 1c: step 2 (+2ch), then 3c (this response); steps 4-11 are
+            // skipped. The SM policy is deleted here too (step 12 / TS 29.512 4.2.5) --
+            // best-effort, see the file header for why it does not gate local release.
+            release_user_plane_and_charging(release_deps, sm_context_ref, *stored);
+            delete_sm_policy(release_deps, *stored);
+            remove_sm_context(release_deps, sm_context_ref, *stored);
             release_counter->Add(1);
-            // ADR-0463: TS 33.128 6.2.3.2.4 -- the SMF answers ReleaseSMContext:
-            // SMFPDUSessionRelease.
-            if (li_poi && stored->contains("li")) {
-                li_poi->report_release(smf::li_session_from_context(*stored));
-            }
-            // ADR-0464: withdraw the PFCP session from the UPF's CC tasks.
-            if (li_poi && stored->contains("cpSeid")) {
-                li_poi->cc_end(stored->at("cpSeid").get<std::uint64_t>());
-            }
             sbi_core::http2::Response resp;
             resp.status = 204;
             return resp;

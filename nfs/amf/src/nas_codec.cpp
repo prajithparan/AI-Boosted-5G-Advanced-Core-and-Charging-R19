@@ -750,6 +750,7 @@ std::optional<UlNasTransportInfo> decode_ul_nas_transport(const aka_crypto::NasI
                 break;
             off += 2 + len;
         } else if ((tag >> 4) == kIeiNibbleUlNasRequestType) {
+            out.request_type = static_cast<std::uint8_t>(tag & 0x07);
             off += 1;
         } else {
             break; // unknown optional IE -- stop rather than misparse, disclosed limitation

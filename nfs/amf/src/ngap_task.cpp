@@ -2066,6 +2066,115 @@ bool try_relay_uplink_sms(const PeerEndpoints& peers,
     return true;
 }
 
+// ADR-0523: TS 24.501 5.4.5.2.2 / TS 23.502 4.3.4.2 steps 1a, 3a and 8-10a. An UL NAS TRANSPORT
+// carrying N1 SM information with no Request type, for a PDU session this UE holds, goes to the SMF
+// of that session as Nsmf_PDUSession_UpdateSMContext (n1SmMsg); an N1 SM message in the SMF's
+// answer (the PDU SESSION RELEASE COMMAND of step 3a) goes back to the UE as DL NAS TRANSPORT.
+// Returns true iff the message was such an UL NAS TRANSPORT (its uplink COUNT is then consumed).
+// Disclosed: no User Location Information in the update (step 1a/10a list it); the AMF does not
+// interpret the 5GSM content.
+bool try_relay_uplink_sm(const PeerEndpoints& peers,
+                         sbi_core::http2::Client& smf_client,
+                         sbi_core::OAuth2Client& smf_oauth,
+                         UeAuthState& auth_state,
+                         UeContextStore& ue_contexts,
+                         NgapUeRegistry& ue_ngap_registry,
+                         const InitiatingMessage_t& msg) {
+    if (!auth_state.knas_int.has_value() || !auth_state.knas_enc.has_value()) {
+        return false;
+    }
+    const auto nas = extract_uplink_nas_pdu(msg);
+    if (!nas.has_value()) {
+        return false;
+    }
+    const auto ul = amf::nas::decode_ul_nas_transport(
+        *auth_state.knas_int, *auth_state.knas_enc, auth_state.next_uplink_count, *nas);
+    if (!ul.has_value() || !ul->mac_valid || ul->payload_container_type != 0x01 ||
+        ul->request_type.has_value()) {
+        return false;
+    }
+    const auto ctx = ue_contexts.get(auth_state.supi);
+    const auto psi = std::to_string(ul->pdu_session_id);
+    if (!ctx.has_value() || !ctx->contains("smContextRefs") ||
+        !ctx->at("smContextRefs").contains(psi)) {
+        return false;
+    }
+    auth_state.next_uplink_count += 1;
+    const auto sm_context_ref = ctx->at("smContextRefs").at(psi).get<std::string>();
+
+    const auto token = smf_oauth.get_bearer_token();
+    if (!token.has_value()) {
+        spdlog::warn("amf-ngap: no SMF token, N1 SM message for SUPI {} pduSessionId {} not "
+                     "relayed: {}",
+                     auth_state.supi,
+                     psi,
+                     token.error());
+        return true;
+    }
+    sbi_gen::SmContextUpdateData_Nsmf_PDUSession update{};
+    sbi_gen::RefToBinaryData n1_ref{};
+    n1_ref.contentId = "n1SmMsg";
+    update.n1SmMsg = n1_ref;
+    sbi_core::multipart::Part json_part;
+    json_part.content_type = "application/json";
+    json_part.body = nlohmann::json(update).dump();
+    sbi_core::multipart::Part bin_part;
+    bin_part.content_type = "application/vnd.3gpp.5gnas";
+    bin_part.content_id = "n1SmMsg";
+    bin_part.body.assign(ul->payload_container.begin(), ul->payload_container.end());
+    const auto encoded = sbi_core::multipart::encode({json_part, bin_part});
+
+    sbi_core::http2::ClientRequest http_req;
+    http_req.method = "POST";
+    http_req.url = peers.smf_base + "/nsmf-pdusession/v1/sm-contexts/" + sm_context_ref + "/modify";
+    http_req.headers.emplace("content-type", encoded.content_type_header);
+    http_req.headers.emplace("authorization", "Bearer " + *token);
+    http_req.body = encoded.body;
+    const auto resp = smf_client.send(http_req);
+    if (!resp.has_value() || (resp->status != 200 && resp->status != 204)) {
+        spdlog::warn("amf-ngap: UpdateSMContext (n1SmMsg) failed for SUPI {} pduSessionId {} ({})",
+                     auth_state.supi,
+                     psi,
+                     resp.has_value() ? std::to_string(resp->status) : resp.error());
+        return true;
+    }
+    if (resp->status == 200) {
+        const auto ct = resp->headers.find("content-type");
+        if (ct != resp->headers.end() && sbi_core::multipart::is_multipart_related(ct->second)) {
+            if (const auto parts = sbi_core::multipart::parse(ct->second, resp->body);
+                parts.has_value() && !parts->empty()) {
+                std::string wanted;
+                try {
+                    const auto root = nlohmann::json::parse((*parts)[0].body);
+                    if (root.contains("n1SmMsg")) {
+                        wanted = root.at("n1SmMsg").value("contentId", std::string{});
+                    }
+                } catch (const nlohmann::json::exception&) {
+                }
+                for (const auto& part : *parts) {
+                    if (!wanted.empty() && part.content_id.has_value() &&
+                        *part.content_id == wanted) {
+                        const std::vector<std::uint8_t> n1(part.body.begin(), part.body.end());
+                        if (!ue_ngap_registry.send_dl_nas_transport(
+                                auth_state.supi, ul->pdu_session_id, n1)) {
+                            spdlog::warn("amf-ngap: no live association for SUPI {} -- the SMF's "
+                                         "N1 SM answer could not be delivered",
+                                         auth_state.supi);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    spdlog::info("amf-ngap: N1 SM message for SUPI {} pduSessionId {} relayed to the SMF "
+                 "(smContextRef {})",
+                 auth_state.supi,
+                 psi,
+                 sm_context_ref);
+    return true;
+}
+
 void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& peers,
                                                            sbi_core::http2::Client& smf_client,
                                                            sbi_core::OAuth2Client& smf_oauth,
@@ -2141,7 +2250,11 @@ void handle_uplink_nas_transport_pdu_session_establishment(const PeerEndpoints& 
     create_data.anType.value = sbi_gen::AccessType::V3GPP_ACCESS;
     // Mandatory per TS 29.502's schema even though nothing here implements a receiver yet -- same
     // disclosed-deferred-callback shape as peers.self_base's other use (PCF's notificationUri).
-    create_data.smContextStatusUri = peers.self_base + "/namf-callback/v1/sm-context-status";
+    // ADR-0523: one URI per PDU session -- TS 29.502's SmContextStatusNotification names no SM
+    // context, so the URI is what tells the AMF which session the SMF released (step 11).
+    create_data.smContextStatusUri = peers.self_base + "/namf-callback/v1/sm-context-status/" +
+                                     auth_state.supi + "/" +
+                                     std::to_string(outcome->pdu_session_id);
     create_data.supi = auth_state.supi;
     create_data.pduSessionId = outcome->pdu_session_id;
     create_data.dnn = *outcome->dnn;
@@ -2713,6 +2826,16 @@ void handle_association(const PeerEndpoints& peers,
                                              smsf_oauth,
                                              auth_state,
                                              *pdu->choice.initiatingMessage)) {
+                        break;
+                    }
+                    // ADR-0523: a 5GSM message for an existing PDU session (release).
+                    if (try_relay_uplink_sm(peers,
+                                            smf_client,
+                                            smf_oauth,
+                                            auth_state,
+                                            ue_contexts,
+                                            ue_ngap_registry,
+                                            *pdu->choice.initiatingMessage)) {
                         break;
                     }
                     // ADR-0393: the one post-establishment NAS procedure this AMF implements --

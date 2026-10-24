@@ -42,11 +42,27 @@ def check_object(schema: dict, instance: dict, registry: SchemaRegistry, from_fi
         if key not in properties:
             errors.append(f"{path}: property '{key}' is not declared in the schema")
             continue
-        prop_schema = properties[key]
-        if "$ref" in prop_schema and isinstance(value, dict):
-            name, resolved, source_file = registry.resolve_ref(prop_schema["$ref"], from_file)
-            errors.extend(check_object(resolved, value, registry, source_file, f"{path}.{key}"))
+        errors.extend(check_value(properties[key], value, registry, from_file, f"{path}.{key}"))
 
+    return errors
+
+
+def check_value(prop_schema: dict, value, registry: SchemaRegistry, from_file: str, path: str) -> list[str]:
+    """A property's value: a $ref object, and (ADR-0519) the members of a map
+    (additionalProperties: $ref) and the items of an array (items: $ref). A null
+    (merge-patch removal) is not checked."""
+    if "$ref" in prop_schema and isinstance(value, dict):
+        name, resolved, source_file = registry.resolve_ref(prop_schema["$ref"], from_file)
+        return check_object(resolved, value, registry, source_file, path)
+    errors = []
+    extra = prop_schema.get("additionalProperties")
+    if isinstance(extra, dict) and "$ref" in extra and isinstance(value, dict):
+        for k, v in value.items():
+            errors.extend(check_value(extra, v, registry, from_file, f"{path}[{k}]"))
+    items = prop_schema.get("items")
+    if isinstance(items, dict) and "$ref" in items and isinstance(value, list):
+        for i, v in enumerate(value):
+            errors.extend(check_value(items, v, registry, from_file, f"{path}[{i}]"))
     return errors
 
 
@@ -114,6 +130,33 @@ def main() -> int:
             check_object(schema, json.loads(sample_path.read_text()), registry,
                          yaml_file, schema_name)
         )
+
+    # ADR-0519: the NEF's Npcf_PolicyAuthorization create and update bodies
+    # (tests/conformance/test_nef_qos_mapping.cpp).
+    registry.load_file("TS29514_Npcf_PolicyAuthorization.yaml")
+    for sample, schema_name in (("nef_pcf_app_session_req.json", "AppSessionContextReqData"),
+                                ("nef_pcf_app_session_update.json", "AppSessionContextUpdateDataPatch")):
+        sample_path = samples_dir / sample
+        if not sample_path.exists():
+            print(f"FAIL: {sample_path} not found", file=sys.stderr)
+            return 1
+        schema = registry.schemas[("TS29514_Npcf_PolicyAuthorization.yaml", schema_name)]
+        all_errors.extend(
+            check_object(schema, json.loads(sample_path.read_text()), registry,
+                         "TS29514_Npcf_PolicyAuthorization.yaml", schema_name)
+        )
+
+    # ADR-0520: the NEF's notification to the AF (tests/conformance/test_nef_qos_mapping.cpp).
+    registry.load_file("TS29122_AsSessionWithQoS.yaml")
+    sample_path = samples_dir / "nef_af_user_plane_notification.json"
+    if not sample_path.exists():
+        print(f"FAIL: {sample_path} not found", file=sys.stderr)
+        return 1
+    all_errors.extend(
+        check_object(registry.schemas[("TS29122_AsSessionWithQoS.yaml", "UserPlaneNotificationData")],
+                     json.loads(sample_path.read_text()), registry,
+                     "TS29122_AsSessionWithQoS.yaml", "UserPlaneNotificationData")
+    )
 
     if all_errors:
         print("FAIL: structural conformance violations:", file=sys.stderr)

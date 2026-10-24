@@ -475,6 +475,12 @@ sentence of the decision: `docs/decisions/INDEX_DETAIL.md`. Do not edit by hand 
 - [0509](decisions/ADR-0509-release-ownership-and-repository-security-process-changelog.md) Release, ownership and repository-security process: CHANGELOG and SemVer, CODEOWNERS and area labels, Dependabot, CodeQL, Scorecard, main ruleset
 - [0510](decisions/ADR-0510-github-organization-core5gabssoss-repository-moved-to.md) GitHub organization core5gaBssOss: repository moved to core5gaBssOss/core5gaBssOss, one repository plus an org profile, runner stays repository-level
 - [0511](decisions/ADR-0511-readme-restored-to-the-full-project-page-updated-reverses.md) README restored to the full project page, updated; reverses ADR-0508's README cut (user-directed)
+- [0519](decisions/ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md) NEF AsSessionWithQoS: media component and PCF event subscription (SPEC-01, increment 1)
+- [0520](decisions/ADR-0520-nef-assessionwithqos-pcf-event-and-termination.md) NEF AsSessionWithQoS: PCF event and termination notifications to the AF (SPEC-01, increment 2)
+- [0521](decisions/ADR-0521-n7-callbacks-pcf-posts-to-notificationuri-update-smf-serves.md) N7 callbacks: PCF posts to {notificationUri}/update, SMF serves /update and /terminate (SPEC-05)
+- [0522](decisions/ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md) SMF releases the N4 session at the UPF on PDU session release; final usage to the CHF
+- [0523](decisions/ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md) UE- and PCF-requested PDU session release (TS 23.502 4.3.4.2, N1 path)
+- [0524](decisions/ADR-0524-charging-mapping-decisions-tm-forum-homes-for-event-based.md) Charging mapping decisions: TM Forum homes for event-based charging, grants, sharing, ordering (CHG-02)
 
 Non-ADR sections (verbatim, in `docs/decisions/_other/`):
 

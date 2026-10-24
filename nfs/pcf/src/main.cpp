@@ -513,7 +513,9 @@ void notify_smf_of_policy_change(sbi_core::http2::Client& client,
 
             sbi_core::http2::ClientRequest req;
             req.method = "POST";
-            req.url = notification_uri;
+            // TS 29.512 4.2.3.2 / SmPolicyUpdateNotification callback: "{notificationUri}/update"
+            // (REVIEW-5ae0ef1 SPEC-05, ADR-0521).
+            req.url = notification_uri + "/update";
             req.headers.emplace("content-type", "application/json");
             req.body = nlohmann::json(notification).dump();
             auto resp = client.send(req);

@@ -39,11 +39,12 @@ TEST(NefAuthorization, SbiAndNorthboundApisNeedATokenForTheNefAndCallbacksDoNot)
         client, northbound, nf_test::oauth2_test_token(client, "nnef-eventexposure", "NEF"));
     EXPECT_EQ(resp.status, 400) << "any scope will do -- the YAML declares none: " << resp.body;
 
-    resp = nf_test::send_to(client,
-                            {.method = "POST",
-                             .url = "https://127.0.0.1:7790/nnef-callback/v1/qos-notify/af-1/sub-1",
-                             .body = "{}"},
-                            "");
+    resp = nf_test::send_to(
+        client,
+        {.method = "POST",
+         .url = "https://127.0.0.1:7790/nnef-callback/v1/qos-notify/af-1/sub-1/notify",
+         .body = "{}"},
+        "");
     EXPECT_NE(resp.status, 0);
     EXPECT_NE(resp.status, 401) << "the notification reaches its handler without a token: "
                                 << resp.body;

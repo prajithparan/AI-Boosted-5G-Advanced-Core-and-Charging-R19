@@ -20,9 +20,10 @@
 // Target formats accepted over LI_X1 (clause 7.7.1.2): SUPIIMSI, SUPINAI, GPSIMSISDN, GPSINAI.
 // Disclosed: the record is keyed on gPSI (mandatory) and the NEF knows no GPSI<->SUPI binding, so
 // only GPSI targets match; a subscription naming the UE by IP address only is not reported. NOT
-// wired: NEFAFSessionWithQoSNotification (the AF-bound notification is not a TS 29.122
-// UserPlaneNotificationData yet), NIDD, device triggering, MSISDN-less MO SMS, parameter and 5G LAN
-// provisioning -- ADR-0487 records why each waits.
+// wired: NEFAFSessionWithQoSNotification (the AF-bound notification is a TS 29.122
+// UserPlaneNotificationData since ADR-0520, so it is no longer blocked; not yet built), NIDD,
+// device triggering, MSISDN-less MO SMS, parameter and 5G LAN provisioning -- ADR-0487 records why
+// each waits.
 //
 // Disabled unless config/nef.json's li_poi.enabled is true; when disabled main.cpp holds a nullptr.
 // Delivery is best-effort: a dead MDF2 is logged, never allowed to break the AF's request.

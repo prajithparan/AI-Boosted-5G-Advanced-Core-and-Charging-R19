@@ -11,6 +11,13 @@ AF has deleted its subscription so PCF stops rather than reporting to nobody, an
 rebuilt in the AF's own TS 29.122 shape with PCF's `EventsNotification` carried under
 `_npcfEventsNotification` rather than re-modelled.
 
+**Correction (REVIEW-5ae0ef1 DOC-02, ADR-0520, 2026-10-23).** The "TS 29.122 shape" claim above
+was not true: the body was `{subscription, _npcfEventsNotification}`, which is not
+`UserPlaneNotificationData` (no `transaction`, no `eventReports`), and the route was not the URI the
+PCF calls (TS 29.514 appends `/notify` and `/terminate`). ADR-0520 replaces it: routes
+`.../qos-notify/{afId}/{subscriptionId}/notify` and `/terminate`, and a real
+`UserPlaneNotificationData`; `_npcfEventsNotification` is gone.
+
 ### ADR-0319: UEId -- two halves, one real and one honestly refused
 
 The file splits cleanly, and the split is the point.
