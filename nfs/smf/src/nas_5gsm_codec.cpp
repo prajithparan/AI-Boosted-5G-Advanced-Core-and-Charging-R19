@@ -163,4 +163,30 @@ encode_establishment_reject(std::uint8_t pdu_session_id, std::uint8_t pti, std::
     return out;
 }
 
+std::optional<SmHeader> decode_sm_header(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size() < 4 || bytes[0] != kEpdSessionManagement) {
+        return std::nullopt;
+    }
+    SmHeader h;
+    h.pdu_session_id = bytes[1];
+    h.pti = bytes[2];
+    h.message_type = bytes[3];
+    // TS 24.501 8.3.12.1.1 / 8.3.15.1.1: the 5GSM cause is the first optional IE (IEI 0x59, TV,
+    // two octets) of RELEASE REQUEST and RELEASE COMPLETE.
+    constexpr std::uint8_t kIei5gsmCause = 0x59;
+    if (bytes.size() >= 6 && bytes[4] == kIei5gsmCause) {
+        h.sm_cause = bytes[5];
+    }
+    return h;
+}
+
+std::vector<std::uint8_t>
+encode_release_command(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause) {
+    return {kEpdSessionManagement,
+            pdu_session_id,
+            pti,
+            static_cast<std::uint8_t>(SmMessage::kReleaseCommand),
+            sm_cause};
+}
+
 } // namespace smf::nas5gsm

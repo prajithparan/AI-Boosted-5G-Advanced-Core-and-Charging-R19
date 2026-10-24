@@ -80,4 +80,31 @@ std::vector<std::uint8_t> encode_establishment_accept(std::uint8_t pdu_session_i
 std::vector<std::uint8_t>
 encode_establishment_reject(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause);
 
+// ADR-0523: the UE- and network-requested PDU session release messages (TS 24.501 6.3.3, 6.4.3).
+// Message types from TS 24.501 table 9.7.2: RELEASE REQUEST 0xD1, RELEASE COMMAND 0xD3, RELEASE
+// COMPLETE 0xD4.
+enum class SmMessage : std::uint8_t {
+    kReleaseRequest = 0xD1,
+    kReleaseCommand = 0xD3,
+    kReleaseComplete = 0xD4,
+};
+
+// The 5GSM header (EPD, PDU session ID, PTI, message type) of a received message, plus the
+// optional 5GSM cause (IEI 0x59, TV) when present. std::nullopt if the bytes are not a 5GSM
+// message. Only the header and the cause are read; Extended PCO is ignored.
+struct SmHeader {
+    std::uint8_t pdu_session_id = 0;
+    std::uint8_t pti = 0;
+    std::uint8_t message_type = 0;
+    std::optional<std::uint8_t> sm_cause;
+};
+std::optional<SmHeader> decode_sm_header(const std::vector<std::uint8_t>& bytes);
+
+// TS 24.501 8.3.14 PDU SESSION RELEASE COMMAND with its one mandatory IE, the 5GSM cause (V).
+// `pti` is the RELEASE REQUEST's PTI when the release answers one, else 0 ("No procedure
+// transaction identity assigned", TS 24.501 6.3.3.2). No optional IE is sent (no back-off timer,
+// no Access type: single-access sessions only).
+std::vector<std::uint8_t>
+encode_release_command(std::uint8_t pdu_session_id, std::uint8_t pti, std::uint8_t sm_cause);
+
 } // namespace smf::nas5gsm

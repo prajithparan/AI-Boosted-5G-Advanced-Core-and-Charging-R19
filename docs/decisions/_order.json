@@ -475,7 +475,8 @@
   "ADR-0519-nef-assessionwithqos-media-component-and-pcf-event.md",
   "ADR-0520-nef-assessionwithqos-pcf-event-and-termination.md",
   "ADR-0521-n7-callbacks-pcf-posts-to-notificationuri-update-smf-serves.md",
-  "ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md"
+  "ADR-0522-smf-releases-the-n4-session-at-the-upf-on-pdu-session.md",
+  "ADR-0523-ue-and-pcf-requested-pdu-session-release-ts-23-502-4-3-4-2.md"
  ],
  "split_commit": "0530e4f"
 }

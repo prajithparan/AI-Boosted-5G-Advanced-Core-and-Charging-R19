@@ -640,6 +640,41 @@ int main() {
                          return sbi_core::http2::Response::json(200, j.dump());
                      });
 
+    // ADR-0523, TS 23.502 4.3.4.2 step 11: Nsmf_PDUSession_SMContextStatusNotify at the
+    // smContextStatusUri this AMF gave the SMF (one per PDU session). RELEASED drops the AMF's
+    // association between the PDU session ID and its SM context. Notification: no OAuth2 (TS
+    // 33.501 13.4.1.0).
+    server.add_route(
+        "POST",
+        "/namf-callback/v1/sm-context-status/{supi}/{pduSessionId}",
+        [&ue_contexts](const sbi_core::http2::Request& req) {
+            sbi_core::http2::Response err;
+            auto body = sbi_core::http2::parse_json_body<
+                sbi_gen::SmContextStatusNotification_Nsmf_PDUSession>(req, err);
+            if (!body.has_value()) {
+                return err;
+            }
+            const auto supi = req.path_params.at("supi");
+            const auto psi = req.path_params.at("pduSessionId");
+            auto ctx = ue_contexts.get(supi);
+            if (!ctx.has_value() || !ctx->contains("smContextRefs") ||
+                !ctx->at("smContextRefs").contains(psi)) {
+                return problem_response(404,
+                                        "Not Found",
+                                        "No PDU session " + psi + " for " + supi,
+                                        "CONTEXT_NOT_FOUND");
+            }
+            if (body->statusInfo.resourceStatus.value == sbi_gen::ResourceStatus::RELEASED) {
+                (*ctx)["smContextRefs"].erase(psi);
+                ue_contexts.put(supi, *ctx);
+                spdlog::info("amf: SMF released PDU session {} of {}", psi, supi);
+            }
+            sbi_core::http2::Response resp;
+            resp.status = 204;
+            return resp;
+        },
+        sbi_core::http2::RouteAuth::None);
+
     server.add_route(
         "POST",
         std::string(kApiRoot) + "/ue-contexts/{ueContextId}/n1-n2-messages",
@@ -713,6 +748,14 @@ int main() {
 
             const auto delivered = ue_ngap_registry.send_dl_nas_transport(
                 ue_context_id, static_cast<std::uint8_t>(*body->pduSessionId), *n1_bytes);
+            // ADR-0523, TS 29.518 5.2.2.3.1.2 Case A a): a UE with no NGAP association is the
+            // CM-IDLE case; with skipInd the AMF answers 200 N1_MSG_NOT_TRANSFERRED. (No paging:
+            // without skipInd the 404 below stands, a disclosed gap.)
+            if (!delivered && body->skipInd.value_or(false)) {
+                sbi_gen::N1N2MessageTransferRspData skipped;
+                skipped.cause.value = sbi_gen::N1N2MessageTransferCause::N1_MSG_NOT_TRANSFERRED;
+                return sbi_core::http2::Response::json(200, json(skipped).dump());
+            }
             if (!delivered) {
                 return problem_response(404,
                                         "Not Found",

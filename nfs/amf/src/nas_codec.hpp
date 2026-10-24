@@ -246,6 +246,10 @@ struct UlNasTransportInfo {
     // ADR-0486: TS 24.501 §9.11.3.40 payload container type -- 1 (N1 SM information) or 2 (SMS);
     // every other type still decodes as "not a message this function decodes" (mac_valid=false).
     std::uint8_t payload_container_type = 0;
+    // ADR-0523: TS 24.501 9.11.3.47 Request type (Type-1, IEI 0x8-), the low 3 bits. Absent for a
+    // 5GSM message that is not a PDU SESSION ESTABLISHMENT REQUEST (TS 24.501 5.4.5.2.2), which
+    // the AMF then forwards to the SMF holding that PDU session.
+    std::optional<std::uint8_t> request_type;
 };
 
 // Verifies MAC and deciphers a NAS-PDU carried in UplinkNASTransport, expected to be a

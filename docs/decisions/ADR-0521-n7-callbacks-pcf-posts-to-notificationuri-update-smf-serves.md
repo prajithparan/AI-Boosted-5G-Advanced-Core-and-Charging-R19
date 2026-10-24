@@ -35,6 +35,10 @@ not be delivered at all.
 - The SMF's ReleaseSMContext also sends no N4 Session Deletion (seen while reading for this ADR,
   not changed here).
 
+**Update (ADR-0523, 2026-10-24).** The SMF now acts on `/terminate`: N4 release, charging
+termination, PDU SESSION RELEASE COMMAND via N1N2MessageTransfer, and steps 11-12 on the UE's
+RELEASE COMPLETE. The first two Disclosed items above are superseded.
+
 **Verified (2026-10-24).**
 - Built: `pcf`, `smf`, `integration_tests` (0 failures).
 - `N28SyEndToEnd.SpendingLimitStatusChangeReachesTheSmfThatOwnsTheSession` (real NRF, CHF, UDR,

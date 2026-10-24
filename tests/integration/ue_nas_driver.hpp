@@ -129,6 +129,15 @@ extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner);
 // ADR-0486: SMS over NAS. UlNasTransport (TS 24.501 §8.2.10) with payload container type SMS
 // (§9.11.3.40, value 2) carrying `sms` (a TS 24.011 CP message), secured like every other
 // post-registration uplink (security header type 0x02).
+// ADR-0523: UL NAS TRANSPORT (TS 24.501 8.2.10) carrying a 5GSM message for an existing PDU
+// session: payload container type N1 SM information, the PDU session ID IE and NO Request type
+// (TS 24.501 5.4.5.2.2 -- what tells the AMF to forward it to the session's SMF rather than create
+// one).
+std::vector<std::uint8_t> build_ul_nas_transport_sm(const NasKeys& keys,
+                                                    std::uint32_t uplink_count,
+                                                    std::uint8_t pdu_session_id,
+                                                    const std::vector<std::uint8_t>& sm);
+
 std::vector<std::uint8_t> build_ul_nas_transport_sms(const NasKeys& keys,
                                                      std::uint32_t uplink_count,
                                                      const std::vector<std::uint8_t>& sms);

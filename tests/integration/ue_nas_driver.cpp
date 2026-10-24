@@ -418,6 +418,23 @@ extract_dl_nas_payload_container(const std::vector<std::uint8_t>& plain_inner) {
                                      plain_inner.begin() + 6 + static_cast<std::ptrdiff_t>(len));
 }
 
+std::vector<std::uint8_t> build_ul_nas_transport_sm(const NasKeys& keys,
+                                                    std::uint32_t uplink_count,
+                                                    std::uint8_t pdu_session_id,
+                                                    const std::vector<std::uint8_t>& sm) {
+    std::vector<std::uint8_t> inner;
+    inner.push_back(kEpdMobilityManagement);
+    inner.push_back(kSecurityHeaderNotProtected);
+    inner.push_back(kMessageTypeUlNasTransport);
+    inner.push_back(kPayloadContainerTypeN1SmInformation);
+    inner.push_back(static_cast<std::uint8_t>((sm.size() >> 8) & 0xFF));
+    inner.push_back(static_cast<std::uint8_t>(sm.size() & 0xFF));
+    inner.insert(inner.end(), sm.begin(), sm.end());
+    inner.push_back(kIeiUlNasPduSessionId);
+    inner.push_back(pdu_session_id);
+    return seal_uplink(keys, uplink_count, kShtIntegrityProtectedAndCiphered, inner);
+}
+
 std::vector<std::uint8_t> build_ul_nas_transport_sms(const NasKeys& keys,
                                                      std::uint32_t uplink_count,
                                                      const std::vector<std::uint8_t>& sms) {
